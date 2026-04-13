@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3)",
+      "Bash(python3 -c ':*)",
+      "Bash(where python3:*)",
+      "Bash(where python:*)",
+      "Bash(where py:*)",
+      "Bash(C:/Python314/python.exe -c ':*)",
+      "Bash(C:/Python314/python.exe backend/generate_panel.py)"
+    ]
+  }
+}
