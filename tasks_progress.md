@@ -1,6 +1,27 @@
-# Task: Bug fixes from initial testing
+# Task: Bug fixes — round 2
 # Started: 2026-04-17
 # Status: COMPLETE
+
+## Main Steps
+
+- [x] 1. Fix DOCX placeholders not being replaced
+  - [x] 1.1 Root cause: data dict in 0_generate_invoice.py uses named keys (Client_Name_For_Invoice etc.) but templates use numbered keys ({{placeholder1}} etc.)
+  - [x] 1.2 Fix: rewrite data dict to use correct placeholder numbers; add placeholder6 for v1/v2 template compatibility
+
+- [x] 2. Fix PDF SSL in corporate proxy environment
+  - [x] 2.1 Root cause: Milliman SSL inspection proxy presents a corporate CA cert not in certifi's bundle; env-var approach only works for non-intercepted connections
+  - [x] 2.2 Fix: temporarily monkey-patch requests.Session to disable SSL verification only for the convertapi call
+
+## Log
+| Timestamp | Step | Action | Notes |
+|-----------|------|---------|-------|
+| 2026-04-17 | Start | Round 2 bug fixes planned | Placeholder mapping error + corporate SSL proxy |
+| 2026-04-17 | 1.1–1.2 | Fixed placeholder mapping in 0_generate_invoice.py | Data dict now uses placeholder1–placeholder10 keys matching template format |
+| 2026-04-17 | 2.1–2.2 | Fixed PDF SSL in invoice_gen.py | Monkey-patch requests.Session to disable SSL only for convertapi call; always restores original |
+
+---
+
+# Bug fixes — round 1 (COMPLETE 2026-04-17)
 
 ## Main Steps
 

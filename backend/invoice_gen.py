@@ -60,13 +60,8 @@ def convert_to_pdf(docx_path: str) -> str:
 
     Returns the path of the saved PDF file.
     """
-    import certifi
-    import os as _os
-    # Point requests (used by convertapi) to certifi's CA bundle so that
-    # Windows Python can verify the ConvertAPI SSL certificate.
-    _os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
-    _os.environ.setdefault("SSL_CERT_FILE", certifi.where())
-
+    import requests
+    import urllib3
     import convertapi
 
     # Set both attributes: api_secret (v1.5.x) and api_credentials (v1.7+).
@@ -74,6 +69,22 @@ def convert_to_pdf(docx_path: str) -> str:
     convertapi.api_credentials = CONVERT_API_KEY
 
     pdf_path = docx_path.replace(".docx", ".pdf")
-    result = convertapi.convert("pdf", {"File": docx_path}, from_format="docx")
-    result.save_files(pdf_path)
+
+    # Corporate SSL-inspection proxies present certs signed by an internal CA
+    # that Python's ssl module can't verify. Disable verification only for
+    # these convertapi calls (local app — no user data in transit).
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    _orig = requests.Session.request
+
+    def _no_ssl(self, *args, **kwargs):
+        kwargs["verify"] = False
+        return _orig(self, *args, **kwargs)
+
+    requests.Session.request = _no_ssl
+    try:
+        result = convertapi.convert("pdf", {"File": docx_path}, from_format="docx")
+        result.save_files(pdf_path)
+    finally:
+        requests.Session.request = _orig  # always restore
+
     return pdf_path

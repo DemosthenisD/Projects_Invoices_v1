@@ -168,23 +168,30 @@ if generate_clicked:
         st.error("Amount must be greater than zero.")
         st.stop()
 
+    total_net   = round(amount + expenses_net, 2)
+    total_vat   = round(vat_amount + expenses_vat, 2)
+    invoice_total = round(total_net + total_vat, 2)
+
+    # Template placeholder mapping (all templates use {{placeholderN}} keys):
+    # placeholder1 = client name, 2 = address, 3 = client VAT no,
+    # 4 = date, 5 = invoice no, 6 = year (v1/v2 templates only),
+    # 7 = description, 8 = net fee, 9 = VAT fee,
+    # 8_Exp/9_Exp = expenses, 8_Tot/9_Tot = totals, 10 = invoice total
     data = {
-        "Client_Name_For_Invoice": client.name_for_invoices or client.name,
-        "Client_Code":             client.client_code or client.name,
-        "Client":                  client.name,
-        "Date":                    invoice_date.strftime("%d/%m/%Y"),
-        "Invoice_No":              invoice_number,
-        "Year":                    str(year),
-        "Address":                 address,
-        "VAT_No":                  vat_no,
-        "Amount":                  f"{amount:,.2f}",
-        "VAT":                     f"{vat_pct:.0f}%",
-        "VAT_Amount":              f"{vat_amount:,.2f}",
-        "Gross":                   f"{gross:,.2f}",
-        "Project":                 selected_project_name,
-        "description":             description,
-        "Expenses_Net":            f"{expenses_net:,.2f}",
-        "Expenses_VAT":            f"{expenses_vat:,.2f}",
+        "placeholder1":    client.name_for_invoices or client.name,
+        "placeholder2":    address,
+        "placeholder3":    vat_no,
+        "placeholder4":    invoice_date.strftime("%d/%m/%Y"),
+        "placeholder5":    invoice_number,
+        "placeholder6":    str(year),
+        "placeholder7":    description or selected_project_name,
+        "placeholder8":    f"{amount:,.2f}",
+        "placeholder9":    f"{vat_amount:,.2f}",
+        "placeholder8_Exp": f"{expenses_net:,.2f}",
+        "placeholder9_Exp": f"{expenses_vat:,.2f}",
+        "placeholder8_Tot": f"{total_net:,.2f}",
+        "placeholder9_Tot": f"{total_vat:,.2f}",
+        "placeholder10":   f"{invoice_total:,.2f}",
     }
 
     with st.spinner("Generating document…"):
