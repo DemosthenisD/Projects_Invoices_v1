@@ -1,6 +1,6 @@
 # Task: Sprint 2 — Invoice Generation
 # Started: 2026-04-17
-# Status: IN PROGRESS
+# Status: COMPLETE
 
 ## Main Steps
 
@@ -19,11 +19,11 @@
   - [x] 3.1 Login form with username/password from secrets
   - [x] 3.2 Session state guard; redirect to invoice page on success
 
-- [ ] 4. Create `frontend/pages/0_generate_invoice.py`
-  - [ ] 4.1 Client selector with address & VAT auto-fill from DB
-  - [ ] 4.2 Project selector with description & template auto-fill from DB
-  - [ ] 4.3 Amount, date, auto-suggested invoice number
-  - [ ] 4.4 Generate DOCX/PDF → save to DB → show download button
+- [x] 4. Create `frontend/pages/0_generate_invoice.py`
+  - [x] 4.1 Client selector with address & VAT auto-fill from DB
+  - [x] 4.2 Project selector with description & template auto-fill from DB
+  - [x] 4.3 Amount, date, auto-suggested invoice number
+  - [x] 4.4 Generate DOCX/PDF → save to DB → show download button
 
 ## Log
 | Timestamp | Step | Action | Notes |
@@ -32,3 +32,4 @@
 | 2026-04-17 | 1.1–1.4 | Requirements & config files created | requirements.txt, .streamlit/config.toml, secrets.toml template, .gitignore |
 | 2026-04-17 | 2.1–2.3 | Created backend/invoice_gen.py | fill_placeholders, generate_invoice, convert_to_pdf via ConvertAPI |
 | 2026-04-17 | 3.1–3.2 | Created frontend/App.py | Login form, session state guard, sign-out button, init_db() on startup |
+| 2026-04-17 | 4.1–4.4 | Created frontend/pages/0_generate_invoice.py | Full form: client/project auto-fill, invoice number suggestion, DOCX/PDF generation, DB save, download |
