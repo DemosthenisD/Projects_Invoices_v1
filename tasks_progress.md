@@ -1,6 +1,6 @@
 # Task: Sprint 3 — Data Management
 # Started: 2026-04-17
-# Status: IN PROGRESS
+# Status: COMPLETE
 
 ## Main Steps
 
@@ -10,17 +10,18 @@
   - [x] 1.3 Filterable invoice table with per-row file download
   - [x] 1.4 Export visible data to Excel button
 
-- [ ] 2. Create `frontend/pages/2_clients_projects.py`
-  - [ ] 2.1 Auth guard + tabbed layout (Clients / Projects / Addresses)
-  - [ ] 2.2 Clients tab: list, add (duplicate detection), edit, delete
-  - [ ] 2.3 Projects tab: list by client, add, edit (description/VAT/template/status), delete
-  - [ ] 2.4 Addresses tab: list by client, add, delete
+- [x] 2. Create `frontend/pages/2_clients_projects.py`
+  - [x] 2.1 Auth guard + tabbed layout (Clients / Projects / Addresses)
+  - [x] 2.2 Clients tab: list, add (duplicate detection), edit, delete
+  - [x] 2.3 Projects tab: list by client, add, edit (description/VAT/template/status), delete
+  - [x] 2.4 Addresses tab: list by client, add, delete
 
 ## Log
 | Timestamp | Step | Action | Notes |
 |-----------|------|---------|-------|
 | 2026-04-17 | Start | Sprint 3 plan added to tasks_progress.md | Data Management pages |
 | 2026-04-17 | 1.1–1.4 | Created frontend/pages/1_invoice_log.py | Filters, summary strip, per-row download, Excel export |
+| 2026-04-17 | 2.1–2.4 | Created frontend/pages/2_clients_projects.py | Tabbed CRUD: clients, projects, addresses — add/edit/delete with guards |
 
 ---
 
