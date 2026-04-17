@@ -1,35 +1,35 @@
-# Task: Sprint 2 — Invoice Generation
+# Task: Sprint 3 — Data Management
 # Started: 2026-04-17
-# Status: COMPLETE
+# Status: IN PROGRESS
 
 ## Main Steps
 
-- [x] 1. Requirements & Config setup
-  - [x] 1.1 Create `requirements.txt` in repo root
-  - [x] 1.2 Create `.streamlit/config.toml` (theme)
-  - [x] 1.3 Create `.streamlit/secrets.toml` template
-  - [x] 1.4 Update `.gitignore` to protect secrets
+- [x] 1. Create `frontend/pages/1_invoice_log.py`
+  - [x] 1.1 Auth guard + page setup
+  - [x] 1.2 Filter controls (year, client, project, free-text search)
+  - [x] 1.3 Filterable invoice table with per-row file download
+  - [x] 1.4 Export visible data to Excel button
 
-- [x] 2. Create `backend/invoice_gen.py`
-  - [x] 2.1 `fill_placeholders(doc, data)` — replace tokens in paragraphs & tables
-  - [x] 2.2 `generate_invoice(data, fmt)` — fill template, save DOCX to exports/
-  - [x] 2.3 `convert_to_pdf(docx_path)` — call ConvertAPI, return PDF path
-
-- [x] 3. Create `frontend/App.py` (login entry point)
-  - [x] 3.1 Login form with username/password from secrets
-  - [x] 3.2 Session state guard; redirect to invoice page on success
-
-- [x] 4. Create `frontend/pages/0_generate_invoice.py`
-  - [x] 4.1 Client selector with address & VAT auto-fill from DB
-  - [x] 4.2 Project selector with description & template auto-fill from DB
-  - [x] 4.3 Amount, date, auto-suggested invoice number
-  - [x] 4.4 Generate DOCX/PDF → save to DB → show download button
+- [ ] 2. Create `frontend/pages/2_clients_projects.py`
+  - [ ] 2.1 Auth guard + tabbed layout (Clients / Projects / Addresses)
+  - [ ] 2.2 Clients tab: list, add (duplicate detection), edit, delete
+  - [ ] 2.3 Projects tab: list by client, add, edit (description/VAT/template/status), delete
+  - [ ] 2.4 Addresses tab: list by client, add, delete
 
 ## Log
 | Timestamp | Step | Action | Notes |
 |-----------|------|---------|-------|
-| 2026-04-17 | Start | Created tasks_progress.md | Sprint 2 plan documented |
-| 2026-04-17 | 1.1–1.4 | Requirements & config files created | requirements.txt, .streamlit/config.toml, secrets.toml template, .gitignore |
-| 2026-04-17 | 2.1–2.3 | Created backend/invoice_gen.py | fill_placeholders, generate_invoice, convert_to_pdf via ConvertAPI |
-| 2026-04-17 | 3.1–3.2 | Created frontend/App.py | Login form, session state guard, sign-out button, init_db() on startup |
-| 2026-04-17 | 4.1–4.4 | Created frontend/pages/0_generate_invoice.py | Full form: client/project auto-fill, invoice number suggestion, DOCX/PDF generation, DB save, download |
+| 2026-04-17 | Start | Sprint 3 plan added to tasks_progress.md | Data Management pages |
+| 2026-04-17 | 1.1–1.4 | Created frontend/pages/1_invoice_log.py | Filters, summary strip, per-row download, Excel export |
+
+---
+
+## Completed Tasks
+
+### Sprint 2 — Invoice Generation (2026-04-17)
+| Step | Action | Notes |
+|------|---------|-------|
+| 1.1–1.4 | Requirements & config files created | requirements.txt, .streamlit/config.toml, secrets.toml template, .gitignore |
+| 2.1–2.3 | Created backend/invoice_gen.py | fill_placeholders, generate_invoice, convert_to_pdf via ConvertAPI |
+| 3.1–3.2 | Created frontend/App.py | Login form, session state guard, sign-out button, init_db() on startup |
+| 4.1–4.4 | Created frontend/pages/0_generate_invoice.py | Full form: client/project auto-fill, invoice number suggestion, DOCX/PDF generation, DB save, download |
