@@ -60,9 +60,19 @@ def convert_to_pdf(docx_path: str) -> str:
 
     Returns the path of the saved PDF file.
     """
+    import certifi
+    import os as _os
+    # Point requests (used by convertapi) to certifi's CA bundle so that
+    # Windows Python can verify the ConvertAPI SSL certificate.
+    _os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+    _os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+
     import convertapi
 
+    # Set both attributes: api_secret (v1.5.x) and api_credentials (v1.7+).
+    convertapi.api_secret = CONVERT_API_KEY
     convertapi.api_credentials = CONVERT_API_KEY
+
     pdf_path = docx_path.replace(".docx", ".pdf")
     result = convertapi.convert("pdf", {"File": docx_path}, from_format="docx")
     result.save_files(pdf_path)

@@ -1,6 +1,28 @@
-# Task: Sprint 4 — Pipeline/CRM & Sprint 5 — Dashboard
+# Task: Bug fixes from initial testing
 # Started: 2026-04-17
 # Status: COMPLETE
+
+## Main Steps
+
+- [x] 1. Fix false "already exists" on project/client/address add forms
+  - [x] 1.1 Root cause: `st.rerun()` preserves form submit state in Streamlit 1.28 causing double-processing
+  - [x] 1.2 Fix: use form key counter in session_state to force fresh form on rerun
+
+- [x] 2. Fix PDF conversion SSL error
+  - [x] 2.1 Root cause: Windows Python can't verify ConvertAPI SSL cert with its default CA bundle
+  - [x] 2.2 Fix: point requests to certifi's CA bundle before calling convertapi
+  - [x] 2.3 Also fix: set both `api_secret` and `api_credentials` to cover convertapi 1.5.x and 1.7+
+
+## Log
+| Timestamp | Step | Action | Notes |
+|-----------|------|---------|-------|
+| 2026-04-17 | Start | Bug fixes task created | Two bugs found during first test run |
+| 2026-04-17 | 1.1–1.2 | Fixed double form submission in 2_clients_projects.py | Form key counter in session_state; success msgs via session_state |
+| 2026-04-17 | 2.1–2.3 | Fixed PDF SSL error in invoice_gen.py | certifi CA bundle for requests; both api_secret and api_credentials set |
+
+---
+
+# Sprint 4 — Pipeline/CRM & Sprint 5 — Dashboard (COMPLETE 2026-04-17)
 
 ## Main Steps
 

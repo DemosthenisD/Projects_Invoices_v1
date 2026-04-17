@@ -44,6 +44,11 @@ def _templates() -> list[str]:
 
 PROJECT_STATUSES = ["Active", "On Hold", "Completed", "Prospect"]
 
+# Form-key counters — incrementing these forces Streamlit to treat the
+# form as brand-new on rerun, preventing double-submission of add forms.
+for _k in ("_add_client_v", "_add_proj_v", "_add_addr_v"):
+    st.session_state.setdefault(_k, 0)
+
 # ==================================================================
 # TAB 1 — CLIENTS
 # ==================================================================
@@ -51,16 +56,20 @@ PROJECT_STATUSES = ["Active", "On Hold", "Completed", "Prospect"]
 with tab_clients:
     st.subheader("Clients")
 
+    # Show any pending success message from a previous rerun
+    if _msg := st.session_state.pop("_client_msg", None):
+        st.success(_msg)
+
     clients = db.get_clients()
 
     # ---- Add new client ----
     with st.expander("Add new client", expanded=False):
-        with st.form("add_client_form"):
-            new_name       = st.text_input("Internal name *", placeholder="e.g. Ethniki CY")
-            new_inv_name   = st.text_input("Name for invoices", placeholder="Formal legal name")
-            new_code       = st.text_input("Client code", placeholder="e.g. ETN")
-            new_vat        = st.text_input("VAT number")
-            submitted      = st.form_submit_button("Add client")
+        with st.form(f"add_client_form_{st.session_state['_add_client_v']}"):
+            new_name     = st.text_input("Internal name *", placeholder="e.g. Ethniki CY")
+            new_inv_name = st.text_input("Name for invoices", placeholder="Formal legal name")
+            new_code     = st.text_input("Client code", placeholder="e.g. ETN")
+            new_vat      = st.text_input("VAT number")
+            submitted    = st.form_submit_button("Add client")
 
         if submitted:
             if not new_name.strip():
@@ -74,7 +83,8 @@ with tab_clients:
                     client_code=new_code.strip(),
                     vat_number=new_vat.strip(),
                 )
-                st.success(f"Client '{new_name.strip()}' added.")
+                st.session_state["_add_client_v"] += 1
+                st.session_state["_client_msg"] = f"Client '{new_name.strip()}' added."
                 st.cache_data.clear()
                 st.rerun()
 
@@ -101,7 +111,6 @@ with tab_clients:
                     st.rerun()
 
                 if delete:
-                    # Guard: check for linked invoices
                     invoices = db.get_invoices(client_id=client.id)
                     if invoices:
                         st.error(
@@ -109,7 +118,7 @@ with tab_clients:
                         )
                     else:
                         db.delete_client(client.id)
-                        st.success(f"Deleted '{client.name}'.")
+                        st.session_state["_client_msg"] = f"Deleted '{client.name}'."
                         st.cache_data.clear()
                         st.rerun()
 
@@ -119,6 +128,9 @@ with tab_clients:
 
 with tab_projects:
     st.subheader("Projects")
+
+    if _msg := st.session_state.pop("_proj_msg", None):
+        st.success(_msg)
 
     clients = db.get_clients()
     if not clients:
@@ -133,7 +145,7 @@ with tab_projects:
     # ---- Add new project ----
     with st.expander("Add new project", expanded=False):
         templates = _templates()
-        with st.form("add_project_form"):
+        with st.form(f"add_project_form_{st.session_state['_add_proj_v']}"):
             p_name  = st.text_input("Project name *")
             p_desc  = st.text_area("Description", height=70)
             p_vat   = st.number_input("VAT %", min_value=0.0, max_value=100.0,
@@ -158,7 +170,8 @@ with tab_projects:
                         template=p_tmpl,
                         status=p_stat,
                     )
-                    st.success(f"Project '{p_name.strip()}' added.")
+                    st.session_state["_add_proj_v"] += 1
+                    st.session_state["_proj_msg"] = f"Project '{p_name.strip()}' added."
                     st.cache_data.clear()
                     st.rerun()
 
@@ -202,7 +215,7 @@ with tab_projects:
                         )
                     else:
                         db.delete_project(proj.id)
-                        st.success(f"Deleted '{proj.name}'.")
+                        st.session_state["_proj_msg"] = f"Deleted '{proj.name}'."
                         st.cache_data.clear()
                         st.rerun()
 
@@ -212,6 +225,9 @@ with tab_projects:
 
 with tab_addresses:
     st.subheader("Addresses")
+
+    if _msg := st.session_state.pop("_addr_msg", None):
+        st.success(_msg)
 
     clients = db.get_clients()
     if not clients:
@@ -225,7 +241,7 @@ with tab_addresses:
 
     # ---- Add address ----
     with st.expander("Add address", expanded=False):
-        with st.form("add_address_form"):
+        with st.form(f"add_address_form_{st.session_state['_add_addr_v']}"):
             new_addr = st.text_area("Address *", height=80)
             add_addr = st.form_submit_button("Add address")
 
@@ -234,7 +250,8 @@ with tab_addresses:
                 st.error("Address cannot be empty.")
             else:
                 db.add_address(client_addr.id, new_addr.strip())
-                st.success("Address added.")
+                st.session_state["_add_addr_v"] += 1
+                st.session_state["_addr_msg"] = "Address added."
                 st.cache_data.clear()
                 st.rerun()
 
@@ -250,6 +267,6 @@ with tab_addresses:
             col_text.write(addr.address)
             if col_del.button("Delete", key=f"del_addr_{addr.id}"):
                 db.delete_address(addr.id)
-                st.success("Address deleted.")
+                st.session_state["_addr_msg"] = "Address deleted."
                 st.cache_data.clear()
                 st.rerun()
