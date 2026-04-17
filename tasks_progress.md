@@ -1,6 +1,6 @@
 # Task: Sprint 4 — Pipeline/CRM & Sprint 5 — Dashboard
 # Started: 2026-04-17
-# Status: IN PROGRESS
+# Status: COMPLETE
 
 ## Main Steps
 
@@ -10,18 +10,19 @@
   - [x] 1.3 Pipeline table with inline stage/value/notes editing
   - [x] 1.4 Summary by stage (project count + total value)
 
-- [ ] 2. Create `frontend/pages/4_dashboard.py`
-  - [ ] 2.1 Auth guard + page setup + year selector
-  - [ ] 2.2 Monthly revenue bar chart (net vs gross)
-  - [ ] 2.3 Revenue by client bar chart
-  - [ ] 2.4 VAT summary table (net + VAT + gross totals)
-  - [ ] 2.5 YTD vs prior year comparison metrics
+- [x] 2. Create `frontend/pages/4_dashboard.py`
+  - [x] 2.1 Auth guard + page setup + year selector
+  - [x] 2.2 Monthly revenue bar chart (net vs gross)
+  - [x] 2.3 Revenue by client bar chart
+  - [x] 2.4 VAT summary table (net + VAT + gross totals)
+  - [x] 2.5 YTD vs prior year comparison metrics
 
 ## Log
 | Timestamp | Step | Action | Notes |
 |-----------|------|---------|-------|
 | 2026-04-17 | Start | Sprint 4 & 5 plan added | Pipeline/CRM and Dashboard pages |
 | 2026-04-17 | 1.1–1.4 | Created frontend/pages/3_pipeline_crm.py | Stage/client filters, inline editing, stage summary metrics |
+| 2026-04-17 | 2.1–2.5 | Created frontend/pages/4_dashboard.py | Year selector, monthly chart, client chart, VAT table, YTD vs prior year |
 
 ---
 
