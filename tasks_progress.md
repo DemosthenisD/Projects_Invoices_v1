@@ -15,9 +15,9 @@
   - [x] 2.2 `generate_invoice(data, fmt)` — fill template, save DOCX to exports/
   - [x] 2.3 `convert_to_pdf(docx_path)` — call ConvertAPI, return PDF path
 
-- [ ] 3. Create `frontend/App.py` (login entry point)
-  - [ ] 3.1 Login form with username/password from secrets
-  - [ ] 3.2 Session state guard; redirect to invoice page on success
+- [x] 3. Create `frontend/App.py` (login entry point)
+  - [x] 3.1 Login form with username/password from secrets
+  - [x] 3.2 Session state guard; redirect to invoice page on success
 
 - [ ] 4. Create `frontend/pages/0_generate_invoice.py`
   - [ ] 4.1 Client selector with address & VAT auto-fill from DB
@@ -31,3 +31,4 @@
 | 2026-04-17 | Start | Created tasks_progress.md | Sprint 2 plan documented |
 | 2026-04-17 | 1.1–1.4 | Requirements & config files created | requirements.txt, .streamlit/config.toml, secrets.toml template, .gitignore |
 | 2026-04-17 | 2.1–2.3 | Created backend/invoice_gen.py | fill_placeholders, generate_invoice, convert_to_pdf via ConvertAPI |
+| 2026-04-17 | 3.1–3.2 | Created frontend/App.py | Login form, session state guard, sign-out button, init_db() on startup |
