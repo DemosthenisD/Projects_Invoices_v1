@@ -1,3 +1,34 @@
+## Resume From Here
+**Session interrupted: 2026-04-17**
+**Branch: feature/option-a-sqlite-rebuild**
+**Last commit: e25b328 — fix: DOCX placeholder mapping + PDF SSL for corporate proxy**
+
+### What to verify first (user was about to test these two fixes):
+1. **DOCX generation** — generate an invoice in Word format. Placeholders (client name, date, amount etc.) should now be filled. Fix was: data dict changed from named keys to `placeholder1`–`placeholder10` in `frontend/pages/0_generate_invoice.py`.
+2. **PDF generation** — generate an invoice in PDF format. Fix was: monkey-patch `requests.Session.request` to set `verify=False` for the ConvertAPI call (Milliman corporate SSL-inspection proxy blocks cert verification). Code in `backend/invoice_gen.py`. **Note: requires real ConvertAPI key in `.streamlit/secrets.toml` — currently still set to placeholder.**
+
+### Outstanding work (Sprint 6 — Polish):
+- Loading spinners on slow operations
+- Run `python backend/excel_io.py` has 0 invoices imported — invoice rows in the legacy Excel have no `Invoice No` filled in; user may have a newer Excel with actual data
+- Trim `requirements.txt` to only what is actually imported
+- Basic smoke tests for `db.py` and `invoice_gen.py`
+- Consider: the app must be launched from repo root (`streamlit run frontend/App.py`), not from `frontend/` — document this clearly
+
+### Environment notes:
+- Python 3.12.3, Streamlit 1.28.0 (older than requirements.txt specifies 1.35+)
+- convertapi 1.5.0 installed (both `api_secret` and `api_credentials` are set)
+- App runs at http://localhost:8501 (or 8503 if 8501 already occupied)
+- DB at `data/invoiceapp.db` — 13 clients, 26 projects, 0 invoices imported
+- Secrets at `.streamlit/secrets.toml` — password set, ConvertAPI key still placeholder
+
+### How to restart the app:
+```bash
+cd "c:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp"
+streamlit run frontend/App.py
+```
+
+---
+
 # Task: Bug fixes — round 2
 # Started: 2026-04-17
 # Status: COMPLETE
