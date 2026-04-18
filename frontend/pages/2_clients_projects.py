@@ -219,6 +219,17 @@ with tab_projects:
                         st.cache_data.clear()
                         st.rerun()
 
+                # Time & billing summary
+                totals = db.get_project_time_totals(proj.id)
+                if totals["billable_charges"] > 0 or totals["invoiced"] > 0:
+                    st.divider()
+                    st.caption("**Billing summary**")
+                    s1, s2, s3, s4 = st.columns(4)
+                    s1.metric("Billable charges (€)", f"{totals['billable_charges']:,.2f}")
+                    s2.metric("Write-offs (€)",       f"{totals['write_offs']:,.2f}")
+                    s3.metric("Net billable (€)",     f"{totals['net_charges']:,.2f}")
+                    s4.metric("Invoiced net (€)",     f"{totals['invoiced']:,.2f}")
+
 # ==================================================================
 # TAB 3 — ADDRESSES
 # ==================================================================
