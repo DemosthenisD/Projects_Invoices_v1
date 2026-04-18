@@ -16,7 +16,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import streamlit as st
 import backend.db as db
 from backend.invoice_gen import generate_invoice, convert_to_pdf
-from shared.config import CONVERT_API_KEY
 
 # ------------------------------------------------------------------
 # Auth guard
@@ -208,9 +207,6 @@ if generate_clicked:
         mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
         if fmt == "PDF":
-            if not CONVERT_API_KEY:
-                st.error("ConvertAPI key not configured. Add CONVERT_API_KEY to secrets.toml.")
-                st.stop()
             try:
                 output_path = convert_to_pdf(docx_path)
                 mime = "application/pdf"
