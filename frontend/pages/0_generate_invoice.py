@@ -79,7 +79,10 @@ col1, col2 = st.columns(2)
 
 with col1:
     addresses = _addresses(client.id)
-    address_options = [a.address for a in addresses]
+    address_options = [
+        "\n".join(line.rstrip() for line in a.address.splitlines())
+        for a in addresses
+    ]
     if address_options:
         address = st.selectbox("Address", address_options)
     else:
@@ -106,7 +109,7 @@ else:
     selected_project_name = st.text_input("Project name", value="")
     project = None
     default_description = ""
-    default_vat_pct = 19.0
+    default_vat_pct = 0.0
     default_template = "template1_v3"
 
 description = st.text_area("Description", value=default_description, height=80)
@@ -114,12 +117,12 @@ description = st.text_area("Description", value=default_description, height=80)
 col1, col2 = st.columns(2)
 with col1:
     vat_pct = st.number_input("VAT %", min_value=0.0, max_value=100.0,
-                               value=float(default_vat_pct), step=1.0)
+                               value=float(default_vat_pct or 0.0), step=1.0)
 with col2:
     available_templates = _available_templates()
     template_index = (
         available_templates.index(default_template)
-        if default_template in available_templates
+        if default_template and default_template in available_templates
         else 0
     )
     template_name = st.selectbox("Invoice Template", available_templates, index=template_index)

@@ -10,15 +10,25 @@ from shared.config import TEMPLATES_DIR, EXPORTS_DIR, CONVERT_API_KEY
 
 
 def fill_placeholders(doc: Document, data: dict) -> None:
-    """Replace {{KEY}} tokens in all paragraphs and table cells."""
+    """Replace {{KEY}} tokens in all paragraphs and table cells.
+
+    Handles tokens split across multiple runs by consolidating the full
+    paragraph text, replacing, then writing back to the first run.
+    """
     tokens = {f"{{{{{k}}}}}": str(v) for k, v in data.items()}
 
     def _replace_in_paragraph(para) -> None:
+        full_text = para.text
+        if not any(key in full_text for key in tokens):
+            return
+        if not para.runs:
+            return
+        new_text = full_text
         for key, value in tokens.items():
-            if key in para.text:
-                for run in para.runs:
-                    if key in run.text:
-                        run.text = run.text.replace(key, value)
+            new_text = new_text.replace(key, value)
+        para.runs[0].text = new_text
+        for run in para.runs[1:]:
+            run.text = ""
 
     for para in doc.paragraphs:
         _replace_in_paragraph(para)
@@ -45,9 +55,9 @@ def generate_invoice(data: dict, template_name: str, fmt: str = "PDF") -> str:
     fill_placeholders(doc, data)
 
     os.makedirs(EXPORTS_DIR, exist_ok=True)
-    year = data.get("Year", "")
-    invoice_no = data.get("Invoice_No", "")
-    client_code = data.get("Client_Code", data.get("Client", "")).replace(" ", "_")
+    year = data.get("placeholder6", "")
+    invoice_no = data.get("placeholder5", "")
+    client_code = data.get("placeholder1", "").replace(" ", "_")
     filename = f"{year}_{invoice_no}_{client_code}_Invoice.docx"
     docx_path = os.path.join(EXPORTS_DIR, filename)
     doc.save(docx_path)
@@ -83,7 +93,14 @@ def convert_to_pdf(docx_path: str) -> str:
     requests.Session.request = _no_ssl
     try:
         result = convertapi.convert("pdf", {"File": docx_path}, from_format="docx")
-        result.save_files(pdf_path)
+        # save_files expects a directory; it returns the list of saved paths.
+        saved = result.save_files(os.path.dirname(pdf_path))
+        if not saved:
+            raise RuntimeError("ConvertAPI returned no output files")
+        # Rename to our expected filename if ConvertAPI used a different name.
+        if saved[0] != pdf_path:
+            import shutil
+            shutil.move(saved[0], pdf_path)
     finally:
         requests.Session.request = _orig  # always restore
 
