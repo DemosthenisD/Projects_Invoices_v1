@@ -59,3 +59,54 @@ class PipelineEntry:
     value: float = 0.0
     notes: str = ""
     updated_at: str = ""
+
+
+@dataclass
+class ProjectCode:
+    id: int
+    project_id: int
+    client_code: str
+    client_suffix: str
+    name: str = ""
+    description: str = ""
+    budget_amount: float = 0.0
+    status: str = "Active"
+    created_at: str = ""
+
+
+@dataclass
+class TimeEntry:
+    id: int
+    period: str           # yyyymm e.g. '202206'
+    emp_nbr: str
+    consultant: str
+    client_code: str
+    client_suffix: str
+    total_hours: float
+    non_z_hours: float
+    z_hours: float
+    total_charges: float
+    non_z_charges: float
+    z_charges: float
+    project_code_id: int = 0
+    project_id: int = 0
+    description: str = ""
+    batch_ref: str = ""
+    created_at: str = ""
+
+
+@dataclass
+class WriteOff:
+    id: int
+    project_id: int
+    amount: float
+    reason: str
+    notes: str = ""
+    project_code_id: int = 0
+    emp_nbr: str = ""
+    consultant: str = ""
+    allocation_type: str = "project"  # 'project' (pro-rata) | 'adhoc'
+    reversed: int = 0
+    reversed_reason: str = ""
+    reversed_at: str = ""
+    created_at: str = ""
