@@ -8,7 +8,7 @@ import sqlite3
 import sys
 import os
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from shared.models import Client, Address, Project, Invoice, PipelineEntry
@@ -331,7 +331,7 @@ def get_pipeline() -> list[dict]:
 
 def upsert_pipeline(project_id: int, stage: str = "Prospect",
                     value: float = 0.0, notes: str = "") -> None:
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     with get_connection() as conn:
         conn.execute(
             "INSERT INTO pipeline (project_id, stage, value, notes, updated_at) "
