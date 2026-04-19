@@ -28,18 +28,29 @@ st.title("Data Tables")
 st.subheader("Database Location")
 st.code(DB_PATH)
 st.caption(
-    "To view and edit the database directly, download "
-    "[DB Browser for SQLite](https://sqlitebrowser.org/dl/) "
-    "(free, Windows installer). Open the `.db` file shown above."
+    "Edit the database directly in **DB Browser for SQLite** "
+    "([download here](https://sqlitebrowser.org/dl/) if not installed). "
+    "The button below opens the file directly in DB Browser."
 )
 
-if st.button("Open DB folder in File Explorer"):
-    folder = os.path.dirname(DB_PATH)
-    try:
-        subprocess.Popen(["explorer", folder])
-        st.success(f"Opened: {folder}")
-    except Exception as e:
-        st.error(f"Could not open folder: {e}")
+btn1, btn2 = st.columns(2)
+
+with btn1:
+    if st.button("Open in DB Browser for SQLite"):
+        try:
+            os.startfile(DB_PATH)
+            st.success("Opening DB Browser…")
+        except Exception as e:
+            st.error(f"Could not open: {e}. Make sure DB Browser for SQLite is installed.")
+
+with btn2:
+    if st.button("Open DB folder in File Explorer"):
+        folder = os.path.dirname(DB_PATH)
+        try:
+            subprocess.Popen(["explorer", folder])
+            st.success(f"Opened: {folder}")
+        except Exception as e:
+            st.error(f"Could not open folder: {e}")
 
 st.divider()
 
