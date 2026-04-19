@@ -36,6 +36,11 @@ def _logout() -> None:
 # ------------------------------------------------------------------
 
 if not _is_logged_in():
+    # Hide the page list in the sidebar until the user is signed in
+    st.markdown(
+        "<style>[data-testid='stSidebarNav']{display:none}</style>",
+        unsafe_allow_html=True,
+    )
     st.title("InvoiceApp")
     st.subheader("Sign in")
 
