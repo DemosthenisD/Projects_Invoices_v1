@@ -158,7 +158,6 @@ with tab_create:
                 group_labels[key]  = f"{e.client_code}/{e.client_suffix} — {e.consultant}"
             total = sum(group_charges.values())
             if total > 0:
-                amount_preview = st.session_state.get("wo_form_amount", 0)
                 preview_rows = [
                     {
                         "Code / Person": group_labels[k],

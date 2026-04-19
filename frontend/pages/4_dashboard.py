@@ -156,3 +156,36 @@ if monthly_data:
     )
 else:
     st.info(f"No VAT data for {selected_year}.")
+
+st.divider()
+
+# ------------------------------------------------------------------
+# Pipeline Forecast
+# ------------------------------------------------------------------
+
+st.subheader("Pipeline Forecast")
+
+@st.cache_data(ttl=120)
+def _pipeline():
+    return db.get_pipeline()
+
+pipeline = _pipeline()
+forecast_rows = [
+    r for r in pipeline
+    if (r.get("budget_min") or r.get("budget_est") or r.get("budget_max"))
+    and r.get("probability") is not None
+]
+
+if forecast_rows:
+    fw_min = sum((r["budget_min"] or 0) * (r["probability"] or 0) for r in forecast_rows)
+    fw_est = sum((r["budget_est"] or 0) * (r["probability"] or 0) for r in forecast_rows)
+    fw_max = sum((r["budget_max"] or 0) * (r["probability"] or 0) for r in forecast_rows)
+
+    fc1, fc2, fc3 = st.columns(3)
+    fc1.metric("Weighted Min (€)", f"{fw_min:,.0f}")
+    fc2.metric("Weighted Est (€)", f"{fw_est:,.0f}")
+    fc3.metric("Weighted Max (€)", f"{fw_max:,.0f}")
+    st.caption(f"Based on {len(forecast_rows)} pipeline projects with budget fields set. "
+               "Σ(budget × probability). Edit budgets and probabilities on the Pipeline / CRM page.")
+else:
+    st.info("No pipeline forecast data. Set Min/Est/Max budgets and probabilities on the Pipeline / CRM page.")

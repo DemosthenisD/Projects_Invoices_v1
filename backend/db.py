@@ -86,10 +86,17 @@ def init_db() -> None:
                 project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                 stage       TEXT    DEFAULT 'Prospect',
                 value       REAL    DEFAULT 0.0,
+                budget_min  REAL    DEFAULT 0.0,
+                budget_est  REAL    DEFAULT 0.0,
+                budget_max  REAL    DEFAULT 0.0,
+                probability REAL    DEFAULT 0.5,
                 notes       TEXT    DEFAULT '',
                 updated_at  TEXT    DEFAULT (datetime('now')),
                 UNIQUE(project_id)
             );
+
+            -- Columns added in Sprint 8 (ALTER TABLE used for existing DBs below)
+            -- budget_min, budget_est, budget_max, probability on pipeline
 
             CREATE TABLE IF NOT EXISTS project_codes (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -125,6 +132,13 @@ def init_db() -> None:
                 UNIQUE(period, emp_nbr, client_code, client_suffix)
             );
 
+            CREATE TABLE IF NOT EXISTS consultant_groups (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_nbr    TEXT,
+                consultant TEXT NOT NULL,
+                group_name TEXT NOT NULL DEFAULT 'Other'
+            );
+
             CREATE TABLE IF NOT EXISTS write_offs (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -141,6 +155,17 @@ def init_db() -> None:
                 created_at      TEXT    DEFAULT (datetime('now'))
             );
         """)
+        # Migrate existing DBs: add new columns if missing
+        for col, defval in [
+            ("budget_min",  "0.0"),
+            ("budget_est",  "0.0"),
+            ("budget_max",  "0.0"),
+            ("probability", "0.5"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE pipeline ADD COLUMN {col} REAL DEFAULT {defval}")
+            except Exception:
+                pass  # column already exists
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +393,9 @@ def get_pipeline() -> list[dict]:
     """Returns pipeline entries joined with project and client names."""
     with get_connection() as conn:
         rows = conn.execute("""
-            SELECT pl.id, pl.project_id, pl.stage, pl.value, pl.notes, pl.updated_at,
+            SELECT pl.id, pl.project_id, pl.stage, pl.value,
+                   pl.budget_min, pl.budget_est, pl.budget_max, pl.probability,
+                   pl.notes, pl.updated_at,
                    pr.name AS project_name, pr.status AS project_status,
                    c.name AS client_name
             FROM pipeline pl
@@ -380,16 +407,21 @@ def get_pipeline() -> list[dict]:
 
 
 def upsert_pipeline(project_id: int, stage: str = "Prospect",
-                    value: float = 0.0, notes: str = "") -> None:
+                    value: float = 0.0, notes: str = "",
+                    budget_min: float = 0.0, budget_est: float = 0.0,
+                    budget_max: float = 0.0, probability: float = 0.5) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO pipeline (project_id, stage, value, notes, updated_at) "
-            "VALUES (?, ?, ?, ?, ?) "
+            "INSERT INTO pipeline "
+            "(project_id, stage, value, budget_min, budget_est, budget_max, probability, notes, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(project_id) DO UPDATE SET "
             "stage=excluded.stage, value=excluded.value, "
+            "budget_min=excluded.budget_min, budget_est=excluded.budget_est, "
+            "budget_max=excluded.budget_max, probability=excluded.probability, "
             "notes=excluded.notes, updated_at=excluded.updated_at",
-            (project_id, stage, value, notes, now)
+            (project_id, stage, value, budget_min, budget_est, budget_max, probability, notes, now)
         )
 
 
@@ -659,6 +691,55 @@ def get_project_time_totals(project_id: int) -> dict:
     }
 
 
+def get_all_projects_overview() -> list[dict]:
+    """Single query returning rolled-up financials for every project."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                p.id              AS project_id,
+                c.name            AS client,
+                c.client_code,
+                p.name            AS project,
+                p.status,
+                COUNT(DISTINCT pc.id)                                              AS code_count,
+                COALESCE(SUM(DISTINCT pc.budget_amount), 0)                        AS budget,
+                COALESCE(te_sum.billable_charges, 0)                               AS billable_charges,
+                COALESCE(wo_sum.write_offs, 0)                                     AS write_offs,
+                COALESCE(inv_sum.invoiced, 0)                                      AS invoiced
+            FROM projects p
+            JOIN clients c ON c.id = p.client_id
+            LEFT JOIN project_codes pc ON pc.project_id = p.id
+            LEFT JOIN (
+                SELECT project_id, SUM(non_z_charges) AS billable_charges
+                FROM time_entries GROUP BY project_id
+            ) te_sum ON te_sum.project_id = p.id
+            LEFT JOIN (
+                SELECT project_id, SUM(amount) AS write_offs
+                FROM write_offs WHERE reversed = 0 GROUP BY project_id
+            ) wo_sum ON wo_sum.project_id = p.id
+            LEFT JOIN (
+                SELECT project_id, SUM(amount) AS invoiced
+                FROM invoices GROUP BY project_id
+            ) inv_sum ON inv_sum.project_id = p.id
+            GROUP BY p.id
+            ORDER BY c.name, p.name
+        """).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["net_charges"] = d["billable_charges"] - d["write_offs"]
+        d["remaining"] = d["budget"] - d["invoiced"]
+        prefix = (d.get("client_code") or "")[:4]
+        if prefix == "0478":
+            d["project_source"] = "CY"
+        elif prefix == "0009":
+            d["project_source"] = "NotBillable"
+        else:
+            d["project_source"] = "Other"
+        result.append(d)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Write-off CRUD
 # ---------------------------------------------------------------------------
@@ -734,6 +815,72 @@ def reverse_write_off(write_off_id: int, reason: str) -> None:
             "UPDATE write_offs SET reversed=1, reversed_reason=?, reversed_at=? WHERE id=?",
             (reason, now, write_off_id)
         )
+
+
+# ---------------------------------------------------------------------------
+# Consultant Groups CRUD
+# ---------------------------------------------------------------------------
+
+def get_consultant_groups() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, emp_nbr, consultant, group_name FROM consultant_groups ORDER BY consultant"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_consultant_group(consultant: str, group_name: str,
+                            emp_nbr: str | None = None) -> None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM consultant_groups WHERE consultant = ?", (consultant,)
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE consultant_groups SET group_name=?, emp_nbr=COALESCE(?,emp_nbr) WHERE id=?",
+                (group_name, emp_nbr, row["id"])
+            )
+        else:
+            conn.execute(
+                "INSERT INTO consultant_groups (consultant, group_name, emp_nbr) VALUES (?,?,?)",
+                (consultant, group_name, emp_nbr)
+            )
+
+
+def ensure_consultant_group(emp_nbr: str, consultant: str) -> None:
+    """Called on time-entry import to create a group row if not already present."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM consultant_groups WHERE consultant = ?", (consultant,)
+        ).fetchone()
+        if row:
+            # Update emp_nbr if not yet set
+            conn.execute(
+                "UPDATE consultant_groups SET emp_nbr=? WHERE id=? AND emp_nbr IS NULL",
+                (emp_nbr, row["id"])
+            )
+        else:
+            conn.execute(
+                "INSERT INTO consultant_groups (consultant, group_name, emp_nbr) VALUES (?,?,?)",
+                (consultant, "Other", emp_nbr)
+            )
+
+
+def get_time_summary_by_group(project_id: int) -> list[dict]:
+    """Billable charges grouped by Local/ICEE/Other for a project."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                COALESCE(cg.group_name, 'Other') AS group_name,
+                SUM(te.non_z_hours)   AS billable_hrs,
+                SUM(te.non_z_charges) AS billable_chg
+            FROM time_entries te
+            LEFT JOIN consultant_groups cg ON cg.consultant = te.consultant
+            WHERE te.project_id = ?
+            GROUP BY group_name
+            ORDER BY group_name
+        """, (project_id,)).fetchall()
+    return [dict(r) for r in rows]
 
 
 if __name__ == "__main__":

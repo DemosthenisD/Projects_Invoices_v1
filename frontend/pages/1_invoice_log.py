@@ -57,18 +57,28 @@ client_map = {c.id: c.name for c in clients}
 # Filter controls
 # ------------------------------------------------------------------
 
-all_years    = sorted({i.year for i in invoices}, reverse=True)
-all_clients  = sorted({client_map.get(i.client_id, "") for i in invoices})
-all_projects = sorted({i.project_name for i in invoices if i.project_name})
+all_years = sorted({i.year for i in invoices}, reverse=True)
 
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     year_filter = st.selectbox("Year", ["All"] + [str(y) for y in all_years])
+
+# Cascade: after year, restrict client options
+after_year = invoices if year_filter == "All" else [i for i in invoices if i.year == int(year_filter)]
+clients_in_year = sorted({client_map.get(i.client_id, "") for i in after_year})
+
 with col2:
-    client_filter = st.selectbox("Client", ["All"] + all_clients)
+    client_filter = st.selectbox("Client", ["All"] + clients_in_year)
+
+# Cascade: after client, restrict project options
+after_client = after_year if client_filter == "All" else [
+    i for i in after_year if client_map.get(i.client_id, "") == client_filter
+]
+projects_in_client = sorted({i.project_name for i in after_client if i.project_name})
+
 with col3:
-    project_filter = st.selectbox("Project", ["All"] + all_projects)
+    project_filter = st.selectbox("Project", ["All"] + projects_in_client)
 with col4:
     search = st.text_input("Search (invoice # or project)", placeholder="Type to search…")
 
@@ -115,16 +125,29 @@ if not filtered:
     st.info("No invoices match the selected filters.")
     st.stop()
 
+st.caption(
+    "PDF/DOCX buttons download the generated file from your local disk. "
+    "If the file has been moved or deleted the button will not appear (shown as —)."
+)
+
+# Header row
+_cols = [1.2, 1, 1.8, 2, 1, 1, 1, 1]
+hdr = st.columns(_cols)
+for label, col in zip(
+    ["Date", "Invoice #", "Client", "Project", "Net €", "VAT €", "Expenses €", "File"],
+    hdr,
+):
+    col.markdown(f"**{label}**")
+
 for inv in filtered:
-    col_date, col_num, col_client, col_proj, col_net, col_vat, col_dl = st.columns(
-        [1.2, 1, 1.8, 2, 1, 1, 1]
-    )
+    col_date, col_num, col_client, col_proj, col_net, col_vat, col_exp, col_dl = st.columns(_cols)
     col_date.write(inv.date)
     col_num.write(f"**#{inv.invoice_number}**")
     col_client.write(client_map.get(inv.client_id, "—"))
     col_proj.write(inv.project_name or "—")
     col_net.write(f"€{inv.amount:,.0f}")
     col_vat.write(f"€{inv.vat_amount:,.0f}")
+    col_exp.write(f"€{inv.expenses_net:,.0f}" if inv.expenses_net else "—")
 
     # Download button if file exists
     if inv.file_path and os.path.exists(inv.file_path):

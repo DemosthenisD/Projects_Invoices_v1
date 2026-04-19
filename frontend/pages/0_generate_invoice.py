@@ -51,6 +51,11 @@ def _projects(client_id: int):
 
 
 @st.cache_data(ttl=300)
+def _all_projects():
+    return db.get_projects(status="Active")
+
+
+@st.cache_data(ttl=300)
 def _available_templates():
     from shared.config import TEMPLATES_DIR
     files = [
@@ -62,17 +67,57 @@ def _available_templates():
 
 
 # ------------------------------------------------------------------
-# Step 1 — Client
+# Selection mode
 # ------------------------------------------------------------------
+
+selection_mode = st.radio(
+    "Start from:",
+    ["Client → Project", "Project → Client"],
+    horizontal=True,
+)
 
 clients = _clients()
 if not clients:
     st.error("No clients found. Add clients in the Clients & Projects page first.")
     st.stop()
 
-client_names = [c.name for c in clients]
-selected_client_name = st.selectbox("Client", client_names)
-client = next(c for c in clients if c.name == selected_client_name)
+# ------------------------------------------------------------------
+# Step 1 — Client or Project (depending on mode)
+# ------------------------------------------------------------------
+
+if selection_mode == "Project → Client":
+    all_projs = _all_projects()
+    if not all_projs:
+        st.error("No active projects found.")
+        st.stop()
+    # Build label "Client — Project name"
+    client_by_id = {c.id: c for c in clients}
+    proj_labels = [
+        f"{client_by_id[p.client_id].name} — {p.name}"
+        if p.client_id in client_by_id else p.name
+        for p in all_projs
+    ]
+    selected_label = st.selectbox("Project", proj_labels)
+    project = all_projs[proj_labels.index(selected_label)]
+    client = client_by_id[project.client_id]
+    selected_project_name = project.name
+    st.caption(f"Client auto-selected: **{client.name}**")
+else:
+    # Client → Project (original flow)
+    client_names = [c.name for c in clients]
+    selected_client_name = st.selectbox("Client", client_names)
+    client = next(c for c in clients if c.name == selected_client_name)
+
+    projects = _projects(client.id)
+    project_names = [p.name for p in projects] if projects else []
+
+    if project_names:
+        selected_project_name = st.selectbox("Project", project_names)
+        project = next(p for p in projects if p.name == selected_project_name)
+    else:
+        st.info("No active projects for this client.")
+        selected_project_name = st.text_input("Project name", value="")
+        project = None
 
 col1, col2 = st.columns(2)
 
@@ -91,22 +136,14 @@ with col2:
     vat_no = st.text_input("Client VAT No", value=client.vat_number or "")
 
 # ------------------------------------------------------------------
-# Step 2 — Project
+# Step 2 — Defaults from project
 # ------------------------------------------------------------------
 
-projects = _projects(client.id)
-project_names = [p.name for p in projects] if projects else []
-
-if project_names:
-    selected_project_name = st.selectbox("Project", project_names)
-    project = next(p for p in projects if p.name == selected_project_name)
+if project:
     default_description = project.description
     default_vat_pct = project.vat_pct
     default_template = project.template
 else:
-    st.info("No active projects for this client. Description, VAT and template will use defaults.")
-    selected_project_name = st.text_input("Project name", value="")
-    project = None
     default_description = ""
     default_vat_pct = 0.0
     default_template = "template1_v3"
@@ -164,6 +201,12 @@ st.divider()
 
 col_gen, col_save = st.columns([1, 3])
 generate_clicked = col_gen.button("Generate Invoice", type="primary")
+st.caption(
+    "Clicking **Generate Invoice** creates the DB record and saves the file to the `exports/` folder "
+    "(e.g. `exports/2025_42_ClientName_Invoice.pdf`). "
+    "The **Download** button that appears after is a convenience copy — "
+    "the file is already saved locally even if you do not click Download."
+)
 
 if generate_clicked:
     if not amount:

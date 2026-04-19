@@ -14,7 +14,8 @@ import streamlit as st
 from shared.config import LOGIN_USER, LOGIN_PASSWORD
 import backend.db as db
 
-st.set_page_config(page_title="InvoiceApp", page_icon="🧾", layout="wide")
+st.set_page_config(page_title="InvoiceApp", page_icon="🧾", layout="wide",
+                   initial_sidebar_state="expanded")
 
 db.init_db()
 
@@ -39,8 +40,8 @@ if not _is_logged_in():
     st.subheader("Sign in")
 
     with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+        username = st.text_input("Username", autocomplete="username")
+        password = st.text_input("Password", type="password", autocomplete="current-password")
         submitted = st.form_submit_button("Sign in")
 
     if submitted:

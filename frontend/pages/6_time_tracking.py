@@ -30,7 +30,7 @@ if not st.session_state.get("authenticated", False):
 
 st.title("Time Tracking")
 
-tab_import, tab_entries, tab_rollup = st.tabs(["Import", "Entries", "Rollup"])
+tab_import, tab_entries, tab_rollup, tab_groups = st.tabs(["Import", "Entries", "Rollup", "Consultant Groups"])
 
 # Expected CSV columns (fixed format matching sample_time_sheet.csv)
 REQUIRED_COLS = {
@@ -113,6 +113,10 @@ with tab_import:
                 })
 
             result = db.add_time_entries_bulk(entries)
+            # Register new consultants in consultant_groups (default group = Other)
+            for e in entries:
+                if e.get("emp_nbr") and e.get("consultant"):
+                    db.ensure_consultant_group(e["emp_nbr"], e["consultant"])
             st.success(
                 f"Import complete — "
                 f"**{result['inserted']} inserted**, "
@@ -253,3 +257,73 @@ with tab_rollup:
         z_hours = sum(e.z_hours for e in entries_all)
         if z_hours > 0:
             st.caption(f"Internal (non-billable) hours on this project: **{z_hours:,.1f} hrs**")
+
+        # Local / ICEE / Other breakdown
+        group_summary = db.get_time_summary_by_group(project_obj.id)
+        if group_summary:
+            st.divider()
+            st.subheader("Breakdown by Consultant Group")
+            grp_rows = [
+                {
+                    "Group":         g["group_name"],
+                    "Billable hrs":  f"{g['billable_hrs']:,.1f}" if g["billable_hrs"] else "—",
+                    "Billable (€)":  f"{g['billable_chg']:,.2f}" if g["billable_chg"] else "—",
+                }
+                for g in group_summary
+            ]
+            st.dataframe(pd.DataFrame(grp_rows), use_container_width=True, hide_index=True)
+            st.caption("Groups are assigned on the Consultant Groups tab. "
+                       "Unassigned consultants appear as 'Other'.")
+
+# ==================================================================
+# TAB 4 — CONSULTANT GROUPS
+# ==================================================================
+
+with tab_groups:
+    st.subheader("Consultant Groups")
+    st.caption(
+        "Assign each consultant to **Local**, **ICEE**, or **Other**. "
+        "New consultants are added automatically (as 'Other') when time entries are imported. "
+        "Run `scripts/seed_consultant_groups.py` to pre-populate from the ICEE Plan CY Excel."
+    )
+
+    groups = db.get_consultant_groups()
+
+    if not groups:
+        st.info("No consultant groups yet. Import time entries or run the seed script.")
+    else:
+        # Editable table
+        GROUP_OPTIONS = ["Local", "ICEE", "Other"]
+        for g in groups:
+            with st.expander(f"{g['consultant']} — **{g['group_name']}**", expanded=False):
+                with st.form(f"cg_{g['id']}"):
+                    col_grp, col_emp = st.columns(2)
+                    new_group = col_grp.selectbox(
+                        "Group", GROUP_OPTIONS,
+                        index=GROUP_OPTIONS.index(g["group_name"]) if g["group_name"] in GROUP_OPTIONS else 2,
+                        key=f"cg_grp_{g['id']}",
+                    )
+                    new_emp = col_emp.text_input("emp_nbr", value=g.get("emp_nbr") or "",
+                                                 key=f"cg_emp_{g['id']}")
+                    if st.form_submit_button("Save"):
+                        db.upsert_consultant_group(
+                            consultant=g["consultant"],
+                            group_name=new_group,
+                            emp_nbr=new_emp or None,
+                        )
+                        st.success("Saved.")
+                        st.rerun()
+
+    st.divider()
+    st.subheader("Add new consultant")
+    with st.form("cg_add"):
+        na_name  = st.text_input("Consultant name (Last, First)")
+        na_group = st.selectbox("Group", ["Local", "ICEE", "Other"])
+        na_emp   = st.text_input("emp_nbr (optional)")
+        if st.form_submit_button("Add"):
+            if na_name.strip():
+                db.upsert_consultant_group(na_name.strip(), na_group, na_emp.strip() or None)
+                st.success(f"Added {na_name}.")
+                st.rerun()
+            else:
+                st.error("Consultant name is required.")
