@@ -37,11 +37,19 @@ btn1, btn2 = st.columns(2)
 
 with btn1:
     if st.button("Open in DB Browser for SQLite"):
-        try:
-            os.startfile(DB_PATH)
-            st.success("Opening DB Browser…")
-        except Exception as e:
-            st.error(f"Could not open: {e}. Make sure DB Browser for SQLite is installed.")
+        exe_candidates = [
+            r"C:\Program Files\DB Browser for SQLite\DB Browser for SQLite.exe",
+            r"C:\Program Files (x86)\DB Browser for SQLite\DB Browser for SQLite.exe",
+        ]
+        exe = next((p for p in exe_candidates if os.path.exists(p)), None)
+        if exe:
+            try:
+                subprocess.Popen([exe, DB_PATH])
+                st.success("Opening DB Browser…")
+            except Exception as e:
+                st.error(f"Could not launch DB Browser: {e}")
+        else:
+            st.error("DB Browser for SQLite not found. Download it from https://sqlitebrowser.org/dl/")
 
 with btn2:
     if st.button("Open DB folder in File Explorer"):
