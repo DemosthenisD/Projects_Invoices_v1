@@ -1,6 +1,8 @@
-# InvoiceApp
+# InvoiceApp — V1.0
 
-Personal invoice management tool built with Streamlit and SQLite.
+Personal invoice and project billing management tool built with **Streamlit** and **SQLite**.
+
+---
 
 ## Setup
 
@@ -8,43 +10,90 @@ Personal invoice management tool built with Streamlit and SQLite.
 pip install -r requirements.txt
 ```
 
-Copy `.streamlit/secrets.toml.example` (or create `.streamlit/secrets.toml`) and fill in:
+Create `.streamlit/secrets.toml`:
 
 ```toml
 username = "Demosthenis"
 password = "your-password"
-CONVERT_API_KEY = "your-convertapi-secret"
 ```
 
-## Running the app
-
-**Must be run from the repo root:**
+## Running the App
 
 ```bash
 streamlit run frontend/App.py
 ```
 
-The app opens at http://localhost:8501.
+Opens at http://localhost:8501. Sign in with the credentials above.
 
-## Running tests
+## Running Tests
 
 ```bash
 python -m pytest tests/ -v
 ```
 
+29 tests covering DB CRUD, bulk import, write-off allocation, and invoice generation.
+
+---
+
 ## Pages
 
-| Page | Description |
-|------|-------------|
-| Generate Invoice | Fill client/project details, generate DOCX or PDF invoice |
-| Invoice Log | Browse, filter, and download past invoices; export to Excel |
-| Clients & Projects | CRUD for clients, projects, and billing addresses |
-| Pipeline / CRM | Track project pipeline stages and deal values |
-| Dashboard | Revenue charts, VAT summary, YTD vs prior year |
+| # | Page | Description |
+|---|------|-------------|
+| 0 | Generate Invoice | Fill client/project details, generate DOCX or PDF; file saved permanently to `exports/` |
+| 1 | How to Use | Quick reference: page summaries (Actions vs Views), edit guide, DB Browser tip |
+| 2 | Invoice Log | Browse, filter (cascading), and download past invoices; export to Excel |
+| 3 | Clients & Projects | Manage clients, projects, addresses; per-project billing summary |
+| 4 | Pipeline / CRM | Track pipeline by stage; set min/est/max budget + probability; probability-weighted forecast |
+| 5 | Dashboard | YTD revenue, monthly chart, revenue by client, VAT summary, pipeline forecast |
+| 6 | Project Codes | Manage billing codes (client_code + suffix); per-code budget vs billable vs remaining |
+| 7 | Time Tracking | Import monthly time-charge CSVs; rollup with Local/ICEE/Other breakdown; consultant groups |
+| 8 | Write-offs | Record project-level (pro-rata) or ad-hoc write-offs; reversal log |
+| 9 | Data Tables | Direct view of all DB tables; open in DB Browser for SQLite |
+| 10 | Project Overview | Full project-level financial summary; filter by client/status/source; export to Excel |
 
-## Notes
+---
 
-- Database is stored at `data/invoiceapp.db` (excluded from git)
-- Generated invoices are saved to `exports/` (excluded from git)
-- PDF conversion uses [ConvertAPI](https://www.convertapi.com/) — requires a valid API key
-- The corporate SSL proxy at Milliman requires the ConvertAPI call to run with SSL verification disabled (already handled in `backend/invoice_gen.py`)
+## Architecture
+
+```
+frontend/           Streamlit pages
+backend/db.py       All SQLite access (CRUD + analytics queries)
+backend/invoice_gen.py  DOCX template filling + PDF conversion
+shared/config.py    Paths and credentials (from secrets.toml)
+shared/models.py    Dataclasses: Client, Project, Invoice, ProjectCode, TimeEntry, WriteOff, …
+data/invoiceapp.db  SQLite database (single file, excluded from git)
+templates/          Word invoice templates (template1_v3, template2_v3)
+exports/            Generated invoice files — PDF and DOCX (excluded from git)
+scripts/            Seed utilities (CSV import, consultant groups)
+docs/               User manual, technical reference, release notes
+```
+
+## Database
+
+All data lives in a single SQLite file: `data/invoiceapp.db`.
+
+**Tables:** `clients`, `addresses`, `projects`, `invoices`, `pipeline`, `project_codes`, `time_entries`, `write_offs`, `consultant_groups`
+
+To inspect or edit the database directly, use [DB Browser for SQLite](https://sqlitebrowser.org/dl/) (free, Windows). The app's **Data Tables** page (page 9) has a button that opens the file directly.
+
+## PDF Conversion
+
+PDF generation uses **docx2pdf** (drives Microsoft Word locally) with **LibreOffice headless** as a fallback. No cloud API or network calls required. If neither is installed, select DOCX format in the Advanced section on the Generate Invoice page.
+
+## Seeding Data
+
+```bash
+# Import clients, projects, and project codes from NocoDb CSV exports
+python scripts/seed_from_csv.py
+
+# Pre-populate consultant groups from CONSULTANTS.csv
+python scripts/seed_consultant_groups.py
+```
+
+## Documentation
+
+Full documentation is in the `docs/` folder:
+
+- [`docs/USER_MANUAL.md`](docs/USER_MANUAL.md) — step-by-step guide for each page
+- [`docs/TECHNICAL.md`](docs/TECHNICAL.md) — architecture, DB schema, file locations
+- [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) — version history by sprint
