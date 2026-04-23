@@ -304,7 +304,7 @@ def seed(dry_run: bool = False) -> None:
                 continue
 
             row = conn.execute(
-                "SELECT id FROM project_codes WHERE client_code=? AND client_suffix=?",
+                "SELECT id FROM project_codes WHERE client_code=? AND client_suffix=? AND date_start=''",
                 (pc["client_code"], pc["client_suffix"])
             ).fetchone()
             if row:
@@ -313,8 +313,8 @@ def seed(dry_run: bool = False) -> None:
                 if not dry_run:
                     conn.execute(
                         "INSERT INTO project_codes "
-                        "(project_id, client_code, client_suffix, name, description, budget_amount, status) "
-                        "VALUES (?,?,?,?,?,?,?)",
+                        "(project_id, client_code, client_suffix, name, description, budget_amount, status, date_start, date_end) "
+                        "VALUES (?,?,?,?,?,?,?,'','')",
                         (proj_id, pc["client_code"], pc["client_suffix"],
                          pc["project_name"], pc["description"],
                          pc["budget_amount"], pc["status"])

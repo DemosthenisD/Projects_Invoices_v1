@@ -6,16 +6,18 @@
 frontend/
   App.py                    ← Streamlit entry point, login wall
   pages/
-    0_generate_invoice.py   ← Invoice generation UI
-    1_invoice_log.py        ← Invoice log + Excel export
-    2_clients_projects.py   ← Client & project master data
-    3_pipeline_crm.py       ← Pipeline / CRM
-    4_dashboard.py          ← Financial dashboard
-    5_project_codes.py      ← Billing codes management
-    6_time_tracking.py      ← Time-charge import & rollup
-    7_write_offs.py         ← Write-off management
-    8_data_tables.py        ← Direct table viewer
-    9_project_overview.py   ← Project-level financial overview
+    0_generate_invoice.py   ← Invoice generation UI + optional project-code allocation
+    1_how_to_use.py         ← Quick-reference guide (Actions / Views / edit map)
+    2_invoice_log.py        ← Invoice log + Excel export
+    3_clients_projects.py   ← Client & project master data
+    4_pipeline_crm.py       ← Pipeline / CRM
+    5_dashboard.py          ← Financial dashboard
+    6_project_codes.py      ← Billing codes management (suffix + date ranges)
+    7_time_tracking.py      ← Time-charge import & rollup
+    8_write_offs.py         ← Write-off management
+    9_data_tables.py        ← Direct table viewer
+    10_project_overview.py  ← Project-level financial overview
+    11_add_new_project.py   ← Flat intake form: client + project + codes in one step
 
 backend/
   db.py                     ← All SQLite access (CRUD functions)
@@ -108,12 +110,26 @@ Unique on `(client_id, name)`.
 | address | TEXT | Snapshot at invoice time |
 | project_name | TEXT | Snapshot |
 | description | TEXT | Snapshot |
-| template | TEXT | Template used |
+| template_used | TEXT | Template actually used when generating (historical record) |
 | format | TEXT | PDF or DOCX |
 | file_path | TEXT | Absolute path of generated file |
 | expenses_net | REAL | |
 | expenses_vat | REAL | |
 | created_at | TEXT | |
+
+### `invoice_allocations`
+
+Splits an invoice's net amount across project codes. Created automatically (pro-rata by budget) if no manual allocation is provided at invoice generation time.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| invoice_id | INTEGER FK→invoices | Cascade delete |
+| project_code_id | INTEGER FK→project_codes | |
+| amount | REAL | Net amount allocated to this code |
+| created_at | TEXT | |
+
+Unique on `(invoice_id, project_code_id)`.
 
 ### `pipeline`
 
@@ -136,14 +152,19 @@ Unique on `(client_id, name)`.
 |--------|------|-------|
 | id | INTEGER PK | |
 | project_id | INTEGER FK→projects | Cascade delete |
-| client_code | TEXT | e.g. `0478EUR30` |
+| client_code | TEXT | Derived from parent client — never entered directly |
 | client_suffix | TEXT | e.g. `07` |
 | name | TEXT | |
 | description | TEXT | |
 | budget_amount | REAL | Per-suffix budget |
-| status | TEXT | Active / Completed |
+| status | TEXT | Active / On Hold / Completed |
+| date_start | TEXT | YYYY-MM-DD; `''` means no lower bound (first use of this suffix) |
+| date_end | TEXT | YYYY-MM-DD; `''` means open-ended |
+| created_at | TEXT | |
 
-Unique on `(client_code, client_suffix)`. Together these form the billing code used in time reports.
+Unique on `(client_code, client_suffix, date_start)`.
+
+The same suffix can be reused for a later project by creating a new row with a non-empty `date_start`. Time entries are routed to whichever code's date range contains the entry's period. `client_code` is always derived from `project → client` at write time — it is never a free-text user input, ensuring it always matches the parent client.
 
 ### `time_entries`
 

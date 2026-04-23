@@ -189,6 +189,47 @@ st.markdown(
 )
 
 # ------------------------------------------------------------------
+# Step 3b — Project Code Allocation (optional)
+# ------------------------------------------------------------------
+
+if project and amount > 0:
+    codes = db.get_project_codes(project_id=project.id, status="Active")
+    if codes:
+        with st.expander("Project Code Allocation (optional)", expanded=False):
+            st.caption(
+                "Allocate this invoice's net amount across project codes. "
+                "Leave all amounts at 0 to use automatic **pro-rata by budget** allocation."
+            )
+            alloc_inputs = {}
+            total_budget = sum(c.budget_amount for c in codes)
+            for c in codes:
+                prorata = (
+                    round(amount * c.budget_amount / total_budget, 2)
+                    if total_budget > 0
+                    else round(amount / len(codes), 2)
+                )
+                label = f"{c.client_code}-{c.client_suffix}" + (f" | {c.name}" if c.name else "")
+                hint  = f"pro-rata: €{prorata:,.2f}" if c.budget_amount else "pro-rata: equal split"
+                alloc_inputs[c.id] = st.number_input(
+                    label, min_value=0.0, step=100.0, value=0.0,
+                    help=hint, key=f"alloc_{c.id}"
+                )
+            total_alloc = sum(alloc_inputs.values())
+            if total_alloc > 0:
+                diff = round(amount - total_alloc, 2)
+                if abs(diff) > 0.01:
+                    st.warning(f"Allocations sum to €{total_alloc:,.2f} — must equal net amount €{amount:,.2f} (difference: €{diff:,.2f}).")
+                else:
+                    st.success(f"Allocations balance: €{total_alloc:,.2f} ✓")
+                    st.session_state["_inv_allocations"] = [
+                        {"project_code_id": cid, "amount": amt}
+                        for cid, amt in alloc_inputs.items() if amt > 0
+                    ]
+            else:
+                st.session_state.pop("_inv_allocations", None)
+                st.info("No manual allocation entered — pro-rata by budget will be applied automatically.")
+
+# ------------------------------------------------------------------
 # Step 4 — Format & Generate
 # ------------------------------------------------------------------
 
@@ -271,12 +312,14 @@ if generate_clicked:
         address=address,
         project_name=selected_project_name,
         description=description,
-        template=template_name,
+        template_used=template_name,
         fmt=fmt,
         file_path=output_path,
         expenses_net=expenses_net,
         expenses_vat=expenses_vat,
+        allocations=st.session_state.get("_inv_allocations") or None,
     )
+    st.session_state.pop("_inv_allocations", None)
 
     # Invalidate invoice number cache so next suggestion is correct
     db.get_next_invoice_number.cache_clear() if hasattr(db.get_next_invoice_number, "cache_clear") else None

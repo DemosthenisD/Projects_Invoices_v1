@@ -32,9 +32,10 @@ The landing page after sign-in. Use the **left sidebar** to navigate between pag
 
 1. **Select a client** — address and VAT number auto-fill.
 2. **Select a project** — description, VAT %, and template auto-fill.
-3. *(Optional)* Expand **Advanced** to choose PDF vs DOCX, and add expense lines.
-4. Enter the **invoice date**, **amount (net)**, and confirm the **invoice number** (auto-suggested).
-5. Click **Generate Invoice**.
+3. Enter the **invoice date**, **amount (net)**, and confirm the **invoice number** (auto-suggested).
+4. *(Optional)* Expand **Project Code Allocation** to manually split the net amount across project codes. Enter amounts per code; the page shows the pro-rata hint for each. If you leave all at 0, the system allocates automatically using each code's budget as the weight (equal split if all budgets are zero).
+5. *(Optional)* Expand **Advanced** to choose PDF vs DOCX, and add expense lines.
+6. Click **Generate Invoice**.
 
 **What happens when you click Generate Invoice:**
 - The DB record is saved immediately.
@@ -105,13 +106,15 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 ### Page 5 — Project Codes
 
-**What it does:** Manages billing codes (client_code + suffix combinations) for each project.
+**What it does:** Manages billing codes (client suffix) for each project. Each code has its own budget, date range, and status.
 
-Each code maps to one project and has its own budget. The page shows per-code metrics: budget, billable charges, write-offs, and remaining.
+The `client_code` portion (e.g. `0478EUR30`) is set automatically from the client record — you only need to enter the suffix (e.g. `07`). Together they form the full billing code (e.g. `0478EUR30-07`) used to match imported time entries.
 
-**To add a code:** Select client → project → fill in client_suffix, budget, and status.
+**To add a code:** Select client → project → fill in suffix, budget, and status.
 
-**Uniqueness rule:** The combination of `client_code` + `client_suffix` must be unique across all projects.
+**Reusing a suffix across projects:** The same suffix can be used on a different project at a later time. Set **Date Start** (YYYY-MM-DD) on the new code to mark when this project takes over. Time entries are routed automatically: entries whose period falls before the Date Start belong to the original project; entries on or after belong to the new one. Leave Date End blank for open-ended codes.
+
+**Per-code metrics shown:** budget, billable charges, write-offs, remaining budget.
 
 ---
 
@@ -153,6 +156,22 @@ Use the tabs to switch between tables. The **"Open DB"** button shows the full p
 
 ---
 
+### Page 11 — Add New Project
+
+**What it does:** A single flat form that creates a client (if new), a project, and any number of project codes in one step.
+
+**Sections:**
+
+1. **Client** — select an existing client or fill in details for a new one. If a client with the same name already exists, the existing record is used and no duplicate is created.
+2. **Project** — name, description, VAT %, invoice template, and status.
+3. **Project Codes** — a row-per-code table. Use **+ Add row** / **− Remove last row** to adjust. For each row: suffix, name, budget, Date Start, Date End, and status.
+
+**Click Import to Database** — the app creates only what is missing. It is safe to run multiple times; no duplicates are created.
+
+**When to use instead of Page 6:** Use Page 11 when you are setting up an entirely new engagement. Use Page 6 when you need to add a single code to an existing project or edit an existing code.
+
+---
+
 ### Page 9 — Project Overview
 
 **What it does:** Full project-level financial summary across all clients.
@@ -182,5 +201,5 @@ PDF conversion requires Microsoft Word (via the `docx2pdf` library) or LibreOffi
 **How do I back up my data?**
 Copy `data/invoiceapp.db` and the `exports/` folder to a safe location. That is the complete data set.
 
-**Can I add a client code that already exists on another project?**
-No — the combination of `client_code` + `client_suffix` must be unique. Each suffix maps to exactly one project.
+**Can I reuse a client suffix for a new project?**
+Yes — set a **Date Start** on the new project code (YYYY-MM-DD). Time entries whose period falls on or after that date are automatically routed to the new project; earlier entries stay with the original. Leave Date End blank on both codes unless you want an explicit end date. Only one code per suffix may have a blank Date Start (the original first use).

@@ -27,6 +27,7 @@ pages = [
         "0 — Generate Invoice",
         [
             "Select client, project, amount, date, and format (PDF or DOCX)",
+            "Optionally expand **Project Code Allocation** to split the invoice net amount across project codes — leave at 0 to apply automatic pro-rata by budget",
             "Add optional expense lines (in the Advanced section)",
             "Click **Generate Invoice** to create the DB record and save the file to `exports/`",
             "Download the file via the Download button (optional — file is already saved locally)",
@@ -36,6 +37,7 @@ pages = [
             "Invoice number auto-suggested (max for the year + 1)",
             "Address and VAT number auto-filled from the client record",
             "Description and template auto-filled from the project record",
+            "Allocation balance checker shows when manual allocations match the net amount",
         ],
     ),
     (
@@ -86,11 +88,13 @@ pages = [
     (
         "6 — Project Codes",
         [
-            "Add, edit, or delete billing codes (client_code + suffix) per project",
-            "Set per-code budget and status",
+            "Add a billing code (client_suffix) to a project — client_code is derived automatically from the client",
+            "Set per-code budget, status, and optional Date Start / Date End for time-range scoping",
+            "Edit or delete existing codes (deletion blocked if time entries exist)",
         ],
         [
             "Per-code metrics: budget, billable charges, write-offs, remaining",
+            "Date range shown in label when a suffix is reused across projects",
         ],
     ),
     (
@@ -143,6 +147,18 @@ pages = [
             "Summary totals: project count, budget, billable, invoiced",
         ],
     ),
+    (
+        "11 — Add New Project",
+        [
+            "Fill in client (select existing or create new), project details, and one or more project code rows in a single form",
+            "Click **Import to Database** — the app creates only the records that don't already exist (safe to re-run)",
+        ],
+        [
+            "Client is matched by name; if found, existing record is reused (no duplicate created)",
+            "Project is matched by name within the client; if found, existing record is reused",
+            "Each project code row creates a new billing sub-line with its own suffix, budget, and optional date range",
+        ],
+    ),
 ]
 
 for title, actions, views in pages:
@@ -167,9 +183,11 @@ st.header("Where to Go for Each Edit")
 st.markdown("""
 | What you want to edit | Where to go |
 |---|---|
+| Add a completely new project with client and codes | Page 11 — Add New Project |
 | Client name / VAT / billing name | Page 3 — Clients & Projects → expand client → Edit |
 | Project description / VAT % / template / status | Page 3 — Clients & Projects → expand client → expand project → Edit |
-| Project code budget | Page 6 — Project Codes → expand code → Edit |
+| Project code budget / date range | Page 6 — Project Codes → expand code → Edit |
+| Invoice allocation to project codes | Page 0 — Generate Invoice → Project Code Allocation (before generating) |
 | Pipeline stage / estimated value / probability | Page 4 — Pipeline / CRM → expand project → Save |
 | Consultant group (Local / ICEE / Other) | Page 7 — Time Tracking → Consultant Groups tab → expand person → Save |
 | Write-off reason / reversal | Page 8 — Write-offs → Log tab → Reverse button |

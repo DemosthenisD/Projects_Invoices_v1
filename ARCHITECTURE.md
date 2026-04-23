@@ -27,21 +27,31 @@ InvoiceApp/
 ├── frontend/
 │   ├── App.py                          # Login entry point
 │   └── pages/
-│       ├── 0_generate_invoice.py       # Invoice generation
-│       ├── 1_invoice_log.py            # Invoice log with filters & search
-│       ├── 2_clients_projects.py       # CRUD: clients, projects, addresses
-│       ├── 3_pipeline_crm.py           # Pipeline / CRM view
-│       └── 4_dashboard.py             # Revenue & billing charts
+│       ├── 0_generate_invoice.py       # Invoice generation + project-code allocation
+│       ├── 1_how_to_use.py             # Quick-reference guide
+│       ├── 2_invoice_log.py            # Invoice log with filters & search
+│       ├── 3_clients_projects.py       # CRUD: clients, projects, addresses
+│       ├── 4_pipeline_crm.py           # Pipeline / CRM view
+│       ├── 5_dashboard.py             # Revenue & billing charts
+│       ├── 6_project_codes.py          # Billing codes (suffix + date ranges)
+│       ├── 7_time_tracking.py          # Time-charge import & rollup
+│       ├── 8_write_offs.py             # Write-off management
+│       ├── 9_data_tables.py            # Direct table viewer
+│       ├── 10_project_overview.py      # Project-level financial overview
+│       └── 11_add_new_project.py       # Flat intake: client + project + codes
 ├── backend/
 │   ├── db.py                           # SQLite connection + all CRUD queries
 │   ├── invoice_gen.py                  # DOCX/PDF generation logic
 │   └── excel_io.py                     # Import from Excel, export to Excel
 ├── shared/
 │   ├── config.py                       # Loads secrets from .streamlit/secrets.toml
-│   └── models.py                       # Dataclasses: Client, Address, Project, Invoice
+│   └── models.py                       # Dataclasses: Client, Address, Project, Invoice,
+│                                       #   InvoiceAllocation, ProjectCode, TimeEntry, WriteOff
 ├── templates/                          # .docx invoice templates
 ├── data/                               # invoiceapp.db (SQLite, single file)
 ├── exports/                            # Generated invoice files (DOCX/PDF)
+├── scripts/                            # Seed utilities (CSV import, consultant groups)
+├── docs/                               # USER_MANUAL.md, TECHNICAL.md, RELEASE_NOTES.md
 ├── requirements.txt
 └── .streamlit/
     ├── config.toml                     # Streamlit theme
@@ -50,59 +60,22 @@ InvoiceApp/
 
 ---
 
-## SQLite Schema
+## SQLite Schema (current)
 
-```sql
--- Clients
-CREATE TABLE clients (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL UNIQUE,
-    vat_number  TEXT,
-    created_at  TEXT DEFAULT (datetime('now'))
-);
+See `docs/TECHNICAL.md` for the full column-level reference. Key tables:
 
--- Addresses (one client can have multiple)
-CREATE TABLE addresses (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id   INTEGER NOT NULL REFERENCES clients(id),
-    address     TEXT NOT NULL
-);
-
--- Projects
-CREATE TABLE projects (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id   INTEGER NOT NULL REFERENCES clients(id),
-    name        TEXT NOT NULL,
-    description TEXT,
-    vat_pct     REAL DEFAULT 19.0,
-    template    TEXT DEFAULT 'template1_v3',
-    status      TEXT DEFAULT 'Active'
-);
-
--- Invoices (log)
-CREATE TABLE invoices (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id     INTEGER REFERENCES projects(id),
-    client_id      INTEGER NOT NULL REFERENCES clients(id),
-    invoice_number TEXT NOT NULL,
-    date           TEXT NOT NULL,
-    amount         REAL NOT NULL,
-    vat_amount     REAL NOT NULL,
-    format         TEXT DEFAULT 'PDF',
-    file_path      TEXT,
-    created_at     TEXT DEFAULT (datetime('now'))
-);
-
--- Pipeline (CRM stages per project)
-CREATE TABLE pipeline (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id  INTEGER NOT NULL REFERENCES projects(id),
-    stage       TEXT DEFAULT 'Prospect',
-    value       REAL,
-    notes       TEXT,
-    updated_at  TEXT DEFAULT (datetime('now'))
-);
-```
+| Table | Purpose | Unique constraint |
+|---|---|---|
+| `clients` | Client master data | `name` |
+| `addresses` | Billing addresses (multi per client) | `(client_id, address)` |
+| `projects` | Engagements linked to a client | `(client_id, name)` |
+| `invoices` | Invoice log; `template_used` records which template was actually used | — |
+| `invoice_allocations` | Splits invoice net amount across project codes (auto pro-rata if not set) | `(invoice_id, project_code_id)` |
+| `pipeline` | CRM stage + budget + probability per project | `project_id` |
+| `project_codes` | Billing sub-lines per project; same suffix can be reused across projects via `date_start` | `(client_code, client_suffix, date_start)` |
+| `time_entries` | Monthly time-charge rows; routed to a project code by period date + suffix | `(period, emp_nbr, client_code, client_suffix)` |
+| `write_offs` | Write-offs at project or code/consultant level | — |
+| `consultant_groups` | Group assignment (Local / ICEE / Other) per consultant | — |
 
 ---
 
@@ -136,11 +109,18 @@ CREATE TABLE pipeline (
 | Page | Purpose |
 |------|---------|
 | `App.py` | Login with session state. Redirects to invoice generation on success. |
-| `0_generate_invoice.py` | Select client → auto-fill address/VAT. Select project → auto-fill description/template. Enter amount/date → auto-suggest invoice number. Generate DOCX/PDF. Save to DB. |
-| `1_invoice_log.py` | Filterable table of all invoices (date range, client, project). Download file per row. Export visible data to Excel. |
-| `2_clients_projects.py` | Tabbed CRUD for Clients, Projects, Addresses. Duplicate detection. Edit/delete with confirmation. |
-| `3_pipeline_crm.py` | Project table with inline stage editing (Prospect / Active / On Hold / Completed). Filter by stage/client. Summary by stage. |
-| `4_dashboard.py` | Monthly revenue bar chart. Revenue by client. VAT summary (net + VAT + gross). YTD vs prior year. |
+| `0_generate_invoice.py` | Select client → auto-fill address/VAT. Select project → auto-fill description/template. Enter amount/date → auto-suggest invoice number. Optional allocation to project codes (pro-rata fallback). Generate DOCX/PDF. Save to DB. |
+| `1_how_to_use.py` | Quick-reference guide: page summaries (Actions vs Views), edit map, DB Browser tip. |
+| `2_invoice_log.py` | Filterable table of all invoices (date range, client, project). Download file per row. Export visible data to Excel. |
+| `3_clients_projects.py` | Tabbed CRUD for Clients, Projects, Addresses. Duplicate detection. Edit/delete with confirmation. |
+| `4_pipeline_crm.py` | Project table with inline stage editing (Prospect / Active / On Hold / Completed). Filter by stage/client. Summary by stage. |
+| `5_dashboard.py` | Monthly revenue bar chart. Revenue by client. VAT summary (net + VAT + gross). YTD vs prior year. |
+| `6_project_codes.py` | Billing codes (suffix) per project. client_code derived automatically. Date Start/End support suffix reuse across projects. Per-code budget/billable/remaining metrics. |
+| `7_time_tracking.py` | CSV import of monthly time-charge reports. Date-range aware routing to project codes. Rollup by code and consultant group. |
+| `8_write_offs.py` | Project-level (pro-rata) or ad-hoc write-offs. Reversal log. |
+| `9_data_tables.py` | Read-only view of all DB tables. Open in DB Browser for SQLite. |
+| `10_project_overview.py` | Full project-level financial summary. Filter by client/status/source. Export to Excel. |
+| `11_add_new_project.py` | Flat intake form: select/create client, fill project details, add N project code rows, single import button. |
 
 ---
 

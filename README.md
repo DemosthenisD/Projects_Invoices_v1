@@ -39,17 +39,18 @@ python -m pytest tests/ -v
 
 | # | Page | Description |
 |---|------|-------------|
-| 0 | Generate Invoice | Fill client/project details, generate DOCX or PDF; file saved permanently to `exports/` |
+| 0 | Generate Invoice | Fill client/project details, generate DOCX or PDF; optional project-code allocation; file saved permanently to `exports/` |
 | 1 | How to Use | Quick reference: page summaries (Actions vs Views), edit guide, DB Browser tip |
 | 2 | Invoice Log | Browse, filter (cascading), and download past invoices; export to Excel |
 | 3 | Clients & Projects | Manage clients, projects, addresses; per-project billing summary |
 | 4 | Pipeline / CRM | Track pipeline by stage; set min/est/max budget + probability; probability-weighted forecast |
 | 5 | Dashboard | YTD revenue, monthly chart, revenue by client, VAT summary, pipeline forecast |
-| 6 | Project Codes | Manage billing codes (client_code + suffix); per-code budget vs billable vs remaining |
-| 7 | Time Tracking | Import monthly time-charge CSVs; rollup with Local/ICEE/Other breakdown; consultant groups |
+| 6 | Project Codes | Manage billing codes (suffix + date range); client_code auto-derived; per-code budget vs billable vs remaining |
+| 7 | Time Tracking | Import monthly time-charge CSVs; date-range aware routing; rollup with Local/ICEE/Other breakdown |
 | 8 | Write-offs | Record project-level (pro-rata) or ad-hoc write-offs; reversal log |
 | 9 | Data Tables | Direct view of all DB tables; open in DB Browser for SQLite |
 | 10 | Project Overview | Full project-level financial summary; filter by client/status/source; export to Excel |
+| 11 | Add New Project | Flat intake form: client + project + codes in one step; import creates only missing records |
 
 ---
 
@@ -72,7 +73,7 @@ docs/               User manual, technical reference, release notes
 
 All data lives in a single SQLite file: `data/invoiceapp.db`.
 
-**Tables:** `clients`, `addresses`, `projects`, `invoices`, `pipeline`, `project_codes`, `time_entries`, `write_offs`, `consultant_groups`
+**Tables:** `clients`, `addresses`, `projects`, `invoices`, `invoice_allocations`, `pipeline`, `project_codes`, `time_entries`, `write_offs`, `consultant_groups`
 
 To inspect or edit the database directly, use [DB Browser for SQLite](https://sqlitebrowser.org/dl/) (free, Windows). The app's **Data Tables** page (page 9) has a button that opens the file directly.
 

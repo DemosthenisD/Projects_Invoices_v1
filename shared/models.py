@@ -43,7 +43,7 @@ class Invoice:
     address: str = ""
     project_name: str = ""
     description: str = ""
-    template: str = ""
+    template_used: str = ""   # actual template used when generating (historical record)
     format: str = "PDF"
     file_path: str = ""
     expenses_net: float = 0.0
@@ -71,6 +71,8 @@ class ProjectCode:
     description: str = ""
     budget_amount: float = 0.0
     status: str = "Active"
+    date_start: str = ""   # YYYY-MM-DD; '' means no lower bound (original use of this suffix)
+    date_end: str = ""     # YYYY-MM-DD; '' means open-ended
     created_at: str = ""
 
 
@@ -92,6 +94,15 @@ class TimeEntry:
     project_id: int = 0
     description: str = ""
     batch_ref: str = ""
+    created_at: str = ""
+
+
+@dataclass
+class InvoiceAllocation:
+    id: int
+    invoice_id: int
+    project_code_id: int
+    amount: float           # net amount (excl. VAT) allocated to this project code
     created_at: str = ""
 
 

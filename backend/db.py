@@ -11,7 +11,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from shared.models import Client, Address, Project, Invoice, PipelineEntry, ProjectCode, TimeEntry, WriteOff
+import re
+from shared.models import Client, Address, Project, Invoice, InvoiceAllocation, PipelineEntry, ProjectCode, TimeEntry, WriteOff
 from shared.config import DB_PATH
 
 
@@ -73,7 +74,7 @@ def init_db() -> None:
                 address         TEXT    DEFAULT '',
                 project_name    TEXT    DEFAULT '',
                 description     TEXT    DEFAULT '',
-                template        TEXT    DEFAULT '',
+                template_used   TEXT    DEFAULT '',
                 format          TEXT    DEFAULT 'PDF',
                 file_path       TEXT    DEFAULT '',
                 expenses_net    REAL    DEFAULT 0.0,
@@ -107,8 +108,19 @@ def init_db() -> None:
                 description    TEXT    DEFAULT '',
                 budget_amount  REAL    DEFAULT 0.0,
                 status         TEXT    DEFAULT 'Active',
+                date_start     TEXT    NOT NULL DEFAULT '',
+                date_end       TEXT    NOT NULL DEFAULT '',
                 created_at     TEXT    DEFAULT (datetime('now')),
-                UNIQUE(client_code, client_suffix)
+                UNIQUE(client_code, client_suffix, date_start)
+            );
+
+            CREATE TABLE IF NOT EXISTS invoice_allocations (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                invoice_id      INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+                project_code_id INTEGER NOT NULL REFERENCES project_codes(id),
+                amount          REAL    NOT NULL,
+                created_at      TEXT    DEFAULT (datetime('now')),
+                UNIQUE(invoice_id, project_code_id)
             );
 
             CREATE TABLE IF NOT EXISTS time_entries (
@@ -155,7 +167,7 @@ def init_db() -> None:
                 created_at      TEXT    DEFAULT (datetime('now'))
             );
         """)
-        # Migrate existing DBs: add new columns if missing
+        # --- Migration: pipeline budget columns ---
         for col, defval in [
             ("budget_min",  "0.0"),
             ("budget_est",  "0.0"),
@@ -165,7 +177,65 @@ def init_db() -> None:
             try:
                 conn.execute(f"ALTER TABLE pipeline ADD COLUMN {col} REAL DEFAULT {defval}")
             except Exception:
-                pass  # column already exists
+                pass
+
+        # --- Migration: project_codes date columns ---
+        for col in ("date_start", "date_end"):
+            try:
+                conn.execute(f"ALTER TABLE project_codes ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
+            except Exception:
+                pass
+
+        # --- Migration: project_codes UNIQUE constraint (client_code, client_suffix) → add date_start ---
+        _pc_schema = (conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='project_codes'"
+        ).fetchone() or [None])[0] or ""
+        if re.search(r"UNIQUE\s*\(\s*client_code\s*,\s*client_suffix\s*\)", _pc_schema):
+            conn.executescript("""
+                PRAGMA foreign_keys = OFF;
+                CREATE TABLE project_codes_new (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id     INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    client_code    TEXT    NOT NULL,
+                    client_suffix  TEXT    NOT NULL,
+                    name           TEXT    DEFAULT '',
+                    description    TEXT    DEFAULT '',
+                    budget_amount  REAL    DEFAULT 0.0,
+                    status         TEXT    DEFAULT 'Active',
+                    date_start     TEXT    NOT NULL DEFAULT '',
+                    date_end       TEXT    NOT NULL DEFAULT '',
+                    created_at     TEXT    DEFAULT (datetime('now')),
+                    UNIQUE(client_code, client_suffix, date_start)
+                );
+                INSERT INTO project_codes_new
+                    (id, project_id, client_code, client_suffix, name, description,
+                     budget_amount, status, date_start, date_end, created_at)
+                    SELECT id, project_id, client_code, client_suffix, name, description,
+                           budget_amount, status,
+                           COALESCE(date_start, ''), COALESCE(date_end, ''), created_at
+                    FROM project_codes;
+                DROP TABLE project_codes;
+                ALTER TABLE project_codes_new RENAME TO project_codes;
+                PRAGMA foreign_keys = ON;
+            """)
+
+        # --- Migration: invoices.template → invoices.template_used ---
+        _inv_schema = (conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='invoices'"
+        ).fetchone() or [None])[0] or ""
+        if "template_used" not in _inv_schema:
+            try:
+                conn.execute("ALTER TABLE invoices RENAME COLUMN template TO template_used")
+            except Exception:
+                pass
+
+        # --- Migration: normalise stale template values in projects ---
+        conn.execute(
+            "UPDATE projects SET template = 'template1_v3' WHERE template IN ('Template-1', 'template1')"
+        )
+        conn.execute(
+            "UPDATE projects SET template = 'template2_v3' WHERE template = 'Template-2'"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +389,7 @@ def get_invoices(
 ) -> list[Invoice]:
     query = (
         "SELECT id, client_id, project_id, invoice_number, year, date, amount, "
-        "vat_amount, vat_pct, address, project_name, description, template, format, "
+        "vat_amount, vat_pct, address, project_name, description, template_used, format, "
         "file_path, expenses_net, expenses_vat, created_at FROM invoices"
     )
     params: list = []
@@ -356,24 +426,39 @@ def add_invoice(
     address: str = "",
     project_name: str = "",
     description: str = "",
-    template: str = "",
+    template_used: str = "",
     fmt: str = "PDF",
     file_path: str = "",
     expenses_net: float = 0.0,
     expenses_vat: float = 0.0,
+    allocations: list[dict] | None = None,
 ) -> int:
+    """Insert invoice and write allocation rows.
+
+    allocations: list of {project_code_id, amount} (net amounts summing to invoice amount).
+    If None and project_id is given, pro-rata allocation across project codes is computed automatically.
+    """
     with get_connection() as conn:
         cur = conn.execute(
             "INSERT INTO invoices "
             "(client_id, project_id, invoice_number, year, date, amount, vat_amount, "
-            "vat_pct, address, project_name, description, template, format, file_path, "
+            "vat_pct, address, project_name, description, template_used, format, file_path, "
             "expenses_net, expenses_vat) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (client_id, project_id or None, invoice_number, year, date, amount,
-             vat_amount, vat_pct, address, project_name, description, template,
+             vat_amount, vat_pct, address, project_name, description, template_used,
              fmt, file_path, expenses_net, expenses_vat)
         )
-        return cur.lastrowid
+        invoice_id = cur.lastrowid
+
+    # Resolve allocations
+    if project_id:
+        if allocations is None:
+            allocations = compute_prorata_allocations(project_id, amount)
+        if allocations:
+            upsert_invoice_allocations(invoice_id, allocations)
+
+    return invoice_id
 
 
 def get_next_invoice_number(year: int) -> int:
@@ -383,6 +468,59 @@ def get_next_invoice_number(year: int) -> int:
             "SELECT COUNT(*) as cnt FROM invoices WHERE year = ?", (year,)
         ).fetchone()
     return (row["cnt"] or 0) + 1
+
+
+def get_invoice_allocations(invoice_id: int) -> list[InvoiceAllocation]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, invoice_id, project_code_id, amount, created_at "
+            "FROM invoice_allocations WHERE invoice_id = ? ORDER BY project_code_id",
+            (invoice_id,)
+        ).fetchall()
+    return [InvoiceAllocation(**dict(r)) for r in rows]
+
+
+def upsert_invoice_allocations(invoice_id: int, allocations: list[dict]) -> None:
+    """Replace all allocation rows for this invoice with the given list.
+
+    Each dict must have keys: project_code_id (int), amount (float).
+    """
+    with get_connection() as conn:
+        conn.execute("DELETE FROM invoice_allocations WHERE invoice_id = ?", (invoice_id,))
+        for a in allocations:
+            conn.execute(
+                "INSERT INTO invoice_allocations (invoice_id, project_code_id, amount) VALUES (?,?,?)",
+                (invoice_id, a["project_code_id"], round(float(a["amount"]), 2))
+            )
+
+
+def compute_prorata_allocations(project_id: int, net_amount: float) -> list[dict]:
+    """Return pro-rata allocation list based on each project code's budget_amount.
+
+    Falls back to equal split if all budgets are zero.
+    Only Active project codes are included.
+    """
+    with get_connection() as conn:
+        codes = conn.execute(
+            "SELECT id, budget_amount FROM project_codes WHERE project_id = ? AND status = 'Active'",
+            (project_id,)
+        ).fetchall()
+    if not codes:
+        return []
+    total_budget = sum(c["budget_amount"] for c in codes)
+    n = len(codes)
+    result = []
+    remaining = round(net_amount, 2)
+    for i, c in enumerate(codes):
+        if i == n - 1:
+            alloc = remaining  # absorb rounding residual on last row
+        elif total_budget > 0:
+            alloc = round(net_amount * c["budget_amount"] / total_budget, 2)
+        else:
+            alloc = round(net_amount / n, 2)
+        remaining = round(remaining - alloc, 2)
+        result.append({"project_code_id": c["id"], "amount": alloc})
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -470,7 +608,7 @@ def get_revenue_by_client(year: int | None = None) -> list[dict]:
 def get_project_codes(project_id: int | None = None, status: str | None = None) -> list[ProjectCode]:
     query = (
         "SELECT id, project_id, client_code, client_suffix, name, description, "
-        "budget_amount, status, created_at FROM project_codes"
+        "budget_amount, status, date_start, date_end, created_at FROM project_codes"
     )
     params: list = []
     filters = []
@@ -482,48 +620,79 @@ def get_project_codes(project_id: int | None = None, status: str | None = None) 
         params.append(status)
     if filters:
         query += " WHERE " + " AND ".join(filters)
-    query += " ORDER BY client_code, client_suffix"
+    query += " ORDER BY client_code, client_suffix, date_start"
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
     return [ProjectCode(**dict(r)) for r in rows]
 
 
-def get_project_code_by_keys(client_code: str, client_suffix: str) -> ProjectCode | None:
+def get_project_code_by_keys(client_code: str, client_suffix: str,
+                              period: str | None = None) -> ProjectCode | None:
+    """Lookup a project code by client_code + client_suffix.
+
+    When period (YYYYMM) is given, uses date-range matching to find the correct
+    code when the same suffix has been reused across multiple projects over time.
+    Without period, returns the open-ended code (date_start = '').
+    """
+    _SELECT = (
+        "SELECT id, project_id, client_code, client_suffix, name, description, "
+        "budget_amount, status, date_start, date_end, created_at FROM project_codes "
+    )
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT id, project_id, client_code, client_suffix, name, description, "
-            "budget_amount, status, created_at FROM project_codes "
-            "WHERE client_code = ? AND client_suffix = ?",
-            (client_code, client_suffix)
-        ).fetchone()
+        if period:
+            period_date = f"{period[:4]}-{period[4:]}-01"
+            row = conn.execute(
+                _SELECT +
+                "WHERE client_code = ? AND client_suffix = ? "
+                "AND (date_start = '' OR date_start <= ?) "
+                "AND (date_end   = '' OR date_end   >= ?) "
+                "ORDER BY date_start DESC LIMIT 1",
+                (client_code, client_suffix, period_date, period_date)
+            ).fetchone()
+        else:
+            row = conn.execute(
+                _SELECT + "WHERE client_code = ? AND client_suffix = ? AND date_start = ''",
+                (client_code, client_suffix)
+            ).fetchone()
     return ProjectCode(**dict(row)) if row else None
 
 
-def add_project_code(project_id: int, client_code: str, client_suffix: str,
+def add_project_code(project_id: int, client_suffix: str,
                      name: str = "", description: str = "",
-                     budget_amount: float = 0.0, status: str = "Active") -> int:
+                     budget_amount: float = 0.0, status: str = "Active",
+                     date_start: str = "", date_end: str = "") -> int:
+    """Add a project code. client_code is derived from the project's parent client."""
     with get_connection() as conn:
+        client_row = conn.execute(
+            "SELECT c.client_code FROM projects p JOIN clients c ON c.id = p.client_id WHERE p.id = ?",
+            (project_id,)
+        ).fetchone()
+        if not client_row:
+            raise ValueError(f"Project {project_id} not found.")
+        client_code = client_row["client_code"]
         cur = conn.execute(
             "INSERT OR IGNORE INTO project_codes "
-            "(project_id, client_code, client_suffix, name, description, budget_amount, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (project_id, client_code, client_suffix, name, description, budget_amount, status)
+            "(project_id, client_code, client_suffix, name, description, budget_amount, status, date_start, date_end) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (project_id, client_code, client_suffix, name, description, budget_amount, status, date_start, date_end)
         )
         if cur.lastrowid:
             return cur.lastrowid
         row = conn.execute(
-            "SELECT id FROM project_codes WHERE client_code = ? AND client_suffix = ?",
-            (client_code, client_suffix)
+            "SELECT id FROM project_codes WHERE client_code = ? AND client_suffix = ? AND date_start = ?",
+            (client_code, client_suffix, date_start)
         ).fetchone()
         return row["id"]
 
 
 def update_project_code(code_id: int, name: str, description: str,
-                        budget_amount: float, status: str) -> None:
+                        budget_amount: float, status: str,
+                        date_start: str = "", date_end: str = "") -> None:
     with get_connection() as conn:
         conn.execute(
-            "UPDATE project_codes SET name=?, description=?, budget_amount=?, status=? WHERE id=?",
-            (name, description, budget_amount, status, code_id)
+            "UPDATE project_codes SET name=?, description=?, budget_amount=?, status=?, "
+            "date_start=?, date_end=? WHERE id=?",
+            (name, description, budget_amount, status, date_start, date_end, code_id)
         )
 
 
@@ -552,9 +721,15 @@ def add_time_entries_bulk(entries: list[dict]) -> dict:
     with get_connection() as conn:
         for e in entries:
             cc, cs = e["client_code"], e["client_suffix"]
+            period = str(e.get("period", ""))
+            period_date = f"{period[:4]}-{period[4:]}-01" if len(period) == 6 else ""
             pc_row = conn.execute(
-                "SELECT id, project_id FROM project_codes WHERE client_code=? AND client_suffix=?",
-                (cc, cs)
+                "SELECT id, project_id FROM project_codes "
+                "WHERE client_code=? AND client_suffix=? "
+                "AND (date_start = '' OR date_start <= ?) "
+                "AND (date_end   = '' OR date_end   >= ?) "
+                "ORDER BY date_start DESC LIMIT 1",
+                (cc, cs, period_date, period_date)
             ).fetchone()
             if pc_row is None:
                 unmatched += 1
