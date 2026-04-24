@@ -121,3 +121,113 @@ class WriteOff:
     reversed_reason: str = ""
     reversed_at: str = ""
     created_at: str = ""
+
+
+# ---------------------------------------------------------------------------
+# HR / Review models (Sprint 10)
+# ---------------------------------------------------------------------------
+
+MILLIMAN_STATUSES = [
+    "Analyst",
+    "Consultant",
+    "Recognised Professional",
+    "Approved Professional",
+    "Signature Authority",
+    "Principal - Signature Authority",
+]
+
+EXTERNAL_LEVELS = [
+    "Analyst",
+    "Junior Consultant",
+    "Consultant",
+    "Senior Consultant",
+    "Manager",
+    "Senior Manager",
+    "Principal",
+]
+
+# Performance review score groups and their sub-items (used by pages 13 & 14)
+SCORE_GROUPS: dict[str, list[str]] = {
+    "Professionalism": [
+        "Deliverance assignments",
+        "Modelling skills",
+        "Problem solving",
+        "Reporting skills",
+        "Presentations skills",
+        "Project management",
+        "Innovation",
+    ],
+    "Management": [
+        "Chargeability",
+        "Acquisition capability",
+        "Leverage (# colleagues)",
+        "Internal network",
+        "Visibility in the market",
+        "Recruitment efforts",
+    ],
+    "Social Skills": [
+        "Managing expectations",
+        "Client satisfaction",
+        "Teamwork",
+        "Developing people",
+        "Communication",
+    ],
+}
+
+
+@dataclass
+class ConsultantProfile:
+    id: int
+    emp_nbr: str
+    employment_date: str = ""        # YYYY-MM-DD
+    prior_exp_years: float = 0.0     # years of experience before joining Milliman
+    milliman_status: str = ""        # e.g. "Approved Professional"
+    external_level: str = ""         # e.g. "Senior Consultant"
+    languages: str = ""              # free text e.g. "Greek (A), English (A)"
+    tools: str = ""                  # free text e.g. "Prophet (B), VBA (A)"
+    current_role: str = ""           # e.g. "Consultant"
+    notes: str = ""
+    created_at: str = ""
+
+
+@dataclass
+class AnnualSalaryHistory:
+    id: int
+    emp_nbr: str
+    year: int
+    starting_salary: float = 0.0        # carried from prior year's updated_salary
+    exams_passed: float = 0.0           # can be fractional (e.g. 1.5)
+    exam_raise_per_exam: float = 1000.0  # £/exam — resettable each year
+    other_raise: float = 0.0            # discretionary raise £
+    effective_date: str = ""            # YYYY-MM-DD — date salary change takes effect
+    objective_bonus_pct: float = 0.0    # manager-entered % e.g. 0.07 for 7%
+    bonus_paid: float = 0.0             # actual bonus paid (historical record)
+    proposed_rate: float = 0.0          # proposed new hourly billing rate
+    notes: str = ""
+
+
+@dataclass
+class BillingBasis:
+    id: int
+    emp_nbr: str
+    year: int
+    source: str = "manual"           # 'time_tracking' or 'manual'
+    billed: float = 0.0
+    capped_paid_prebill: float = 0.0
+    capped_unpaid_prebill: float = 0.0
+    charged_off: float = 0.0
+    paid: float = 0.0
+    unbilled: float = 0.0
+    hourly_rate: float = 0.0          # used to convert £ basis → equivalent hours
+    notes: str = ""
+    created_at: str = ""
+
+
+@dataclass
+class ReviewScore:
+    id: int
+    emp_nbr: str
+    year: int
+    score_group: str   # 'Professionalism' / 'Management' / 'Social Skills'
+    item_name: str
+    score: float = 0.0

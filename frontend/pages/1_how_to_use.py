@@ -159,6 +159,48 @@ pages = [
             "Each project code row creates a new billing sub-line with its own suffix, budget, and optional date range",
         ],
     ),
+    (
+        "12 — Billing Basis",
+        [
+            "Auto-aggregate billing amounts from Time Tracking (non_z_charges per consultant for the year)",
+            "Or enter billing amounts manually in the Sheet5-style table (Billed / Capped Prebill / Charged Off / Paid / Unbilled)",
+            "Enter each consultant's hourly billing rate to unlock the equivalent-hours and productivity-bonus calculation",
+            "Save the basis for use by the Annual Review page",
+        ],
+        [
+            "Per-consultant: Grand Total, Basis for Bonus (Grand Total − Charged Off), Equivalent Hours, Productivity Bonus %",
+            "Saved Basis tab shows all stored rows for the selected year with an Export to Excel button",
+            "Basis for Bonus formula: `(Equiv Hours − 800) / 40 × 1%`",
+        ],
+    ),
+    (
+        "13 — Consultant Profiles",
+        [
+            "Record employment start date, prior experience, Milliman status, external level, languages, and tools",
+            "Add or edit year records in the Salary History tab: starting salary, exams passed, exam raise rate, other raise, objective bonus %, proposed billing rate",
+        ],
+        [
+            "Profile tab: full employment profile for the selected consultant",
+            "Salary History tab: year-by-year table showing salary chain, bonus %, bonus amount — auto-carries forward updated salary to the next year",
+            "Rates tab: billing rates by year from salary history and billing basis",
+            "Productivity bonus is pulled from Page 12 (Billing Basis) automatically when shown",
+        ],
+    ),
+    (
+        "14 — Annual Review",
+        [
+            "Select consultant + year; set assessor name and assessment date",
+            "Section 1 — Compensation: enter exams passed, other raise, objective bonus %, proposed rate → computed fields update live",
+            "Section 2 — Performance Scores: score each sub-item (1.0–5.0) across three groups: Professionalism, Management, Social Skills",
+            "Save compensation and scores independently; export the full review to Excel",
+        ],
+        [
+            "Compensation section: auto-pulls productivity bonus % from saved Billing Basis; shows salary chain (start → raises → updated salary) and bonus calculation",
+            "Performance section: historical scores for the prior 3 years shown alongside current-year inputs; group averages calculated automatically",
+            "Summary section: formatted review card with all compensation and score data",
+            "Management scoring group is always shown — set scores to 0 for non-manager consultants",
+        ],
+    ),
 ]
 
 for title, actions, views in pages:
@@ -192,6 +234,10 @@ st.markdown("""
 | Consultant group (Local / ICEE / Other) | Page 7 — Time Tracking → Consultant Groups tab → expand person → Save |
 | Write-off reason / reversal | Page 8 — Write-offs → Log tab → Reverse button |
 | Anything else (direct DB edit) | Page 9 — Data Tables → **Open in DB Browser for SQLite** |
+| Consultant employment / experience / tools | Page 13 — Consultant Profiles → Profile tab |
+| Salary record for a specific year | Page 13 — Consultant Profiles → Salary History tab → Add / Edit Year Record |
+| Billing amounts for bonus calculation | Page 12 — Billing Basis → Manual Entry or Auto tab |
+| Performance scores for a review year | Page 14 — Annual Review → Section 2 — Performance Scores |
 """)
 
 st.info(

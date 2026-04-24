@@ -12,7 +12,11 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import re
-from shared.models import Client, Address, Project, Invoice, InvoiceAllocation, PipelineEntry, ProjectCode, TimeEntry, WriteOff
+from shared.models import (
+    Client, Address, Project, Invoice, InvoiceAllocation, PipelineEntry,
+    ProjectCode, TimeEntry, WriteOff,
+    ConsultantProfile, AnnualSalaryHistory, BillingBasis, ReviewScore,
+)
 from shared.config import DB_PATH
 
 
@@ -165,6 +169,63 @@ def init_db() -> None:
                 reversed_reason TEXT    DEFAULT '',
                 reversed_at     TEXT    DEFAULT '',
                 created_at      TEXT    DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS consultant_profiles (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_nbr          TEXT    NOT NULL UNIQUE,
+                employment_date  TEXT    DEFAULT '',
+                prior_exp_years  REAL    DEFAULT 0.0,
+                milliman_status  TEXT    DEFAULT '',
+                external_level   TEXT    DEFAULT '',
+                languages        TEXT    DEFAULT '',
+                tools            TEXT    DEFAULT '',
+                current_role     TEXT    DEFAULT '',
+                notes            TEXT    DEFAULT '',
+                created_at       TEXT    DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS annual_salary_history (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_nbr             TEXT    NOT NULL,
+                year                INTEGER NOT NULL,
+                starting_salary     REAL    DEFAULT 0.0,
+                exams_passed        REAL    DEFAULT 0.0,
+                exam_raise_per_exam REAL    DEFAULT 1000.0,
+                other_raise         REAL    DEFAULT 0.0,
+                effective_date      TEXT    DEFAULT '',
+                objective_bonus_pct REAL    DEFAULT 0.0,
+                bonus_paid          REAL    DEFAULT 0.0,
+                proposed_rate       REAL    DEFAULT 0.0,
+                notes               TEXT    DEFAULT '',
+                UNIQUE(emp_nbr, year)
+            );
+
+            CREATE TABLE IF NOT EXISTS billing_basis (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_nbr              TEXT    NOT NULL,
+                year                 INTEGER NOT NULL,
+                source               TEXT    DEFAULT 'manual',
+                billed               REAL    DEFAULT 0.0,
+                capped_paid_prebill  REAL    DEFAULT 0.0,
+                capped_unpaid_prebill REAL   DEFAULT 0.0,
+                charged_off          REAL    DEFAULT 0.0,
+                paid                 REAL    DEFAULT 0.0,
+                unbilled             REAL    DEFAULT 0.0,
+                hourly_rate          REAL    DEFAULT 0.0,
+                notes                TEXT    DEFAULT '',
+                created_at           TEXT    DEFAULT (datetime('now')),
+                UNIQUE(emp_nbr, year)
+            );
+
+            CREATE TABLE IF NOT EXISTS review_scores (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_nbr     TEXT    NOT NULL,
+                year        INTEGER NOT NULL,
+                score_group TEXT    NOT NULL,
+                item_name   TEXT    NOT NULL,
+                score       REAL    DEFAULT 0.0,
+                UNIQUE(emp_nbr, year, score_group, item_name)
             );
         """)
         # --- Migration: pipeline budget columns ---
@@ -1056,6 +1117,264 @@ def get_time_summary_by_group(project_id: int) -> list[dict]:
             ORDER BY group_name
         """, (project_id,)).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Consultant Profile CRUD (Sprint 10)
+# ---------------------------------------------------------------------------
+
+def get_consultant_profile(emp_nbr: str) -> ConsultantProfile | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, emp_nbr, employment_date, prior_exp_years, milliman_status, "
+            "external_level, languages, tools, current_role, notes, created_at "
+            "FROM consultant_profiles WHERE emp_nbr = ?", (emp_nbr,)
+        ).fetchone()
+    return ConsultantProfile(**dict(row)) if row else None
+
+
+def upsert_consultant_profile(
+    emp_nbr: str,
+    employment_date: str = "",
+    prior_exp_years: float = 0.0,
+    milliman_status: str = "",
+    external_level: str = "",
+    languages: str = "",
+    tools: str = "",
+    current_role: str = "",
+    notes: str = "",
+) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM consultant_profiles WHERE emp_nbr = ?", (emp_nbr,)
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE consultant_profiles SET employment_date=?, prior_exp_years=?, "
+                "milliman_status=?, external_level=?, languages=?, tools=?, "
+                "current_role=?, notes=? WHERE emp_nbr=?",
+                (employment_date, prior_exp_years, milliman_status, external_level,
+                 languages, tools, current_role, notes, emp_nbr)
+            )
+            return row["id"]
+        cur = conn.execute(
+            "INSERT INTO consultant_profiles "
+            "(emp_nbr, employment_date, prior_exp_years, milliman_status, external_level, "
+            "languages, tools, current_role, notes) VALUES (?,?,?,?,?,?,?,?,?)",
+            (emp_nbr, employment_date, prior_exp_years, milliman_status, external_level,
+             languages, tools, current_role, notes)
+        )
+        return cur.lastrowid
+
+
+# ---------------------------------------------------------------------------
+# Annual Salary History CRUD (Sprint 10)
+# ---------------------------------------------------------------------------
+
+def get_salary_history(emp_nbr: str) -> list[AnnualSalaryHistory]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, emp_nbr, year, starting_salary, exams_passed, exam_raise_per_exam, "
+            "other_raise, effective_date, objective_bonus_pct, bonus_paid, proposed_rate, notes "
+            "FROM annual_salary_history WHERE emp_nbr = ? ORDER BY year",
+            (emp_nbr,)
+        ).fetchall()
+    return [AnnualSalaryHistory(**dict(r)) for r in rows]
+
+
+def get_salary_record(emp_nbr: str, year: int) -> AnnualSalaryHistory | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, emp_nbr, year, starting_salary, exams_passed, exam_raise_per_exam, "
+            "other_raise, effective_date, objective_bonus_pct, bonus_paid, proposed_rate, notes "
+            "FROM annual_salary_history WHERE emp_nbr = ? AND year = ?",
+            (emp_nbr, year)
+        ).fetchone()
+    return AnnualSalaryHistory(**dict(row)) if row else None
+
+
+def upsert_salary_record(
+    emp_nbr: str,
+    year: int,
+    starting_salary: float = 0.0,
+    exams_passed: float = 0.0,
+    exam_raise_per_exam: float = 1000.0,
+    other_raise: float = 0.0,
+    effective_date: str = "",
+    objective_bonus_pct: float = 0.0,
+    bonus_paid: float = 0.0,
+    proposed_rate: float = 0.0,
+    notes: str = "",
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO annual_salary_history "
+            "(emp_nbr, year, starting_salary, exams_passed, exam_raise_per_exam, "
+            "other_raise, effective_date, objective_bonus_pct, bonus_paid, proposed_rate, notes) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(emp_nbr, year) DO UPDATE SET "
+            "starting_salary=excluded.starting_salary, "
+            "exams_passed=excluded.exams_passed, "
+            "exam_raise_per_exam=excluded.exam_raise_per_exam, "
+            "other_raise=excluded.other_raise, "
+            "effective_date=excluded.effective_date, "
+            "objective_bonus_pct=excluded.objective_bonus_pct, "
+            "bonus_paid=excluded.bonus_paid, "
+            "proposed_rate=excluded.proposed_rate, "
+            "notes=excluded.notes",
+            (emp_nbr, year, starting_salary, exams_passed, exam_raise_per_exam,
+             other_raise, effective_date, objective_bonus_pct, bonus_paid, proposed_rate, notes)
+        )
+
+
+# ---------------------------------------------------------------------------
+# Billing Basis CRUD (Sprint 10)
+# ---------------------------------------------------------------------------
+
+def get_billing_basis_year(year: int) -> list[BillingBasis]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, emp_nbr, year, source, billed, capped_paid_prebill, "
+            "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, notes, created_at "
+            "FROM billing_basis WHERE year = ? ORDER BY emp_nbr",
+            (year,)
+        ).fetchall()
+    return [BillingBasis(**dict(r)) for r in rows]
+
+
+def get_billing_basis(emp_nbr: str, year: int) -> BillingBasis | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, emp_nbr, year, source, billed, capped_paid_prebill, "
+            "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, notes, created_at "
+            "FROM billing_basis WHERE emp_nbr = ? AND year = ?",
+            (emp_nbr, year)
+        ).fetchone()
+    return BillingBasis(**dict(row)) if row else None
+
+
+def upsert_billing_basis(
+    emp_nbr: str,
+    year: int,
+    source: str = "manual",
+    billed: float = 0.0,
+    capped_paid_prebill: float = 0.0,
+    capped_unpaid_prebill: float = 0.0,
+    charged_off: float = 0.0,
+    paid: float = 0.0,
+    unbilled: float = 0.0,
+    hourly_rate: float = 0.0,
+    notes: str = "",
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO billing_basis "
+            "(emp_nbr, year, source, billed, capped_paid_prebill, capped_unpaid_prebill, "
+            "charged_off, paid, unbilled, hourly_rate, notes) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(emp_nbr, year) DO UPDATE SET "
+            "source=excluded.source, billed=excluded.billed, "
+            "capped_paid_prebill=excluded.capped_paid_prebill, "
+            "capped_unpaid_prebill=excluded.capped_unpaid_prebill, "
+            "charged_off=excluded.charged_off, paid=excluded.paid, "
+            "unbilled=excluded.unbilled, hourly_rate=excluded.hourly_rate, "
+            "notes=excluded.notes",
+            (emp_nbr, year, source, billed, capped_paid_prebill, capped_unpaid_prebill,
+             charged_off, paid, unbilled, hourly_rate, notes)
+        )
+
+
+def get_billing_basis_from_time_entries(year: int) -> list[dict]:
+    """Auto-aggregate time entries + write-offs for a given year into billing basis rows.
+
+    Maps: non_z_charges → paid column; write-off amounts → charged_off.
+    Other billing categories (billed, capped prebill, unbilled) are not tracked in
+    time_entries and will be zero — fill manually if needed.
+    """
+    period_prefix = str(year)
+    with get_connection() as conn:
+        te_rows = conn.execute(
+            "SELECT emp_nbr, consultant, "
+            "SUM(non_z_charges) AS paid, "
+            "SUM(total_charges) AS grand_total_raw "
+            "FROM time_entries WHERE period LIKE ? "
+            "GROUP BY emp_nbr ORDER BY consultant",
+            (f"{period_prefix}%",)
+        ).fetchall()
+        wo_rows = conn.execute(
+            "SELECT emp_nbr, SUM(amount) AS charged_off "
+            "FROM write_offs "
+            "WHERE reversed = 0 "
+            "AND strftime('%Y', created_at) = ? "
+            "AND emp_nbr != '' "
+            "GROUP BY emp_nbr",
+            (period_prefix,)
+        ).fetchall()
+    wo_map = {r["emp_nbr"]: r["charged_off"] for r in wo_rows}
+    result = []
+    for r in te_rows:
+        paid = r["paid"] or 0.0
+        charged_off = wo_map.get(r["emp_nbr"], 0.0)
+        result.append({
+            "emp_nbr": r["emp_nbr"],
+            "consultant": r["consultant"],
+            "billed": 0.0,
+            "capped_paid_prebill": 0.0,
+            "capped_unpaid_prebill": 0.0,
+            "charged_off": round(charged_off, 2),
+            "paid": round(paid, 2),
+            "unbilled": 0.0,
+            "grand_total": round(paid + charged_off, 2),
+        })
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Review Scores CRUD (Sprint 10)
+# ---------------------------------------------------------------------------
+
+def get_review_scores(emp_nbr: str, year: int) -> dict[str, dict[str, float]]:
+    """Returns {group: {item: score}} for the given consultant and year."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT score_group, item_name, score FROM review_scores "
+            "WHERE emp_nbr = ? AND year = ?",
+            (emp_nbr, year)
+        ).fetchall()
+    result: dict[str, dict[str, float]] = {}
+    for r in rows:
+        result.setdefault(r["score_group"], {})[r["item_name"]] = r["score"]
+    return result
+
+
+def get_review_scores_multi_year(emp_nbr: str, years: list[int]) -> dict[int, dict[str, dict[str, float]]]:
+    """Returns {year: {group: {item: score}}} for historical comparison."""
+    if not years:
+        return {}
+    placeholders = ",".join("?" * len(years))
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"SELECT year, score_group, item_name, score FROM review_scores "
+            f"WHERE emp_nbr = ? AND year IN ({placeholders}) ORDER BY year",
+            [emp_nbr] + list(years)
+        ).fetchall()
+    result: dict[int, dict[str, dict[str, float]]] = {}
+    for r in rows:
+        result.setdefault(r["year"], {}).setdefault(r["score_group"], {})[r["item_name"]] = r["score"]
+    return result
+
+
+def upsert_review_scores(emp_nbr: str, year: int, scores: dict[str, dict[str, float]]) -> None:
+    """Upsert performance scores. scores = {group: {item: score}}."""
+    with get_connection() as conn:
+        for group, items in scores.items():
+            for item, score in items.items():
+                conn.execute(
+                    "INSERT INTO review_scores (emp_nbr, year, score_group, item_name, score) "
+                    "VALUES (?,?,?,?,?) "
+                    "ON CONFLICT(emp_nbr, year, score_group, item_name) DO UPDATE SET score=excluded.score",
+                    (emp_nbr, year, group, item, score)
+                )
 
 
 if __name__ == "__main__":

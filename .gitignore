@@ -1,12 +1,25 @@
 # Secrets
 .streamlit/secrets.toml
 
-# Database (local only)
+# Database (local only — all app data lives here)
 data/invoiceapp.db
 
-# Generated files
+# Generated invoice files
 exports/
 __pycache__/
 *.pyc
 *.pyo
 .env
+
+# HR / compensation sensitive data
+# Bonus templates, time-charge CSVs, and Excel source files must not be committed.
+# See SENSITIVE_FILES.md for their local machine paths.
+Review/
+data/*.csv
+data/*.xlsx
+data/*.xls
+data/*.xlsm
+data/time_charges/
+
+# Temp Office lock files
+~$*
