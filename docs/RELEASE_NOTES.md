@@ -2,6 +2,12 @@
 
 ---
 
+## Numbered Pages — Launch shortcut → ready to test!
+
+> **Updates on 24 Apr 2026 (UX)** — Sidebar now grouped into 6 sections (Invoices, Clients & Projects, Pipeline & Reporting, Time & Billing, Annual Review, Admin) with pages numbered 1–14. How to Use stays pinned at the top ungrouped. One-click `launch_app.bat` added — double-click to start the app and auto-open the browser. Currency fixed to € across all Annual Review pages.
+
+---
+
 ## Annual Review features built
 
 > **Updates on 24 Apr 2026** — Sprint 10 delivered: annual consultant review and bonus-calculation module (pages 12–14). New billing basis page aggregates time-charge data per consultant and computes productivity bonus %; new consultant profiles page stores employment details and salary history year-by-year; new annual review page combines billing basis, salary chain, and performance scoring (3 groups, 19 items) with Excel export. Four new DB tables added. Sensitive HR and billing files excluded from git; `SENSITIVE_FILES.md` added as a local navigation guide.
