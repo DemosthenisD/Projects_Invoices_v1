@@ -13,7 +13,7 @@ echo.
 :: Open browser after 4 seconds (gives Streamlit time to start)
 start "" cmd /c "timeout /t 4 /nobreak >nul && start http://localhost:8501"
 
-:: Launch Streamlit (keeps running until window is closed)
-streamlit run frontend/App.py
+:: Launch Streamlit — headless flag stops Streamlit opening its own browser tab
+streamlit run frontend/App.py --server.headless true
 
 pause
