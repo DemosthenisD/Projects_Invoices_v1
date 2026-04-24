@@ -1,9 +1,8 @@
 """
-InvoiceApp — login entry point.
+InvoiceApp — entry point.
 
 Run with:
-    cd frontend
-    streamlit run App.py
+    streamlit run frontend/App.py
 """
 import sys
 import os
@@ -19,9 +18,6 @@ st.set_page_config(page_title="InvoiceApp", page_icon="🧾", layout="wide",
 
 db.init_db()
 
-# ------------------------------------------------------------------
-# Session state helpers
-# ------------------------------------------------------------------
 
 def _is_logged_in() -> bool:
     return st.session_state.get("authenticated", False)
@@ -32,15 +28,9 @@ def _logout() -> None:
 
 
 # ------------------------------------------------------------------
-# Login wall
+# Login wall — navigation is not set up until authenticated
 # ------------------------------------------------------------------
-
 if not _is_logged_in():
-    # Hide the page list in the sidebar until the user is signed in
-    st.markdown(
-        "<style>[data-testid='stSidebarNav']{display:none}</style>",
-        unsafe_allow_html=True,
-    )
     st.title("InvoiceApp")
     st.subheader("Sign in")
 
@@ -58,12 +48,43 @@ if not _is_logged_in():
             st.error("Invalid username or password.")
     st.stop()
 
-# ------------------------------------------------------------------
-# Authenticated landing — redirect hint
-# ------------------------------------------------------------------
 
-st.sidebar.button("Sign out", on_click=_logout)
+# ------------------------------------------------------------------
+# Authenticated — grouped sidebar navigation
+# ------------------------------------------------------------------
+st.sidebar.button("Sign out", on_click=_logout, use_container_width=True)
 
-st.title("InvoiceApp")
-st.write(f"Welcome, **{st.session_state.get('username', '')}**.")
-st.info("Use the sidebar to navigate to a page.")
+pg = st.navigation(
+    {
+        "": [
+            st.Page("pages/1_how_to_use.py",           title="How to Use",             icon="📖"),
+        ],
+        "Invoices": [
+            st.Page("pages/0_generate_invoice.py",     title="1. Generate Invoice",    icon="📄"),
+            st.Page("pages/2_invoice_log.py",           title="2. Invoice Log",         icon="📋"),
+        ],
+        "Clients & Projects": [
+            st.Page("pages/3_clients_projects.py",     title="3. Clients & Projects",  icon="🏢"),
+            st.Page("pages/11_add_new_project.py",     title="4. Add New Project",     icon="➕"),
+            st.Page("pages/6_project_codes.py",        title="5. Project Codes",       icon="🔑"),
+        ],
+        "Pipeline & Reporting": [
+            st.Page("pages/4_pipeline_crm.py",         title="6. Pipeline / CRM",      icon="📊"),
+            st.Page("pages/5_dashboard.py",             title="7. Dashboard",           icon="📈"),
+            st.Page("pages/10_project_overview.py",    title="8. Project Overview",    icon="🗂️"),
+        ],
+        "Time & Billing": [
+            st.Page("pages/7_time_tracking.py",        title="9. Time Tracking",       icon="⏱️"),
+            st.Page("pages/8_write_offs.py",            title="10. Write-offs",         icon="✂️"),
+        ],
+        "Annual Review": [
+            st.Page("pages/12_billing_basis.py",       title="11. Billing Basis",      icon="💶"),
+            st.Page("pages/13_consultant_profiles.py", title="12. Consultant Profiles",icon="👤"),
+            st.Page("pages/14_annual_review.py",       title="13. Annual Review",      icon="📝"),
+        ],
+        "Admin": [
+            st.Page("pages/9_data_tables.py",          title="14. Data Tables",        icon="🗄️"),
+        ],
+    }
+)
+pg.run()
