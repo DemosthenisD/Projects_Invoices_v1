@@ -95,7 +95,7 @@ with st.expander("1 — Compensation & Bonus", expanded=True):
         )
     else:
         col_a, col_b, col_c = st.columns(3)
-        col_a.metric("Basis for Bonus £", f"£{basis:,.0f}")
+        col_a.metric("Basis for Bonus €", f"€{basis:,.0f}")
         col_b.metric("Equivalent Hours", f"{equiv_hrs:,.1f} hrs")
         col_c.metric("Productivity Bonus", f"{prod_pct:.2%}")
 
@@ -112,7 +112,7 @@ with st.expander("1 — Compensation & Bonus", expanded=True):
         c1, c2, c3 = st.columns(3)
 
         start_sal = c1.number_input(
-            "Starting Salary £",
+            "Starting Salary €",
             value=float(salary_rec.starting_salary if salary_rec else prior_updated),
             min_value=0.0, step=500.0,
             help="Carried forward automatically from prior year's updated salary.",
@@ -123,12 +123,12 @@ with st.expander("1 — Compensation & Bonus", expanded=True):
             min_value=0.0, step=0.5,
         )
         exam_raise_per = c3.number_input(
-            "Raise per Exam £",
+            "Raise per Exam €",
             value=float(salary_rec.exam_raise_per_exam if salary_rec else 1000.0),
             min_value=0.0, step=100.0,
         )
         other_raise = c1.number_input(
-            "Other / Discretionary Raise £",
+            "Other / Discretionary Raise €",
             value=float(salary_rec.other_raise if salary_rec else 0.0),
             min_value=0.0, step=100.0,
         )
@@ -143,12 +143,12 @@ with st.expander("1 — Compensation & Bonus", expanded=True):
             help="Enter as percentage, e.g. 7 for 7%",
         )
         bonus_paid = c1.number_input(
-            "Bonus Paid £ (actual, for record)",
+            "Bonus Paid € (actual, for record)",
             value=float(salary_rec.bonus_paid if salary_rec else 0.0),
             min_value=0.0, step=100.0,
         )
         proposed_rate = c2.number_input(
-            "Proposed Billing Rate £/hr",
+            "Proposed Billing Rate €/hr",
             value=float(salary_rec.proposed_rate if salary_rec else 0.0),
             min_value=0.0, step=5.0,
         )
@@ -166,11 +166,11 @@ with st.expander("1 — Compensation & Bonus", expanded=True):
 
         st.subheader("Computed Results")
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Exam Raise £",     f"£{exam_raise:,.0f}")
-        m2.metric("Total Raise £",    f"£{total_raise:,.0f}")
-        m3.metric("Updated Salary £", f"£{updated_sal:,.0f}")
+        m1.metric("Exam Raise €",     f"€{exam_raise:,.0f}")
+        m2.metric("Total Raise €",    f"€{total_raise:,.0f}")
+        m3.metric("Updated Salary €", f"€{updated_sal:,.0f}")
         m4.metric("Total Bonus %",    f"{total_bonus:.2%}")
-        m5.metric("Bonus Amount £",   f"£{bonus_amount:,.0f}")
+        m5.metric("Bonus Amount €",   f"€{bonus_amount:,.0f}")
 
         if st.form_submit_button("Save Compensation", type="primary"):
             upsert_salary_record(
@@ -297,24 +297,24 @@ with st.expander("3 — Summary & Export", expanded=False):
         st.markdown("---")
         st.markdown("**Compensation**")
         st.markdown(
-            f"Starting Salary: £{(salary_rec.starting_salary if salary_rec else 0):,.0f}  \n"
+            f"Starting Salary: €{(salary_rec.starting_salary if salary_rec else 0):,.0f}  \n"
             f"Exams passed: {(salary_rec.exams_passed if salary_rec else 0)} × "
-            f"£{(salary_rec.exam_raise_per_exam if salary_rec else 1000):,.0f} = "
-            f"£{exam_raise_s:,.0f}  \n"
-            f"Other raise: £{(salary_rec.other_raise if salary_rec else 0):,.0f}  \n"
-            f"**Updated Salary: £{updated_sal_s:,.0f}**  \n"
+            f"€{(salary_rec.exam_raise_per_exam if salary_rec else 1000):,.0f} = "
+            f"€{exam_raise_s:,.0f}  \n"
+            f"Other raise: €{(salary_rec.other_raise if salary_rec else 0):,.0f}  \n"
+            f"**Updated Salary: €{updated_sal_s:,.0f}**  \n"
             f"Effective: {(salary_rec.effective_date if salary_rec else '—')}"
         )
         st.markdown(
             f"Productivity Bonus: {prod_pct:.2%}  \n"
             f"Objective Bonus: {obj_pct_s:.2%}  \n"
-            f"**Total Bonus: {total_bonus_s:.2%} → £{bonus_amount_s:,.0f}**"
+            f"**Total Bonus: {total_bonus_s:.2%} → €{bonus_amount_s:,.0f}**"
         )
         if billing:
             st.markdown(
-                f"Billing Basis: £{basis:,.0f} · "
+                f"Billing Basis: €{basis:,.0f} · "
                 f"Equiv Hrs: {equiv_hrs:,.1f} · "
-                f"Rate: £{billing.hourly_rate:,.0f}/hr"
+                f"Rate: €{billing.hourly_rate:,.0f}/hr"
             )
 
     with col_r:
@@ -331,7 +331,7 @@ with st.expander("3 — Summary & Export", expanded=False):
 
     # Proposed rate for next year
     if salary_rec and salary_rec.proposed_rate:
-        st.success(f"Proposed billing rate for {int(review_year) + 1}: **£{salary_rec.proposed_rate:,.0f}/hr**")
+        st.success(f"Proposed billing rate for {int(review_year) + 1}: **€{salary_rec.proposed_rate:,.0f}/hr**")
 
     st.divider()
     if st.button("Export Review to Excel", key="btn_export_review"):
@@ -378,12 +378,12 @@ def _build_review_excel(
             "Field": [
                 "Consultant", "Emp #", "Year", "Assessor", "Date of Assessment",
                 "Milliman Status", "External Level", "Current Role",
-                "", "Starting Salary £", "Exams Passed", "Raise per Exam £",
-                "Exam Raise £", "Other Raise £", "Total Raise £", "Updated Salary £",
+                "", "Starting Salary €", "Exams Passed", "Raise per Exam €",
+                "Exam Raise €", "Other Raise €", "Total Raise €", "Updated Salary €",
                 "Effective Date",
-                "", "Billing Basis £", "Equiv Hours", "Hourly Rate £/hr",
+                "", "Billing Basis €", "Equiv Hours", "Hourly Rate €/hr",
                 "Productivity Bonus %", "Objective Bonus %",
-                "Total Bonus %", "Bonus Amount £", "Proposed Rate £/hr",
+                "Total Bonus %", "Bonus Amount €", "Proposed Rate €/hr",
             ],
             "Value": [
                 name, emp_nbr, year, assessor, assess_date,

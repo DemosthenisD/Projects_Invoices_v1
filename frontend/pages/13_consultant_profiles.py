@@ -163,20 +163,20 @@ with tab_salary:
 
             rows.append({
                 "Year":               h.year,
-                "Start Salary £":     h.starting_salary,
+                "Start Salary €":     h.starting_salary,
                 "Exams":              h.exams_passed,
-                "Raise/Exam £":       h.exam_raise_per_exam,
-                "Exam Raise £":       exam_raise,
-                "Other Raise £":      h.other_raise,
-                "Total Raise £":      total_raise,
-                "Updated Salary £":   updated_salary,
+                "Raise/Exam €":       h.exam_raise_per_exam,
+                "Exam Raise €":       exam_raise,
+                "Other Raise €":      h.other_raise,
+                "Total Raise €":      total_raise,
+                "Updated Salary €":   updated_salary,
                 "Effective Date":     h.effective_date,
                 "Prod Bonus %":       f"{prod_pct:.2%}",
                 "Obj Bonus %":        f"{h.objective_bonus_pct:.2%}",
                 "Total Bonus %":      f"{bonus_pct:.2%}",
-                "Bonus Amount £":     bonus_amount,
-                "Bonus Paid £":       h.bonus_paid,
-                "Proposed Rate £/hr": h.proposed_rate,
+                "Bonus Amount €":     bonus_amount,
+                "Bonus Paid €":       h.bonus_paid,
+                "Proposed Rate €/hr": h.proposed_rate,
             })
 
         df = pd.DataFrame(rows)
@@ -185,15 +185,15 @@ with tab_salary:
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Start Salary £":     st.column_config.NumberColumn(format="£%.0f"),
-                "Exam Raise £":       st.column_config.NumberColumn(format="£%.0f"),
-                "Other Raise £":      st.column_config.NumberColumn(format="£%.0f"),
-                "Total Raise £":      st.column_config.NumberColumn(format="£%.0f"),
-                "Updated Salary £":   st.column_config.NumberColumn(format="£%.0f"),
-                "Bonus Amount £":     st.column_config.NumberColumn(format="£%.0f"),
-                "Bonus Paid £":       st.column_config.NumberColumn(format="£%.0f"),
-                "Raise/Exam £":       st.column_config.NumberColumn(format="£%.0f"),
-                "Proposed Rate £/hr": st.column_config.NumberColumn(format="£%.0f"),
+                "Start Salary €":     st.column_config.NumberColumn(format="€%.0f"),
+                "Exam Raise €":       st.column_config.NumberColumn(format="€%.0f"),
+                "Other Raise €":      st.column_config.NumberColumn(format="€%.0f"),
+                "Total Raise €":      st.column_config.NumberColumn(format="€%.0f"),
+                "Updated Salary €":   st.column_config.NumberColumn(format="€%.0f"),
+                "Bonus Amount €":     st.column_config.NumberColumn(format="€%.0f"),
+                "Bonus Paid €":       st.column_config.NumberColumn(format="€%.0f"),
+                "Raise/Exam €":       st.column_config.NumberColumn(format="€%.0f"),
+                "Proposed Rate €/hr": st.column_config.NumberColumn(format="€%.0f"),
             },
         )
 
@@ -233,7 +233,7 @@ with tab_salary:
             prior_updated = 0.0
 
         start_sal = col1.number_input(
-            "Starting Salary £",
+            "Starting Salary €",
             value=float(existing_rec.starting_salary if existing_rec else prior_updated),
             min_value=0.0, step=500.0,
         )
@@ -243,12 +243,12 @@ with tab_salary:
             min_value=0.0, step=0.5,
         )
         exam_raise_per = col2.number_input(
-            "Raise per Exam £",
+            "Raise per Exam €",
             value=float(existing_rec.exam_raise_per_exam if existing_rec else 1000.0),
             min_value=0.0, step=100.0,
         )
         other_raise = col3.number_input(
-            "Other Raise £",
+            "Other Raise €",
             value=float(existing_rec.other_raise if existing_rec else 0.0),
             min_value=0.0, step=100.0,
         )
@@ -265,12 +265,12 @@ with tab_salary:
             help="Enter as a percentage, e.g. 7 for 7%",
         )
         bonus_paid = col5.number_input(
-            "Bonus Paid £ (historical)",
+            "Bonus Paid € (historical)",
             value=float(existing_rec.bonus_paid if existing_rec else 0.0),
             min_value=0.0, step=100.0,
         )
         proposed_rate = col6.number_input(
-            "Proposed Billing Rate £/hr",
+            "Proposed Billing Rate €/hr",
             value=float(existing_rec.proposed_rate if existing_rec else 0.0),
             min_value=0.0, step=5.0,
         )
@@ -283,9 +283,9 @@ with tab_salary:
         total_raise_preview = exam_raise_preview + other_raise
         updated_sal_preview = start_sal + total_raise_preview
         st.caption(
-            f"Preview → Exam Raise: **£{exam_raise_preview:,.0f}** · "
-            f"Total Raise: **£{total_raise_preview:,.0f}** · "
-            f"Updated Salary: **£{updated_sal_preview:,.0f}**"
+            f"Preview → Exam Raise: **€{exam_raise_preview:,.0f}** · "
+            f"Total Raise: **€{total_raise_preview:,.0f}** · "
+            f"Updated Salary: **€{updated_sal_preview:,.0f}**"
         )
 
         if st.form_submit_button("Save Year Record", type="primary"):
@@ -318,8 +318,8 @@ with tab_rates:
             bb = get_billing_basis(emp_nbr, h.year)
             rate_rows.append({
                 "Year":                  h.year,
-                "Proposed Rate £/hr":    h.proposed_rate,
-                "Billing Basis Rate £/hr": bb.hourly_rate if bb else "—",
+                "Proposed Rate €/hr":    h.proposed_rate,
+                "Billing Basis Rate €/hr": bb.hourly_rate if bb else "—",
                 "Source":                bb.source if bb else "—",
             })
         st.dataframe(pd.DataFrame(rate_rows), use_container_width=True, hide_index=True)

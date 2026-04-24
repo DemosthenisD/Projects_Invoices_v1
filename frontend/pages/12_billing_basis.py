@@ -59,8 +59,8 @@ def _derive(row: dict) -> dict:
     prod_bonus_pct = max(equiv_hrs - 800, 0) / 40 * 0.01
 
     return {
-        "Grand Total £":      round(grand_total, 2),
-        "Basis for Bonus £":  round(basis, 2),
+        "Grand Total €":      round(grand_total, 2),
+        "Basis for Bonus €":  round(basis, 2),
         "Equiv Hrs":          round(equiv_hrs, 1),
         "Productivity Bonus": f"{prod_bonus_pct:.2%}",
     }
@@ -96,12 +96,12 @@ with tab_auto:
             records.append({
                 "Emp #":            r["emp_nbr"],
                 "Consultant":       r.get("consultant", ""),
-                "Billed £":         r["billed"],
-                "Capped Paid £":    r["capped_paid_prebill"],
-                "Capped Unpaid £":  r["capped_unpaid_prebill"],
-                "Charged Off £":    r["charged_off"],
-                "Paid £":           r["paid"],
-                "Unbilled £":       r["unbilled"],
+                "Billed €":         r["billed"],
+                "Capped Paid €":    r["capped_paid_prebill"],
+                "Capped Unpaid €":  r["capped_unpaid_prebill"],
+                "Charged Off €":    r["charged_off"],
+                "Paid €":           r["paid"],
+                "Unbilled €":       r["unbilled"],
                 **derived,
             })
         df = pd.DataFrame(records)
@@ -120,7 +120,7 @@ with tab_auto:
             for i, (emp, name, default_rate) in enumerate(rate_rows):
                 col = rate_cols[i % len(rate_cols)]
                 rates[emp] = col.number_input(
-                    f"{name} rate (£/hr)", value=float(default_rate),
+                    f"{name} rate (€/hr)", value=float(default_rate),
                     min_value=0.0, step=5.0, key=f"auto_rate_{emp}"
                 )
 
@@ -164,13 +164,13 @@ with tab_manual:
             manual_data.append({
                 "Emp #":            emp,
                 "Consultant":       cg["consultant"],
-                "Billed £":         existing.billed if existing else 0.0,
-                "Capped Paid Prebill £":   existing.capped_paid_prebill if existing else 0.0,
-                "Capped Unpaid Prebill £": existing.capped_unpaid_prebill if existing else 0.0,
-                "Charged Off £":    existing.charged_off if existing else 0.0,
-                "Paid £":           existing.paid if existing else 0.0,
-                "Unbilled £":       existing.unbilled if existing else 0.0,
-                "Hourly Rate £/hr": existing.hourly_rate if existing else 0.0,
+                "Billed €":         existing.billed if existing else 0.0,
+                "Capped Paid Prebill €":   existing.capped_paid_prebill if existing else 0.0,
+                "Capped Unpaid Prebill €": existing.capped_unpaid_prebill if existing else 0.0,
+                "Charged Off €":    existing.charged_off if existing else 0.0,
+                "Paid €":           existing.paid if existing else 0.0,
+                "Unbilled €":       existing.unbilled if existing else 0.0,
+                "Hourly Rate €/hr": existing.hourly_rate if existing else 0.0,
                 "Notes":            existing.notes if existing else "",
             })
 
@@ -182,13 +182,13 @@ with tab_manual:
             disabled=["Emp #", "Consultant"],
             num_rows="fixed",
             column_config={
-                "Billed £":                  st.column_config.NumberColumn(format="£%.2f"),
-                "Capped Paid Prebill £":     st.column_config.NumberColumn(format="£%.2f"),
-                "Capped Unpaid Prebill £":   st.column_config.NumberColumn(format="£%.2f"),
-                "Charged Off £":             st.column_config.NumberColumn(format="£%.2f"),
-                "Paid £":                    st.column_config.NumberColumn(format="£%.2f"),
-                "Unbilled £":                st.column_config.NumberColumn(format="£%.2f"),
-                "Hourly Rate £/hr":          st.column_config.NumberColumn(format="£%.0f"),
+                "Billed €":                  st.column_config.NumberColumn(format="€%.2f"),
+                "Capped Paid Prebill €":     st.column_config.NumberColumn(format="€%.2f"),
+                "Capped Unpaid Prebill €":   st.column_config.NumberColumn(format="€%.2f"),
+                "Charged Off €":             st.column_config.NumberColumn(format="€%.2f"),
+                "Paid €":                    st.column_config.NumberColumn(format="€%.2f"),
+                "Unbilled €":                st.column_config.NumberColumn(format="€%.2f"),
+                "Hourly Rate €/hr":          st.column_config.NumberColumn(format="€%.0f"),
             },
         )
 
@@ -197,19 +197,19 @@ with tab_manual:
         for _, row in edited.iterrows():
             d = {
                 "Consultant":    row["Consultant"],
-                "Grand Total £": 0.0,
-                "Basis for Bonus £": 0.0,
+                "Grand Total €": 0.0,
+                "Basis for Bonus €": 0.0,
                 "Equiv Hrs": 0.0,
                 "Productivity Bonus": "—",
             }
             r_dict = {
-                "billed":                row["Billed £"],
-                "capped_paid_prebill":   row["Capped Paid Prebill £"],
-                "capped_unpaid_prebill": row["Capped Unpaid Prebill £"],
-                "charged_off":           row["Charged Off £"],
-                "paid":                  row["Paid £"],
-                "unbilled":              row["Unbilled £"],
-                "hourly_rate":           row["Hourly Rate £/hr"],
+                "billed":                row["Billed €"],
+                "capped_paid_prebill":   row["Capped Paid Prebill €"],
+                "capped_unpaid_prebill": row["Capped Unpaid Prebill €"],
+                "charged_off":           row["Charged Off €"],
+                "paid":                  row["Paid €"],
+                "unbilled":              row["Unbilled €"],
+                "hourly_rate":           row["Hourly Rate €/hr"],
             }
             derived = _derive(r_dict)
             d.update(derived)
@@ -221,8 +221,8 @@ with tab_manual:
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Grand Total £":     st.column_config.NumberColumn(format="£%.2f"),
-                "Basis for Bonus £": st.column_config.NumberColumn(format="£%.2f"),
+                "Grand Total €":     st.column_config.NumberColumn(format="€%.2f"),
+                "Basis for Bonus €": st.column_config.NumberColumn(format="€%.2f"),
                 "Equiv Hrs":         st.column_config.NumberColumn(format="%.1f hrs"),
             },
         )
@@ -237,13 +237,13 @@ with tab_manual:
                     emp_nbr=emp,
                     year=year,
                     source="manual",
-                    billed=float(row["Billed £"] or 0),
-                    capped_paid_prebill=float(row["Capped Paid Prebill £"] or 0),
-                    capped_unpaid_prebill=float(row["Capped Unpaid Prebill £"] or 0),
-                    charged_off=float(row["Charged Off £"] or 0),
-                    paid=float(row["Paid £"] or 0),
-                    unbilled=float(row["Unbilled £"] or 0),
-                    hourly_rate=float(row["Hourly Rate £/hr"] or 0),
+                    billed=float(row["Billed €"] or 0),
+                    capped_paid_prebill=float(row["Capped Paid Prebill €"] or 0),
+                    capped_unpaid_prebill=float(row["Capped Unpaid Prebill €"] or 0),
+                    charged_off=float(row["Charged Off €"] or 0),
+                    paid=float(row["Paid €"] or 0),
+                    unbilled=float(row["Unbilled €"] or 0),
+                    hourly_rate=float(row["Hourly Rate €/hr"] or 0),
                     notes=str(row["Notes"] or ""),
                 )
                 saved += 1
@@ -266,12 +266,12 @@ with tab_saved:
             })
             records.append({
                 "Emp #":             b.emp_nbr,
-                "Billed £":          b.billed,
-                "Capped Paid £":     b.capped_paid_prebill,
-                "Capped Unpaid £":   b.capped_unpaid_prebill,
-                "Charged Off £":     b.charged_off,
-                "Paid £":            b.paid,
-                "Unbilled £":        b.unbilled,
+                "Billed €":          b.billed,
+                "Capped Paid €":     b.capped_paid_prebill,
+                "Capped Unpaid €":   b.capped_unpaid_prebill,
+                "Charged Off €":     b.charged_off,
+                "Paid €":            b.paid,
+                "Unbilled €":        b.unbilled,
                 "Hrly Rate":         b.hourly_rate,
                 "Source":            b.source,
                 **derived,
@@ -282,14 +282,14 @@ with tab_saved:
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Billed £":          st.column_config.NumberColumn(format="£%.2f"),
-                "Capped Paid £":     st.column_config.NumberColumn(format="£%.2f"),
-                "Capped Unpaid £":   st.column_config.NumberColumn(format="£%.2f"),
-                "Charged Off £":     st.column_config.NumberColumn(format="£%.2f"),
-                "Paid £":            st.column_config.NumberColumn(format="£%.2f"),
-                "Unbilled £":        st.column_config.NumberColumn(format="£%.2f"),
-                "Grand Total £":     st.column_config.NumberColumn(format="£%.2f"),
-                "Basis for Bonus £": st.column_config.NumberColumn(format="£%.2f"),
+                "Billed €":          st.column_config.NumberColumn(format="€%.2f"),
+                "Capped Paid €":     st.column_config.NumberColumn(format="€%.2f"),
+                "Capped Unpaid €":   st.column_config.NumberColumn(format="€%.2f"),
+                "Charged Off €":     st.column_config.NumberColumn(format="€%.2f"),
+                "Paid €":            st.column_config.NumberColumn(format="€%.2f"),
+                "Unbilled €":        st.column_config.NumberColumn(format="€%.2f"),
+                "Grand Total €":     st.column_config.NumberColumn(format="€%.2f"),
+                "Basis for Bonus €": st.column_config.NumberColumn(format="€%.2f"),
                 "Equiv Hrs":         st.column_config.NumberColumn(format="%.1f hrs"),
             },
         )
@@ -318,8 +318,8 @@ def _export_billing_basis_excel(rows: list, year: int) -> bytes:
             "Capped Unpaid Prebill": b.capped_unpaid_prebill,
             "Charged Off": b.charged_off, "Paid": b.paid, "Unbilled": b.unbilled,
             "Hourly Rate": b.hourly_rate,
-            "Grand Total": derived["Grand Total £"],
-            "Basis for Bonus": derived["Basis for Bonus £"],
+            "Grand Total": derived["Grand Total €"],
+            "Basis for Bonus": derived["Basis for Bonus €"],
             "Equiv Hrs": derived["Equiv Hrs"],
             "Productivity Bonus %": derived["Productivity Bonus"],
         })
