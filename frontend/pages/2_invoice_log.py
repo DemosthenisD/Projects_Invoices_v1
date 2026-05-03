@@ -226,46 +226,181 @@ with tab_upload:
 
     # ---- Build template ----
     def _build_template() -> bytes:
-        client_list = db.get_clients(exclude_types=["internal"])
-        client_ref = "\n".join(f"{c.id} — {c.name}" for c in client_list)
+        from openpyxl import Workbook
+        from openpyxl.styles import PatternFill, Font, Alignment
+        from openpyxl.utils import get_column_letter
 
-        template_cols = {
-            "client_id": "int (see Reference sheet)",
-            "project_id": "int or 0",
-            "invoice_number": "e.g. 2024-001",
-            "year": "e.g. 2024",
-            "date": "YYYY-MM-DD",
-            "amount": "net amount",
-            "vat_amount": "",
-            "vat_pct": "e.g. 19",
-            "address": "",
-            "project_name": "",
-            "description": "",
-            "template_used": "",
-            "format": "PDF or DOCX",
-            "file_path": "",
-            "expenses_net": "0",
-            "expenses_vat": "0",
-            "status": "outstanding / paid / partial",
-            "paid_date": "YYYY-MM-DD or blank",
-        }
+        client_list = db.get_clients(exclude_types=["internal"])
+
+        # Build project rows (all clients)
+        proj_rows = []
+        for c in client_list:
+            for p in db.get_projects(client_id=c.id):
+                proj_rows.append({
+                    "project_id":     p.id,
+                    "project_name":   p.name,
+                    "client_id":      c.id,
+                    "client_name":    c.name,
+                    "vat_pct":        p.vat_pct,
+                    "template_used":  p.template,
+                    "description":    p.description,
+                    "project_status": p.status,
+                })
+
+        # Build address rows
+        addr_rows = []
+        for c in client_list:
+            for a in db.get_addresses(c.id):
+                addr_rows.append({
+                    "client_id":   c.id,
+                    "client_name": c.name,
+                    "address":     a.address,
+                })
+
+        # ---- Styles ----
+        GOLD  = PatternFill("solid", fgColor="FFD966")   # required
+        BLUE  = PatternFill("solid", fgColor="BDD7EE")   # look up from reference
+        GREEN = PatternFill("solid", fgColor="E2EFDA")   # optional
+        GREY  = PatternFill("solid", fgColor="F2F2F2")   # example row
+        DARK  = PatternFill("solid", fgColor="404040")   # reference sheet headers
+        BOLD_W   = Font(bold=True, color="FFFFFF")
+        BOLD_BLK = Font(bold=True)
+        HINT     = Font(italic=True, color="888888", size=8)
+
+        # ---- Invoice sheet column definitions ----
+        # (field_name, fill, hint)
+        COLS = [
+            ("client_id",      GOLD,  "Required — copy ID from Client Reference tab"),
+            ("project_id",     BLUE,  "Copy from Project Reference tab (0 if none)"),
+            ("invoice_number", GOLD,  "Required — unique per year, e.g. 2025-001"),
+            ("year",           GOLD,  "Required — 4-digit year, e.g. 2025"),
+            ("date",           GOLD,  "Required — YYYY-MM-DD"),
+            ("amount",         GOLD,  "Required — net fee excluding VAT"),
+            ("vat_amount",     GOLD,  "Required — amount × vat_pct ÷ 100"),
+            ("vat_pct",        BLUE,  "Copy from Project Reference tab, e.g. 19"),
+            ("address",        BLUE,  "Copy from Address Reference tab"),
+            ("project_name",   BLUE,  "Copy from Project Reference tab"),
+            ("description",    BLUE,  "Copy from Project Reference tab (editable)"),
+            ("template_used",  BLUE,  "Copy from Project Reference tab"),
+            ("format",         GREEN, "PDF or DOCX (default: PDF)"),
+            ("expenses_net",   GREEN, "0 if no expenses"),
+            ("expenses_vat",   GREEN, "0 if no expenses"),
+            ("status",         GOLD,  "outstanding / paid / partial"),
+            ("paid_date",      GREEN, "YYYY-MM-DD or leave blank"),
+            ("file_path",      GREEN, "Leave blank for bulk upload"),
+        ]
+
+        # Build pre-filled example from first project/address in DB
+        ex = {f: "" for f, _, _ in COLS}
+        ex.update({"invoice_number": "EXAMPLE-001", "year": 2025,
+                   "date": "2025-01-31", "amount": 10000.0, "vat_amount": 1900.0,
+                   "format": "PDF", "expenses_net": 0, "expenses_vat": 0,
+                   "status": "outstanding", "paid_date": "", "file_path": ""})
+        if proj_rows:
+            p0 = proj_rows[0]
+            ex.update({"client_id": p0["client_id"], "project_id": p0["project_id"],
+                       "vat_pct": p0["vat_pct"], "project_name": p0["project_name"],
+                       "description": p0["description"] or "",
+                       "template_used": p0["template_used"]})
+        if addr_rows:
+            ex["address"] = addr_rows[0]["address"]
+
+        wb = Workbook()
+
+        # ==== Sheet 1 — Invoices ====
+        ws = wb.active
+        ws.title = "Invoices"
+        ws.freeze_panes = "A3"
+
+        # Row 1 — colour-coded field headers
+        for ci, (field, fill, _) in enumerate(COLS, 1):
+            cell = ws.cell(row=1, column=ci, value=field)
+            cell.fill = fill
+            cell.font = BOLD_BLK
+            cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+        # Row 2 — hints (small italic, not imported)
+        for ci, (_, _, hint) in enumerate(COLS, 1):
+            cell = ws.cell(row=2, column=ci, value=hint)
+            cell.font = HINT
+            cell.alignment = Alignment(wrap_text=True)
+
+        # Row 3 — pre-filled example (clearly labelled, filtered out on import)
+        for ci, (field, _, _) in enumerate(COLS, 1):
+            cell = ws.cell(row=3, column=ci, value=ex.get(field, ""))
+            cell.fill = GREY
+
+        # Column widths
+        widths = [12, 12, 18, 8, 14, 12, 12, 8, 40, 28, 35, 18, 8, 12, 12, 14, 14, 20]
+        for i, w in enumerate(widths, 1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+        ws.row_dimensions[1].height = 28
+        ws.row_dimensions[2].height = 36
+
+        # Legend caption in a merged cell below the hint row
+        leg = ws.cell(row=4, column=1,
+                      value="🟡 Required   🔵 Copy from reference tabs   🟢 Optional   "
+                            "Row 3 is an example — delete or leave it (it is skipped on import).")
+        leg.font = Font(italic=True, size=9, color="444444")
+        ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=len(COLS))
+
+        def _ref_header(sheet, headers):
+            for i, h in enumerate(headers, 1):
+                cell = sheet.cell(row=1, column=i, value=h)
+                cell.fill = DARK
+                cell.font = BOLD_W
+                cell.alignment = Alignment(horizontal="center")
+
+        # ==== Sheet 2 — Client Reference ====
+        wc = wb.create_sheet("Client Reference")
+        c_hdrs = ["client_id", "client_name", "client_code", "vat_number", "country"]
+        _ref_header(wc, c_hdrs)
+        for ri, c in enumerate(client_list, 2):
+            wc.cell(ri, 1, c.id);   wc.cell(ri, 2, c.name)
+            wc.cell(ri, 3, c.client_code); wc.cell(ri, 4, c.vat_number)
+            wc.cell(ri, 5, c.country)
+        for i, w in enumerate([10, 30, 15, 18, 15], 1):
+            wc.column_dimensions[get_column_letter(i)].width = w
+        wc.freeze_panes = "A2"
+
+        # ==== Sheet 3 — Project Reference ====
+        wp = wb.create_sheet("Project Reference")
+        p_hdrs = ["project_id", "project_name", "client_id", "client_name",
+                  "vat_pct", "template_used", "description", "project_status"]
+        _ref_header(wp, p_hdrs)
+        for ri, p in enumerate(proj_rows, 2):
+            for ci, k in enumerate(p_hdrs, 1):
+                wp.cell(ri, ci, p[k])
+        for i, w in enumerate([12, 32, 10, 26, 8, 18, 42, 14], 1):
+            wp.column_dimensions[get_column_letter(i)].width = w
+        wp.freeze_panes = "A2"
+
+        # ==== Sheet 4 — Address Reference ====
+        wa = wb.create_sheet("Address Reference")
+        _ref_header(wa, ["client_id", "client_name", "address"])
+        for ri, a in enumerate(addr_rows, 2):
+            wa.cell(ri, 1, a["client_id"]); wa.cell(ri, 2, a["client_name"])
+            wa.cell(ri, 3, a["address"])
+        wa.column_dimensions["A"].width = 10
+        wa.column_dimensions["B"].width = 30
+        wa.column_dimensions["C"].width = 60
+        wa.freeze_panes = "A2"
 
         buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-            pd.DataFrame([{k: v for k, v in template_cols.items()}]).to_excel(
-                writer, sheet_name="Invoices", index=False
-            )
-            pd.DataFrame(
-                [{"client_id": c.id, "client_name": c.name, "client_code": c.client_code}
-                 for c in client_list]
-            ).to_excel(writer, sheet_name="Client Reference", index=False)
+        wb.save(buf)
         return buf.getvalue()
 
     st.download_button(
-        label="Download blank template",
+        label="Download template",
         data=_build_template(),
         file_name="invoice_upload_template.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    st.caption(
+        "🟡 Gold columns = required · "
+        "🔵 Blue columns = copy from reference tabs · "
+        "🟢 Green columns = optional"
     )
 
     st.divider()
@@ -273,10 +408,13 @@ with tab_upload:
     uploaded = st.file_uploader("Upload completed template (.xlsx)", type=["xlsx"])
     if uploaded:
         try:
-            df = pd.read_excel(uploaded, sheet_name="Invoices", dtype=str)
+            # Row 1 = headers, row 2 = hints (skipped), row 3 = example (filtered below)
+            df = pd.read_excel(uploaded, sheet_name="Invoices", dtype=str, skiprows=[1])
             df = df.dropna(how="all")
+            # Drop the pre-filled example row
+            df = df[~df["invoice_number"].str.upper().str.startswith("EXAMPLE", na=False)]
             records = df.to_dict("records")
-            st.write(f"Found **{len(records)}** row(s) in uploaded file.")
+            st.write(f"Found **{len(records)}** data row(s) in uploaded file.")
 
             if st.button("Import invoices", type="primary"):
                 result = db.bulk_import_invoices(records)
