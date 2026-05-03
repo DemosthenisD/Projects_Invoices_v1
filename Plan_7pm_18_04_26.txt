@@ -1,0 +1,256 @@
+Plan: Time Tracking, Project Codes & Write-offs
+Updated: 2026-04-18 (incorporates user comments from Comments additional functionality 8pm_18_04_26.txt)
+
+═══════════════════════════════════════════════════════
+CONTEXT
+═══════════════════════════════════════════════════════
+The InvoiceApp currently tracks clients, projects, invoices, pipeline and revenue analytics.
+This sprint extends it with project codes, billable time tracking, and write-offs.
+
+Key clarifications from user:
+- Project_Code = client_code + client_suffix (2-digit). Not a free-form label.
+- A project can have multiple project_codes; each code covers a scope/portion of the project.
+- client_code in CSV matches clients.client_code in the DB.
+- (client_code + client_suffix) uniquely maps to exactly one project.
+- Internal rows (e.g. 0009COM00 Company Admin, Conferences, Public Holiday) are kept — needed for future time-off/internal summaries.
+- Write-offs allocate down to (project_code, person) level, not just code.
+- Time import CSV format is fixed/known — no column mapping UI needed.
+- Duplicate detection key: (period, emp_nbr, client_code, client_suffix).
+
+═══════════════════════════════════════════════════════
+1. NEW DB TABLES  (add to backend/db.py → init_db())
+═══════════════════════════════════════════════════════
+
+project_codes
+─────────────
+CREATE TABLE IF NOT EXISTS project_codes (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id     INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    client_code    TEXT    NOT NULL,   -- matches clients.client_code
+    client_suffix  TEXT    NOT NULL,   -- 2-digit suffix, e.g. '01', '07'
+    name           TEXT    DEFAULT '',
+    description    TEXT    DEFAULT '',
+    budget_amount  REAL    DEFAULT 0.0,
+    status         TEXT    DEFAULT 'Active',
+    created_at     TEXT    DEFAULT (datetime('now')),
+    UNIQUE(client_code, client_suffix)  -- globally unique → uniquely maps to one project
+);
+
+time_entries
+────────────
+CREATE TABLE IF NOT EXISTS time_entries (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_code_id INTEGER REFERENCES project_codes(id) ON DELETE SET NULL,
+    project_id      INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+    period          TEXT    NOT NULL,  -- yyyymm, e.g. '202206'
+    emp_nbr         TEXT    NOT NULL,
+    consultant      TEXT    NOT NULL,
+    client_code     TEXT    NOT NULL,
+    client_suffix   TEXT    NOT NULL,
+    total_hours     REAL    DEFAULT 0.0,
+    non_z_hours     REAL    DEFAULT 0.0,  -- billable hours
+    z_hours         REAL    DEFAULT 0.0,  -- internal hours (time-off, admin, etc.)
+    total_charges   REAL    DEFAULT 0.0,
+    non_z_charges   REAL    DEFAULT 0.0,  -- billable charges
+    z_charges       REAL    DEFAULT 0.0,  -- internal charges
+    description     TEXT    DEFAULT '',
+    batch_ref       TEXT    DEFAULT '',   -- import filename/timestamp for batch delete
+    created_at      TEXT    DEFAULT (datetime('now')),
+    UNIQUE(period, emp_nbr, client_code, client_suffix)  -- duplicate guard
+);
+
+write_offs
+──────────
+CREATE TABLE IF NOT EXISTS write_offs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id      INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    project_code_id INTEGER REFERENCES project_codes(id) ON DELETE SET NULL,
+    emp_nbr         TEXT    DEFAULT '',   -- person allocation (empty = project-level only)
+    consultant      TEXT    DEFAULT '',
+    amount          REAL    NOT NULL,
+    reason          TEXT    NOT NULL,
+    notes           TEXT    DEFAULT '',
+    allocation_type TEXT    DEFAULT 'project',  -- 'project' (auto pro-rata) | 'adhoc'
+    reversed        INTEGER DEFAULT 0,
+    reversed_reason TEXT    DEFAULT '',
+    reversed_at     TEXT    DEFAULT '',
+    created_at      TEXT    DEFAULT (datetime('now'))
+);
+
+═══════════════════════════════════════════════════════
+2. NEW MODELS  (shared/models.py)
+═══════════════════════════════════════════════════════
+
+@dataclass
+class ProjectCode:
+    id: int
+    project_id: int
+    client_code: str
+    client_suffix: str
+    name: str = ""
+    description: str = ""
+    budget_amount: float = 0.0
+    status: str = "Active"
+    created_at: str = ""
+
+@dataclass
+class TimeEntry:
+    id: int
+    period: str          # yyyymm
+    emp_nbr: str
+    consultant: str
+    client_code: str
+    client_suffix: str
+    total_hours: float
+    non_z_hours: float
+    z_hours: float
+    total_charges: float
+    non_z_charges: float
+    z_charges: float
+    project_code_id: int = 0
+    project_id: int = 0
+    description: str = ""
+    batch_ref: str = ""
+    created_at: str = ""
+
+@dataclass
+class WriteOff:
+    id: int
+    project_id: int
+    amount: float
+    reason: str
+    notes: str = ""
+    project_code_id: int = 0
+    emp_nbr: str = ""
+    consultant: str = ""
+    allocation_type: str = "project"
+    reversed: int = 0
+    reversed_reason: str = ""
+    reversed_at: str = ""
+    created_at: str = ""
+
+═══════════════════════════════════════════════════════
+3. NEW DB FUNCTIONS  (backend/db.py)
+═══════════════════════════════════════════════════════
+
+Project codes:
+  get_project_codes(project_id=None, status=None) → list[ProjectCode]
+  get_project_code_by_keys(client_code, client_suffix) → ProjectCode | None
+  add_project_code(project_id, client_code, client_suffix, name, description, budget_amount, status) → int
+  update_project_code(code_id, name, description, budget_amount, status) → None
+  delete_project_code(code_id) → None  (guard: fail if time entries exist)
+
+Time entries:
+  add_time_entries_bulk(entries: list[dict]) → dict  — returns {inserted, skipped, unmatched}
+    Logic: for each row, look up project_code by (client_code, client_suffix);
+           if not found → unmatched (store row but project_code_id = NULL, flag in result);
+           if duplicate (period+emp_nbr+client_code+client_suffix) → skipped.
+  get_time_entries(project_id=None, project_code_id=None, period_from=None, period_to=None,
+                   emp_nbr=None, include_internal=True) → list[TimeEntry]
+  delete_time_batch(batch_ref: str) → int
+  get_time_summary(project_id: int) → list[dict]
+    Per-code rollup: {client_code, client_suffix, name, budget_amount,
+                      total_hours, non_z_hours, non_z_charges, write_off_amount, net_charges}
+
+Write-offs:
+  add_write_off_project(project_id, amount, reason, notes) → list[int]
+    Allocates pro-rata by non_z_charges across (project_code, consultant) pairs;
+    creates one write_offs row per (code, person) combination.
+  add_write_off_adhoc(project_id, project_code_id, emp_nbr, consultant, amount, reason, notes) → int
+  get_write_offs(project_id=None, include_reversed=False) → list[WriteOff]
+  reverse_write_off(write_off_id, reason) → None
+
+═══════════════════════════════════════════════════════
+4. NEW PAGES
+═══════════════════════════════════════════════════════
+
+frontend/pages/5_project_codes.py
+  Purpose: Define and manage project codes per project.
+  Layout:
+    - Client → Project selector (cascading dropdowns)
+    - Table of existing codes: client_code | client_suffix | Name | Budget € | Billable to date | Remaining | Status | Actions
+    - "Add Project Code" expander: client_code, client_suffix, name, description, budget, status
+    - Inline edit & delete (guard: block delete if time entries exist)
+
+frontend/pages/6_time_tracking.py
+  Purpose: Import and review time charge data; see rollup.
+  Tabs:
+    Import
+      - Upload CSV file (fixed format matching sample_time_sheet.csv)
+      - Preview first 10 rows
+      - Validate: check which (client_code, client_suffix) pairs are unmatched in project_codes
+      - Show match summary before confirming import
+      - On confirm: insert entries, show result: X inserted / Y skipped (duplicates) / Z unmatched
+      - batch_ref = filename + timestamp
+
+    Entries
+      - Filters: project, period range, consultant, internal/billable toggle
+      - Tabular view of raw entries
+      - Delete by batch_ref
+
+    Rollup
+      - Select client → project
+      - Per-code table: client_code+suffix | Name | Budget € | Billable € | Write-offs € | Net Billable € | Invoiced € | Remaining €
+      - Project-level totals row at bottom
+      - Invoiced = sum of invoices.amount (net of VAT) for the project
+      - Internal hours shown separately below main table
+
+frontend/pages/7_write_offs.py
+  Purpose: Record and manage write-off decisions.
+  Sections:
+    Create Write-off
+      - Select client → project
+      - Type: Project-level (auto pro-rata by charges × person) | Ad-hoc (specific code + person)
+      - Amount €, Reason, Notes
+      - Project-level: show allocation preview across (code, person) before saving
+      - Ad-hoc: select code + consultant from dropdowns
+
+    Write-off Log
+      - Filter by project
+      - Table: Code | Consultant | Amount | Reason | Date | Type | Status | Actions
+      - Reverse button per active row → prompt for reversal reason
+
+═══════════════════════════════════════════════════════
+5. PROJECT SUMMARY UPDATE  (frontend/pages/2_clients_projects.py)
+═══════════════════════════════════════════════════════
+Add a rollup section to the project detail view:
+  - Total billable charges (sum non_z_charges)
+  - Total invoiced (sum invoices.amount net of VAT)
+  - Total write-offs applied
+  - Net billable (charges − write-offs)
+  - Remaining vs budget
+
+═══════════════════════════════════════════════════════
+6. FILES TO CREATE / MODIFY
+═══════════════════════════════════════════════════════
+File                                  Action
+────────────────────────────────────  ──────────────────────────────────────
+backend/db.py                         Add 3 tables; add all new CRUD functions
+shared/models.py                      Add ProjectCode, TimeEntry, WriteOff dataclasses
+frontend/pages/5_project_codes.py     Create new
+frontend/pages/6_time_tracking.py     Create new
+frontend/pages/7_write_offs.py        Create new
+frontend/pages/2_clients_projects.py  Add project rollup summary section
+tests/test_db.py                      Extend with smoke tests for new tables/functions
+
+═══════════════════════════════════════════════════════
+7. IMPLEMENTATION ORDER
+═══════════════════════════════════════════════════════
+1. DB schema + models          (foundation for everything)
+2. DB CRUD functions + tests
+3. Page 5 — project_codes      (codes must exist before import can map them)
+4. Page 6 — time_tracking      (depends on codes)
+5. Page 7 — write_offs         (depends on codes + time entries for allocation preview)
+6. Page 2 update — project summary rollup
+
+═══════════════════════════════════════════════════════
+8. VERIFICATION CHECKLIST
+═══════════════════════════════════════════════════════
+- python -m pytest tests/ -v — all existing tests still pass
+- Add a project code → appears in page 5 table
+- Upload sample_time_sheet.csv → X inserted, internal rows kept, unmatched flagged
+- Re-upload same file → all rows skipped as duplicates (no doubles)
+- Rollup tab shows correct Budget / Billable / Remaining per code
+- Create project-level write-off → verify pro-rata allocation across (code, person) pairs
+- Reverse a write-off → net billable updates in rollup
+- Project summary in page 2 shows correct aggregated figures

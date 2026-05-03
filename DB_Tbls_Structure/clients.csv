@@ -1,0 +1,36 @@
+id;name;name_for_invoices;client_code;vat_number;created_at
+1;0;0;;;2026-04-17 17:13:04
+2;ATOS;ATOS;0478ATO78;;2026-04-17 17:13:04
+3;Baker Tilly;Baker Tilly Advisory Services Limited;0478BAK78;;2026-04-17 17:13:04
+4;Cosmoco;CosmoCo Ltd;0478COS78;12243908I;2026-04-17 17:13:04
+5;ERGO;ERGO;0478ERG78;EL 094256484;2026-04-17 17:13:04
+6;Ethniki CY;Ethniki Insurance;0478ETH30;10109043?;2026-04-17 17:13:04
+7;Ethniki Greece;ETHNIKI, THE, HELLENIC GENERAL INSURANCE CO. S.A.;0478ETK30;;2026-04-17 17:13:04
+8;Eurolife Fairfax;Eurolife Fairfax;0478EUR30;;2026-04-17 17:13:04
+9;IAG;IAG;0478INT30;;2026-04-17 17:13:04
+10;Minerva;Minerva;0478MIN78;;2026-04-17 17:13:04
+11;Moore;Moore Limassol Limited;0478MOO78;;2026-04-17 17:13:04
+12;Prime;Prime;0478PRI78;;2026-04-17 17:13:04
+13;Universal;Universal;0478UNI78;;2026-04-17 17:13:04
+40;Groupama;Groupama Phoenix Hellenic Insurance Company SA;0478GRO30;EL 094250000;2026-04-18 19:22:21
+41;Mikellidou;Mikellidou;0478MIK78;;2026-04-18 19:22:21
+42;Ethniki CY (ZET);Ethniki Insurance;0478ZET30;;2026-04-18 19:22:21
+20;Company Admin;Non-Billable - Company Admin;0009COM00;;5/3/2026 13:00
+21;Company Admin;Non-Billable - Company Admin;0009COM00;;5/4/2026 13:00
+22;Conferences;Non-Billable - Conferences;0009CON00;;5/5/2026 13:00
+23;Holiday;Non-Billable - Holiday;0009HOL00;;5/6/2026 13:00
+24;Marketing - Initial Client Contact;Non-Billable - Marketing - Initial Client Contact;0009MKI00;;5/7/2026 13:00
+25;Marketing - Client Meetings;Non-Billable - Marketing - Client Meetings;0009MKM00;;5/8/2026 13:00
+26;Marketing - Proposals/Negs;Non-Billable - Marketing - Proposals/Negs;0009MKN00;;5/9/2026 13:00
+27;Marketing - Promotional;Non-Billable - Marketing - Promotional;0009MKP00;;5/10/2026 13:00
+28;Miscellaneous;Non-Billable - Miscellaneous;0009MSC01;;5/11/2026 13:00
+29;Personal Admin;Non-Billable - Personal Admin;0009PER00;;5/12/2026 13:00
+30;Planning;Non-Billable - Planning;0009PLN00;;5/13/2026 13:00
+31;Post Release Peer Review Preparation;Non-Billable - Post Release Peer Review Preparation;0009PRP00;;5/14/2026 13:00
+32;Public Holiday;Non-Billable - Public Holiday;0009PUB00;;5/15/2026 13:00
+33;Research;Non-Billable - Research;0009RES00;;5/16/2026 13:00
+34;Sickness;Non-Billable - Sickness;0009SIK00;;5/17/2026 13:00
+35;Study Time Allowance;Non-Billable - Study Time Allowance;0009STD01;;5/18/2026 13:00
+36;Supervision;Non-Billable - Supervision;0009SUP00;;5/19/2026 13:00
+37;Training of Colleagues;Non-Billable - Training of Colleagues;0009TNC00;;5/20/2026 13:00
+38;Training & Study;Non-Billable - Training & Study;0009TRN00;;5/21/2026 13:00

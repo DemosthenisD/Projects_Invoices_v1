@@ -23,3 +23,20 @@ data/time_charges/
 
 # Temp Office lock files
 ~$*
+
+# Timesheet extract CSVs (sensitive employee billing data)
+_timecharges/
+
+# Claude Code internal / worktree state
+.claude/
+
+# Old app version folder (contains secrets)
+Updated_Invoice_v2/
+
+# DB table exports in DB_Tbls_Structure — financial/billing rows are sensitive
+DB_Tbls_Structure/invoices.csv
+DB_Tbls_Structure/time_entries.csv
+DB_Tbls_Structure/write_offs.csv
+DB_Tbls_Structure/billing_basis.csv
+DB_Tbls_Structure/sqlite_sequence.csv
+DB_Tbls_Structure/report.xlsx

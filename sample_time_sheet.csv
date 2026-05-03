@@ -1,0 +1,9 @@
+currency_code,pb_mask,display_unit,period,emp_nbr,name_fam_last_first,client_code,name,client_suffix,description,total_hours,non_z_hours,z_hours,total_charges,non_z_charges,z_charges,cc_budget_amount,cs_budget_amount
+EUR,"#,##0.00;[RED](#,##0.00)",1,202206,04788001,DD,0009COM00,Company Admin,01,,5.85,0,5.85,0,0,0,0,0
+EUR,"#,##0.00;[RED](#,##0.00)",1,202212,04788001,DD,0009COM00,Company Admin,01,,9.1,0,9.1,0,0,0,0,0
+EUR,"#,##0.00;[RED](#,##0.00)",1,202201,04788001,DD,0009COM00,Company Admin,01,,12.35,0,12.35,0,0,0,0,0
+EUR,"#,##0.00;[RED](#,##0.00)",1,202210,04788001,DD,0009CON00,Conferences,01,,9,0,9,0,0,0,0,0
+EUR,"#,##0.00;[RED](#,##0.00)",1,202201,04788001,DD,0009PUB00,Public Holiday,01,,8,0,8,0,0,0,0,0
+EUR,"#,##0.00;[RED](#,##0.00)",1,202205,04788001,DD,0009SUP00,Supervision,01,,9.5,0,9.5,0,0,0,0,0
+EUR,"#,##0.00;[RED](#,##0.00)",1,202210,04788001,DD,0478ERG78,ERGO Ins Co.,01,Project 1 Project Management,1,1,0,212.5,212.5,0,0,0
+EUR,"#,##0.00;[RED](#,##0.00)",1,202208,04788001,DD,0478EUR30,Eurolife FFH,07,Secondment Resources for IFRS17 implementation,3,3,0,480,480,0,0,0

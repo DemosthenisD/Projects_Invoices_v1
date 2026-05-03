@@ -1,0 +1,236 @@
+oN THE TOPIC OF HOW TO CONVERT A WORD INVOICE INTO PDF:
+Given THE EXISTING FUNCTIONALITY IN THE APP DOES NOT SEEM TO WORK, i COLLECTED OTHER POSSIBLE IDEAS.
+Read the below, analyse the suggestions, identify any other ideas if you think they might be superior and decide which one to use to replace the existing "CovertPDF" sections
+
+
+Option 1
+docx2pdf works on Windows by driving Microsoft Word through win32com, so it is convenient inside Streamlit but still depends on a local Word installation.
+
+python
+from pathlib import Path
+import tempfile
+import streamlit as st
+
+def convert_docx_to_pdf_docx2pdf(uploaded_file):
+    from docx2pdf import convert
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        input_path = tmpdir / uploaded_file.name
+        output_path = tmpdir / f"{Path(uploaded_file.name).stem}.pdf"
+
+        input_path.write_bytes(uploaded_file.getbuffer())
+        convert(str(input_path), str(output_path))
+
+        if not output_path.exists():
+            raise RuntimeError("Conversion failed: PDF was not created.")
+
+        return output_path.read_bytes(), output_path.name
+
+# Streamlit usage
+st.title("DOCX to PDF - docx2pdf")
+uploaded = st.file_uploader("Upload DOCX", type=["docx"], key="docx2pdf")
+
+if uploaded and st.button("Convert with Word", key="btn_docx2pdf"):
+    try:
+        pdf_bytes, pdf_name = convert_docx_to_pdf_docx2pdf(uploaded)
+        st.success("Converted successfully.")
+        st.download_button("Download PDF", pdf_bytes, file_name=pdf_name, mime="application/pdf")
+    except Exception as e:
+        st.error(f"Conversion failed: {e}")
+This is usually the best fidelity option on Windows because Word itself performs the export.
+
+Option 2
+LibreOffice supports command-line conversion on Windows with soffice.exe --headless --convert-to pdf, which makes it a strong free replacement when you do not want to depend on Microsoft Word.
+
+python
+from pathlib import Path
+import tempfile
+import subprocess
+import shutil
+import streamlit as st
+
+def find_soffice_windows():
+    candidates = [
+        Path(r"C:\Program Files\LibreOffice\program\soffice.exe"),
+        Path(r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"),
+    ]
+    for p in candidates:
+        if p.exists():
+            return str(p)
+
+    soffice = shutil.which("soffice") or shutil.which("soffice.exe")
+    if soffice:
+        return soffice
+
+    raise FileNotFoundError(
+        "LibreOffice not found. Install LibreOffice or add soffice.exe to PATH."
+    )
+
+def convert_docx_to_pdf_libreoffice(uploaded_file):
+    soffice = find_soffice_windows()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        input_path = tmpdir / uploaded_file.name
+        output_dir = tmpdir / "out"
+        output_dir.mkdir()
+
+        input_path.write_bytes(uploaded_file.getbuffer())
+
+        cmd = [
+            soffice,
+            "--headless",
+            "--convert-to", "pdf",
+            "--outdir", str(output_dir),
+            str(input_path),
+        ]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+
+        output_path = output_dir / f"{input_path.stem}.pdf"
+        if result.returncode != 0 or not output_path.exists():
+            raise RuntimeError(
+                f"LibreOffice conversion failed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+            )
+
+        return output_path.read_bytes(), output_path.name
+
+# Streamlit usage
+st.title("DOCX to PDF - LibreOffice")
+uploaded = st.file_uploader("Upload DOCX", type=["docx"], key="libreoffice")
+
+if uploaded and st.button("Convert with LibreOffice", key="btn_libreoffice"):
+    try:
+        pdf_bytes, pdf_name = convert_docx_to_pdf_libreoffice(uploaded)
+        st.success("Converted successfully.")
+        st.download_button("Download PDF", pdf_bytes, file_name=pdf_name, mime="application/pdf")
+    except Exception as e:
+        st.error(f"Conversion failed: {e}")
+This approach is fully free and better suited than docx2pdf for a Windows machine that has LibreOffice but not Word.
+
+Option 3
+wkhtmltopdf is an open-source Windows command-line tool that converts HTML to PDF, so for DOCX files you need a two-step path: extract/render DOCX into HTML first, then pass that HTML to wkhtmltopdf.
+
+python
+from pathlib import Path
+import tempfile
+import subprocess
+import shutil
+import html
+import streamlit as st
+from docx import Document
+
+def find_wkhtmltopdf_windows():
+    candidates = [
+        Path(r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"),
+        Path(r"C:\Program Files (x86)\wkhtmltopdf\bin\wkhtmltopdf.exe"),
+    ]
+    for p in candidates:
+        if p.exists():
+            return str(p)
+
+    exe = shutil.which("wkhtmltopdf") or shutil.which("wkhtmltopdf.exe")
+    if exe:
+        return exe
+
+    raise FileNotFoundError(
+        "wkhtmltopdf not found. Install it or add wkhtmltopdf.exe to PATH."
+    )
+
+def docx_to_basic_html(docx_path):
+    doc = Document(docx_path)
+    parts = []
+    for p in doc.paragraphs:
+        text = html.escape(p.text)
+        if text.strip():
+            parts.append(f"<p>{text}</p>")
+
+    body = "\n".join(parts) if parts else "<p></p>"
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body {{
+    font-family: Arial, sans-serif;
+    font-size: 12pt;
+    line-height: 1.4;
+    margin: 30px;
+}}
+p {{
+    margin: 0 0 10px 0;
+}}
+</style>
+</head>
+<body>
+{body}
+</body>
+</html>
+"""
+
+def convert_docx_to_pdf_wkhtmltopdf(uploaded_file):
+    wkhtmltopdf = find_wkhtmltopdf_windows()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        input_path = tmpdir / uploaded_file.name
+        html_path = tmpdir / f"{Path(uploaded_file.name).stem}.html"
+        output_path = tmpdir / f"{Path(uploaded_file.name).stem}.pdf"
+
+        input_path.write_bytes(uploaded_file.getbuffer())
+
+        html_content = docx_to_basic_html(input_path)
+        html_path.write_text(html_content, encoding="utf-8")
+
+        cmd = [
+            wkhtmltopdf,
+            str(html_path),
+            str(output_path),
+        ]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+
+        if result.returncode != 0 or not output_path.exists():
+            raise RuntimeError(
+                f"wkhtmltopdf conversion failed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+            )
+
+        return output_path.read_bytes(), output_path.name
+
+# Streamlit usage
+st.title("DOCX to PDF - HTML + wkhtmltopdf")
+uploaded = st.file_uploader("Upload DOCX", type=["docx"], key="wkhtmltopdf")
+
+if uploaded and st.button("Convert via HTML", key="btn_wkhtml"):
+    try:
+        pdf_bytes, pdf_name = convert_docx_to_pdf_wkhtmltopdf(uploaded)
+        st.success("Converted successfully.")
+        st.download_button("Download PDF", pdf_bytes, file_name=pdf_name, mime="application/pdf")
+    except Exception as e:
+        st.error(f"Conversion failed: {e}")
+This route is free, but it is the weakest for Word layout fidelity because the quality depends on how well you reconstruct the DOCX as HTML before PDF generation.
+
+Which to use
+For a Windows Streamlit app, use docx2pdf if Word is already installed and exact Word-like output matters most. If you want a no-license path, LibreOffice headless is the cleanest free alternative and is usually the one I would recommend first. Use the wkhtmltopdf route only when your DOCX content is structurally simple, such as mostly paragraphs and basic headings, or when you already convert DOCX to HTML elsewhere in your app.
+
+Install notes
+docx2pdf: pip install docx2pdf, plus a local Microsoft Word installation.
+
+LibreOffice: install LibreOffice and make sure soffice.exe is reachable or lives in the default Windows program folder.
+
+wkhtmltopdf: install the Windows binary and optionally pip install python-docx for the DOCX-to-HTML step shown above.
+
+If you want, I can turn these into one unified Streamlit component that auto-detects which converter is available and falls back in this order: Word, then LibreOffice, then HTML plus wkhtmltopdf.

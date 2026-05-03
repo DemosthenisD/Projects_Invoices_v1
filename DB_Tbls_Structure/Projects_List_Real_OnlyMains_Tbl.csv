@@ -1,0 +1,43 @@
+Project Line,Client,Project,client_code,client_suffix,description,Sub-Project,Suffix Range,Suffix Budget,Sub-Project Budget,Project Range,Project Budget,Proj. Budget Ext.,Client Code & Suffix,Project Year,Contract State,Billing Status,Status,Proj. Upd Charges,Proj. Charges,Chrg Offs YTD,Requested Chrg Offs2,Total Chrg Offs,Invoices 2020,Invoices 2021,Invoices 2022,Invoices 2023,Invoices 2024,Invoices 2025,Invoiced,Unbilled
+1,ERGO,IFRS17 - P1,0478ERG78,01,Project 1 Project Management,,53-70,70000,---,354-464,464000,488000,0478ERG78-01,,,,,593146.7,629831.56,36684.86,,36684.86,88000,400000,0,0,0,0,488000,0
+1,ERGO,IFRS17 - P2,0478ERG78,05,Project 2 Project Management,,,,---,108-127,127000,127000,0478ERG78-05,,,,,119608.665,161366.215,41757.55,,41757.55,0,0,50000,20000,0,0,70000,49608.665
+1,ERGO,IFRS17 - Local Assistance,0478ERG78,09,Local Assistance Extra Scope,,120-130,130000,---,120-130,130000,200000,0478ERG78-09,,,,,199436.75,205400.33,5963.58,,5963.58,0,95000,105000,0,0,0,200000,-563.25
+1,ERGO,Prophet Training,0478ERG78,10,Prophet Training,,13.5,13500,---,13.5,13500,13500,0478ERG78-10,,,,,11243.5875,11243.5875,0,,0,0,13500,0,0,0,0,13500,-2256.4125
+1,ERGO,TVOG Re-calc,0478ERG78,11,TVOG Re-calc,TVOG Re-calc,10,35000,35000,35k,35000,10000,0478ERG78-11,"2022, 2023",Signed,Not Billed,Finishished - Nut Paid,21816.9715,23762.7815,1945.81,,1945.81,0,0,10000,0,15000,10000,35000,-13183.0285
+1,ERGO,Unbundling / VFA Quantification impact,0478ERG78,12,Unbundling / VFA Quantification impact,,,,---,,50000,,0478ERG78-12,,,,,43669.59,43669.59,0,,0,0,0,0,0,50000,0,50000,-6330.41
+1,ERGO,Project UL,0478ERG78,13,Proj_UL: WS1 - Modelling of UL products and riders,Project UL: WS1 - Modelling of UL products and riders,,80000,80000,80000,80000,,0478ERG78-13,,,,,81583.23,81583.23,0,,0,0,0,0,0,0,80000,80000,0
+1,IAG,IFRS17 - Main,0478INT30,02,Assumptions / Methodology,,,,---,,475000,,0478INT30-02,,,,Closed,599399.4735,617364.6435,17965.17,,17965.17,0,0,0,0,0,0,0,475000
+1,IAG,IFRS17 - Additional,0478INT30,09,"Prophet additional scope 1 (OMC, NLST riders, pensioners)",,,22500,---,,50500,,0478INT30-09,,,,Closed,67125.875,67125.875,0,,0,0,0,0,0,0,0,0,50500
+1,IAG,HIA,0478INT30,11,HIA-2020 (EIOPA Holistic Impact Assessment 2020) assistance,,,,---,,0,,0478INT30-11,,,,Closed,9265,9265,0,,0,0,0,0,0,0,0,0,0
+1,IAG,AFH Review,0478INT30,13,AFH_Review_2020,,,10000,---,,10000,,0478INT30-13,,,,Closed,25340.625,25340.625,0,,0,0,0,0,0,0,0,0,10000
+1,IAG,Economic Scenarios,0478INT30,???,,ESG Scenarios - Annual,,8000,8000,,8000,,0478INT30-???,,,,Active,0,0,0,,0,0,0,8000,8000,0,8000,24000,-24000
+1,IAG,Turbo ALM - License,0478INT30,14,,Turbo ALM,,7500,7500,Yr2+: 7.5k,7500,,0478INT30-14,,,,Active,40695.2075,40695.2075,0,,0,0,0,7500,7500,7500,0,22500,-15000
+1,IAG,Methodology,0478INT30,21,IFRS17 - Methodology Budget,Appendix III_Meth.,,100000,100000,100k,100000,,0478INT30-21,,,,Active,69822.71,69822.71,0,,0,0,0,10000,27000,0,0,37000,32822.71
+1,IAG,Fair Value - IFRS17,0478INT30,15,Fair value approach (Life),Appendix I-II,,15300,15300,,15300,,0478INT30-15,,,,Closed,28948.8625,35778.4325,6829.57,,6829.57,0,0,0,0,0,0,0,15300
+1,IAG,Appendix I-II,0478INT30,17,NL-specific appendix II scope,Appendix I-II,,49600,---,,49600,,0478INT30-17,,,,,47015.8525,47714.9625,699.11,,699.11,0,0,41600,0,0,0,41600,5415.8525
+1,IAG,IFRS17 Life – WoP Claims,0478INT30,18,IFRS17 Life – WoP Claims,Appendix I-II,,10800,10800,,10800,,0478INT30-18,,,,Closed,10946.5725,11477.8225,531.25,,531.25,0,0,0,10800,0,0,10800,0
+1,IAG,IFRS17 VFA Eligibility,0478INT30,19,IFRS17 VFA Eligibility,Appendix I-II,,15300,15300,,15300,,0478INT30-19,,,,Finishished - Nut Paid,15404.081,25417.041,10012.96,,10012.96,0,0,15300,0,0,0,15300,0
+1,IAG,Treatment of policyholders’ loans under IFRS17,0478INT30,24,Treatment of policyholders’ loans under IFRS17,Appendix I-II,,10800,10800,,10800,,0478INT30-24,,,,Finishished - Nut Paid,10949.4675,10949.4675,0,,0,0,0,0,10800,0,0,10800,0
+1,IAG,Reinsurance - Life,0478INT30,25,Reinsurance - Life,Appendix I-II,,15300,15300,,15300,,0478INT30-25,,,,Future,0,0,0,,0,0,0,0,0,0,0,0,0
+1,IAG,UAT,0478INT30,20,IFRS17- User Acceptance Tests,Appendix III_UAT,,85000,85000,80-90k,90000,,0478INT30-20,,,,Closed,111331.9775,141573.5775,30241.6,,30241.6,0,0,85000,0,0,0,85000,5000
+1,IAG,IFRS17 Documentation,0478INT30,22,IFRS17 Documentation Project - Life,Appendix IV: ifrs17 Documentation,,82500,---,100-120k,110000,,0478INT30-22,,,,Closed,75784.98,75784.98,0,,0,0,0,110000,0,0,0,110000,-34215.02
+1,Eurolife Fairfax,ORSA,0478EUR30,03,ORSA,,,,---,,,,0478EUR30-03,,,,Closed,42.5,42.5,0,,0,0,0,0,0,0,0,0,0
+1,Eurolife Fairfax,TIPP product,0478EUR30,06,Market consistent scenario solution for valuation of TIPP product,,,,---,,,,0478EUR30-06,,,,Closed,54166.916,54773.996,607.08,,607.08,0,0,0,0,0,0,0,0
+1,Eurolife Fairfax,ESG,0478EUR30,04,ESG,,,,---,6000,6000,,0478EUR30-04,,,,Active,10931.596,10931.596,0,,0,0,6000,0,12000,6000,0,24000,-18000
+1,Eurolife Fairfax,SoW_2021-05 Secondment Resources,0478EUR30,07,Secondment Resources for IFRS17 implementation,,5-6 Mnths @ 950/1.5 days,95000,---,5-6 Mnths @ 950/1.5 days,95000,,0478EUR30-07,,,,Closed,49977.805,51563.815,1586.01,,1586.01,0,16500,33095,0,0,0,49595,382.805
+1,Eurolife Fairfax,SoW_2022-06 Fair Value - IFRS17,0478EUR30,08,Fair Value - IFRS17,,30-35K,30000,---,30-35K,30000,35000,0478EUR30-08,,,,Closed,32346.855,32346.855,0,,0,0,0,32500,0,0,0,32500,-153.145
+1,Ethniki Greece,Validation TP_Assumptions  2023,0478ETK30,01,PMO,PMO,,10000,10000,120k + 110k,120000,,0478ETK30-01,2023,Signed,Not Billed,Finishished - Nut Paid,167329.775,167329.775,0,,0,0,0,0,0,120000,0,120000,0
+1,Ethniki Greece,Validation TP_Assumptions  2024,0478ETK30,01,PMO,PMO,,10000,10000,110k,110000,,0478ETK30-01,,,,,99070.5225,99070.5225,0,,0,0,0,0,0,0,60000,60000,39070.5225
+1,Cosmoco,Hydra Review Support,0478COS78,01,(blank),,,,---,,8000,,0478COS78-01,2020+,,,Active,25704.34,28930.15,3225.81,,3225.81,0,0,0,22500,8000,0,30500,-22500
+1,Ethniki CY,Market Risk Calcs,0478ETH30,06,SII support,,,6000,---,,6000,,0478ETH30-06,2020+,,,Active,23965.8,25643.64,1677.84,,1677.84,0,0,6000,6000,6000,0,18000,-12000
+1,Ethniki CY,Additional Tasks,0478ETH30,09,Non standard requests - bill separately,,,,---,,0,,0478ETH30-09,2020+,,,Active,19196.64,21004.64,1808,,1808,0,0,0,0,0,0,0,0
+1,Ethniki CY,Economic Scenarios,0478ETH30,08,Economic Scenarios,ESG Scenarios - Annual,,5000,5000,,,,0478ETH30-08,2020+,,,Active,0,0,0,,0,0,0,5000,10000,5000,0,20000,-20000
+1,Ethniki CY,"IFRS17 TRN, Valuations, Disclosures",0478ETH30,10,PMO,,,,---,,225000,,0478ETH30-10,2023,,,,172578.2,172578.2,0,,0,0,0,0,10000,100000,115000,225000,-52421.8
+1,Ethniki CY,Tool development,0478ZET30,01,Tool development,,,,---,,0,,0478ZET30-01,,,,,17464,17464,0,,0,0,0,0,0,0,0,0,0
+1,Moore Limassol Ltd,Audit Support-Asomic & KLPP,0478MOO78,01,Actuarial Review: IFRS17 subsequent valuations & SII/IFRS4 (2023-2025) – Subcontractor Agreement,,,,---,,0,,0478MOO78-01,,Signed,,Closed,52763.57,52763.57,0,,0,0,0,0,0,61000,0,61000,-61000
+1,Baker Tilly,,0478BAK78,01,Minerva Actuarial Review and Due Diligence for Capital Raise,,,,---,,0,,0478BAK78-01,,Signed,,Closed,0,0,0,,0,0,0,0,0,0,0,0,0
+1,Baker Tilly,Audit Support-GAN,0478BAK78,02,Actuarial Review: IFRS17 subsequent valuations & SII/IFRS4 (2023-2025) – Subcontractor Agreement,,,,---,,28000,,0478BAK78-02,,Signed,,Active,24597.88,24597.88,0,,0,0,0,0,0,20000,8000,28000,-3402.12
+1,Prime,IFRS17 Support,0478PRI78,01,PMO,,,11000,---,170-190k,181000,,0478PRI78-01,2021,Signed,Fully Billed,Closed,105462.975,105462.975,0,,0,0,0,110000,50000,0,0,160000,-54537.025
+1,Mikellidou,MM Expert Witness,0478MIK78,01,MM Expert Witness,,,,---,,0,,0478MIK78-01,,Signed,Fully Billed,Closed,20095.5,20095.5,0,,0,0,0,0,0,5000,0,5000,-5000
+1,Minerva,Reinsurance - Opinion,0478MIN78,01,RI Analysis 2023,,,24500,---,24.5k,24500,,0478MIN78-01,,Signed,Fully Billed,Closed,26460.12,26460.12,0,,0,0,0,0,24500,0,0,24500,0
+1,Groupama,Review of IFRS17 Impl. (TRN-2024),0478GRO30,03,IFRS17 Impl.: Review and simulation,,,45000,---,35-45k,45000,,0478GRO30-03,,Signed,Fully Billed,Finished - ToInvoice,40275,40275,0,,0,0,0,0,0,0,0,45000,-4725

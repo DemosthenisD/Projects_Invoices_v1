@@ -25,7 +25,7 @@ st.title("Project Overview")
 # Load data
 # ------------------------------------------------------------------
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=60)
 def _load():
     return db.get_all_projects_overview()
 
@@ -109,6 +109,13 @@ if view == "Summary":
     st.dataframe(display, use_container_width=True, hide_index=True)
 
 else:
+    if f"invoiced_{years[0]}" not in filtered.columns:
+        st.warning(
+            "Year-by-year columns are not available in the cached data. "
+            "Please **restart the Streamlit server** to reload the updated database module, then revisit this page."
+        )
+        st.stop()
+
     # Year-by-year view: one section per metric group
     base_cols = ["client", "project", "status"]
     base_rename = {"client": "Client", "project": "Project", "status": "Status"}
