@@ -76,8 +76,8 @@ selection_mode = st.radio(
     horizontal=True,
 )
 
-clients = _clients()
-if not clients:
+all_clients = _clients()
+if not all_clients:
     st.error("No clients found. Add clients in the Clients & Projects page first.")
     st.stop()
 
@@ -90,8 +90,7 @@ if selection_mode == "Project → Client":
     if not all_projs:
         st.error("No active projects found.")
         st.stop()
-    # Build label "Client — Project name"
-    client_by_id = {c.id: c for c in clients}
+    client_by_id = {c.id: c for c in all_clients}
     proj_labels = [
         f"{client_by_id[p.client_id].name} — {p.name}"
         if p.client_id in client_by_id else p.name
@@ -103,7 +102,21 @@ if selection_mode == "Project → Client":
     selected_project_name = project.name
     st.caption(f"Client auto-selected: **{client.name}**")
 else:
-    # Client → Project (original flow)
+    # Client → Project: type filter then client dropdown
+    CLIENT_TYPES = ["All", "managed", "external", "internal"]
+    type_filter = st.radio(
+        "Client type", CLIENT_TYPES, horizontal=True, index=1,
+        help="Filter the client list by type before selecting.",
+    )
+    if type_filter == "All":
+        clients = all_clients
+    else:
+        clients = [c for c in all_clients if c.client_type == type_filter]
+
+    if not clients:
+        st.info(f"No {type_filter} clients found.")
+        st.stop()
+
     client_names = [c.name for c in clients]
     selected_client_name = st.selectbox("Client", client_names)
     client = next(c for c in clients if c.name == selected_client_name)

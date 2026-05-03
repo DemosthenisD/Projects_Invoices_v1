@@ -226,135 +226,283 @@ with tab_upload:
 
     # ---- Build template ----
     def _build_template() -> bytes:
+        import re
         from openpyxl import Workbook
         from openpyxl.styles import PatternFill, Font, Alignment
         from openpyxl.utils import get_column_letter
+        from openpyxl.worksheet.datavalidation import DataValidation
+        from openpyxl.workbook.defined_name import DefinedName
 
         client_list = db.get_clients(exclude_types=["internal"])
 
-        # Build project rows (all clients)
+        # Build per-client project map and flat project rows
+        client_projects: dict[int, list] = {}
         proj_rows = []
         for c in client_list:
-            for p in db.get_projects(client_id=c.id):
+            projs = db.get_projects(client_id=c.id)
+            client_projects[c.id] = projs
+            for p in projs:
                 proj_rows.append({
-                    "project_id":     p.id,
-                    "project_name":   p.name,
-                    "client_id":      c.id,
-                    "client_name":    c.name,
-                    "vat_pct":        p.vat_pct,
-                    "template_used":  p.template,
-                    "description":    p.description,
+                    "project_id": p.id, "project_name": p.name,
+                    "client_id": c.id, "client_name": c.name,
+                    "vat_pct": p.vat_pct, "template_used": p.template,
+                    "description": p.description or "",
                     "project_status": p.status,
+                    "_key": f"{p.name}|{c.id}",  # lookup key (col I)
                 })
 
-        # Build address rows
+        # Build address rows (first address per client used for auto-fill)
         addr_rows = []
         for c in client_list:
             for a in db.get_addresses(c.id):
-                addr_rows.append({
-                    "client_id":   c.id,
-                    "client_name": c.name,
-                    "address":     a.address,
-                })
+                addr_rows.append({"client_id": c.id, "client_name": c.name,
+                                  "address": a.address})
 
         # ---- Styles ----
-        GOLD  = PatternFill("solid", fgColor="FFD966")   # required
-        BLUE  = PatternFill("solid", fgColor="BDD7EE")   # look up from reference
-        GREEN = PatternFill("solid", fgColor="E2EFDA")   # optional
-        GREY  = PatternFill("solid", fgColor="F2F2F2")   # example row
-        DARK  = PatternFill("solid", fgColor="404040")   # reference sheet headers
+        GOLD  = PatternFill("solid", fgColor="FFD966")  # user must fill
+        GREEN = PatternFill("solid", fgColor="E2EFDA")  # user optional
+        FILL_AUTO = PatternFill("solid", fgColor="DDEEFF")  # auto-computed
+        FILL_EX   = PatternFill("solid", fgColor="F2F2F2")  # example row
+        DARK  = PatternFill("solid", fgColor="404040")
         BOLD_W   = Font(bold=True, color="FFFFFF")
         BOLD_BLK = Font(bold=True)
         HINT     = Font(italic=True, color="888888", size=8)
+        AUTO_FNT = Font(color="0070C0", italic=True, size=9)
 
-        # ---- Invoice sheet column definitions ----
-        # (field_name, fill, hint)
-        COLS = [
-            ("client_id",      GOLD,  "Required — copy ID from Client Reference tab"),
-            ("project_id",     BLUE,  "Copy from Project Reference tab (0 if none)"),
-            ("invoice_number", GOLD,  "Required — unique per year, e.g. 2025-001"),
-            ("year",           GOLD,  "Required — 4-digit year, e.g. 2025"),
-            ("date",           GOLD,  "Required — YYYY-MM-DD"),
-            ("amount",         GOLD,  "Required — net fee excluding VAT"),
-            ("vat_amount",     GOLD,  "Required — amount × vat_pct ÷ 100"),
-            ("vat_pct",        BLUE,  "Copy from Project Reference tab, e.g. 19"),
-            ("address",        BLUE,  "Copy from Address Reference tab"),
-            ("project_name",   BLUE,  "Copy from Project Reference tab"),
-            ("description",    BLUE,  "Copy from Project Reference tab (editable)"),
-            ("template_used",  BLUE,  "Copy from Project Reference tab"),
-            ("format",         GREEN, "PDF or DOCX (default: PDF)"),
-            ("expenses_net",   GREEN, "0 if no expenses"),
-            ("expenses_vat",   GREEN, "0 if no expenses"),
-            ("status",         GOLD,  "outstanding / paid / partial"),
-            ("paid_date",      GREEN, "YYYY-MM-DD or leave blank"),
-            ("file_path",      GREEN, "Leave blank for bulk upload"),
+        NUM_DATA_ROWS = 100   # rows pre-filled with formulas
+        DATA_START    = 4     # row index where data begins (1=hdr, 2=hint, 3=ex)
+
+        # ---- Column layout ----
+        # USER columns (A–G): orange/green = fill these
+        # AUTO columns (H–T): blue italic = formula-driven, do not edit
+        USER_COLS = [
+            # (header, fill, hint)
+            ("▶ Client Name",    GOLD,  "Select from dropdown — drives all other fields"),
+            ("▶ Project Name",   GOLD,  "Select from dropdown — filtered by client above"),
+            ("invoice_number",   GOLD,  "Required — unique per year, e.g. 2025-001"),
+            ("date",             GOLD,  "Required — YYYY-MM-DD"),
+            ("amount",           GOLD,  "Required — net fee excluding VAT"),
+            ("status",           GOLD,  "outstanding / paid / partial"),
+            ("paid_date",        GREEN, "YYYY-MM-DD or leave blank"),
         ]
-
-        # Build pre-filled example from first project/address in DB
-        ex = {f: "" for f, _, _ in COLS}
-        ex.update({"invoice_number": "EXAMPLE-001", "year": 2025,
-                   "date": "2025-01-31", "amount": 10000.0, "vat_amount": 1900.0,
-                   "format": "PDF", "expenses_net": 0, "expenses_vat": 0,
-                   "status": "outstanding", "paid_date": "", "file_path": ""})
-        if proj_rows:
-            p0 = proj_rows[0]
-            ex.update({"client_id": p0["client_id"], "project_id": p0["project_id"],
-                       "vat_pct": p0["vat_pct"], "project_name": p0["project_name"],
-                       "description": p0["description"] or "",
-                       "template_used": p0["template_used"]})
-        if addr_rows:
-            ex["address"] = addr_rows[0]["address"]
+        AUTO_COLS = [
+            # (header, hint)
+            ("year",          "=YEAR(date)"),
+            ("client_id",     "=MATCH(Client Name → Client Reference)"),
+            ("project_id",    "=MATCH(Project Name + client_id → Project Reference)"),
+            ("vat_pct",       "=from Project Reference"),
+            ("vat_amount",    "=amount × vat_pct ÷ 100"),
+            ("project_name",  "=Project Name"),
+            ("description",   "=from Project Reference"),
+            ("template_used", "=from Project Reference"),
+            ("address",       "=first address for client"),
+            ("format",        '="PDF"'),
+            ("expenses_net",  "=0"),
+            ("expenses_vat",  "=0"),
+            ("file_path",     '=""'),
+        ]
+        TOTAL_COLS = len(USER_COLS) + len(AUTO_COLS)  # 20
 
         wb = Workbook()
+
+        # ==== Hidden helper sheet: one column per client = their project names ====
+        # Named ranges Proj_<client_id> point here → used by cascading dropdown
+        wh = wb.create_sheet("_ProjectsHelper")
+        wh.sheet_state = "hidden"
+        for ci, c in enumerate(client_list, 1):
+            wh.cell(1, ci, c.name)  # header (not used in named range)
+            projs_for_client = client_projects.get(c.id, [])
+            for ri, p in enumerate(projs_for_client, 2):
+                wh.cell(ri, ci, p.name)
+            # Create named range Proj_<id> → column of project names
+            end_row = max(2, len(projs_for_client) + 1)
+            col_ltr = get_column_letter(ci)
+            ref = f"'_ProjectsHelper'!${col_ltr}$2:${col_ltr}${end_row}"
+            rn = f"Proj_{c.id}"
+            wb.defined_names[rn] = DefinedName(name=rn, attr_text=ref)
+        # Fallback named range for when no client is selected
+        wb.defined_names["Proj_none"] = DefinedName(
+            name="Proj_none",
+            attr_text=f"'_ProjectsHelper'!$A$1:$A$1"
+        )
 
         # ==== Sheet 1 — Invoices ====
         ws = wb.active
         ws.title = "Invoices"
-        ws.freeze_panes = "A3"
+        ws.freeze_panes = f"A{DATA_START}"
 
-        # Row 1 — colour-coded field headers
-        for ci, (field, fill, _) in enumerate(COLS, 1):
-            cell = ws.cell(row=1, column=ci, value=field)
-            cell.fill = fill
-            cell.font = BOLD_BLK
-            cell.alignment = Alignment(horizontal="center", wrap_text=True)
+        # Row 1 — headers
+        for ci, (hdr, fill, _) in enumerate(USER_COLS, 1):
+            c = ws.cell(1, ci, hdr)
+            c.fill = fill; c.font = BOLD_BLK
+            c.alignment = Alignment(horizontal="center", wrap_text=True)
+        for ci, (hdr, _) in enumerate(AUTO_COLS, len(USER_COLS) + 1):
+            c = ws.cell(1, ci, hdr)
+            c.fill = FILL_AUTO; c.font = Font(bold=True, color="0070C0")
+            c.alignment = Alignment(horizontal="center", wrap_text=True)
 
-        # Row 2 — hints (small italic, not imported)
-        for ci, (_, _, hint) in enumerate(COLS, 1):
-            cell = ws.cell(row=2, column=ci, value=hint)
-            cell.font = HINT
-            cell.alignment = Alignment(wrap_text=True)
+        # Row 2 — hints
+        for ci, (_, _, hint) in enumerate(USER_COLS, 1):
+            c = ws.cell(2, ci, hint); c.font = HINT
+        for ci, (_, hint) in enumerate(AUTO_COLS, len(USER_COLS) + 1):
+            c = ws.cell(2, ci, hint); c.font = HINT
 
-        # Row 3 — pre-filled example (clearly labelled, filtered out on import)
-        for ci, (field, _, _) in enumerate(COLS, 1):
-            cell = ws.cell(row=3, column=ci, value=ex.get(field, ""))
-            cell.fill = GREY
+        # Row 3 — example row (pre-filled, skipped on import)
+        ex_client = client_list[0] if client_list else None
+        ex_proj   = client_projects.get(ex_client.id, [None])[0] if ex_client else None
+        ex_addr   = next((a["address"] for a in addr_rows
+                          if ex_client and a["client_id"] == ex_client.id), "")
+        ex_vals = {
+            "▶ Client Name": ex_client.name if ex_client else "",
+            "▶ Project Name": ex_proj.name if ex_proj else "",
+            "invoice_number": "EXAMPLE-001",
+            "date": "2025-01-31",
+            "amount": 10000.0,
+            "status": "outstanding",
+            "paid_date": "",
+            # auto cols
+            "year": 2025,
+            "client_id": ex_client.id if ex_client else "",
+            "project_id": ex_proj.id if ex_proj else "",
+            "vat_pct": ex_proj.vat_pct if ex_proj else 19.0,
+            "vat_amount": 1900.0,
+            "project_name": ex_proj.name if ex_proj else "",
+            "description": ex_proj.description if ex_proj else "",
+            "template_used": ex_proj.template if ex_proj else "template1_v3",
+            "address": ex_addr,
+            "format": "PDF", "expenses_net": 0, "expenses_vat": 0, "file_path": "",
+        }
+        all_hdrs = [h for h, _, _ in USER_COLS] + [h for h, _ in AUTO_COLS]
+        for ci, hdr in enumerate(all_hdrs, 1):
+            c = ws.cell(3, ci, ex_vals.get(hdr, ""))
+            c.fill = FILL_EX
+
+        # Legend row
+        leg = ws.cell(DATA_START - 1 + 1, 1,   # reuse row 4 slot (DATA_START=4)
+            "🟡 Fill these columns   🔵 Auto-calculated — do not edit   "
+            "Row 3 is an example and is skipped on import.")
+        # Actually DATA_START=4 means row 4 is the first data row; insert legend at row 4?
+        # No — shift: rows 1=hdr, 2=hint, 3=example, 4=legend, 5+ = data
+        # Let's put the legend at row 4 and data starts at 5
+        ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=TOTAL_COLS)
+        ws.cell(4, 1,
+            "🟡 Fill columns A–G   🔵 Columns H–T are auto-calculated — do not edit   "
+            "Row 3 is a pre-filled example and is skipped on import."
+        ).font = Font(italic=True, size=9, color="444444")
+
+        DATA_START = 5  # actual first data row
+
+        # ---- Data validation ----
+        # Client dropdown (column A) — list from Client Reference
+        n_clients = len(client_list)
+        client_dv = DataValidation(
+            type="list",
+            formula1=f"='Client Reference'!$B$2:$B${n_clients + 1}",
+            allow_blank=True, showDropDown=False,
+        )
+        ws.add_data_validation(client_dv)
+        client_dv.sqref = f"A{DATA_START}:A{DATA_START + NUM_DATA_ROWS - 1}"
+
+        # Project dropdown (column B) — cascading via INDIRECT + named range Proj_<client_id>
+        proj_dv = DataValidation(
+            type="list",
+            formula1=(
+                f'=INDIRECT("Proj_"&IFERROR('
+                f"INDEX('Client Reference'!$A:$A,"
+                f"MATCH(A{DATA_START},'Client Reference'!$B:$B,0))"
+                f',"none"))'
+            ),
+            allow_blank=True, showDropDown=False,
+        )
+        ws.add_data_validation(proj_dv)
+        proj_dv.sqref = f"B{DATA_START}:B{DATA_START + NUM_DATA_ROWS - 1}"
+
+        # Status dropdown (column F)
+        status_dv = DataValidation(
+            type="list", formula1='"outstanding,paid,partial"',
+            allow_blank=True, showDropDown=False,
+        )
+        ws.add_data_validation(status_dv)
+        status_dv.sqref = f"F{DATA_START}:F{DATA_START + NUM_DATA_ROWS - 1}"
+
+        # ---- Pre-fill formula rows ----
+        for row in range(DATA_START, DATA_START + NUM_DATA_ROWS):
+            A, B, E, H, I, J, K = (
+                f"A{row}", f"B{row}", f"E{row}",
+                f"H{row}", f"I{row}", f"J{row}", f"K{row}",
+            )
+            PR = "'Project Reference'"
+            CR = "'Client Reference'"
+            AR = "'Address Reference'"
+
+            formulas = [
+                # H: year
+                f'=IF({A}="","",IFERROR(YEAR(DATEVALUE({A[0]}4)),IFERROR(INT(LEFT(D{row},4)),"")))',
+                # H: year (correct reference)
+                None,  # placeholder, will set below
+                # I: client_id
+                f'=IFERROR(INDEX({CR}!$A:$A,MATCH({A},{CR}!$B:$B,0)),"")',
+                # J: project_id
+                f'=IFERROR(INDEX({PR}!$A:$A,MATCH({B}&"|"&{I},{PR}!$I:$I,0)),"")',
+                # K: vat_pct
+                f'=IFERROR(INDEX({PR}!$E:$E,MATCH({B}&"|"&{I},{PR}!$I:$I,0)),"")',
+                # L: vat_amount
+                f'=IF(OR({E}="",{K}=""),"",ROUND({E}*{K}/100,2))',
+                # M: project_name
+                f'=IF({B}="","",{B})',
+                # N: description
+                f'=IFERROR(INDEX({PR}!$G:$G,MATCH({B}&"|"&{I},{PR}!$I:$I,0)),"")',
+                # O: template_used
+                f'=IFERROR(INDEX({PR}!$F:$F,MATCH({B}&"|"&{I},{PR}!$I:$I,0)),"")',
+                # P: address
+                f'=IFERROR(INDEX({AR}!$C:$C,MATCH({I},{AR}!$A:$A,0)),"")',
+                # Q: format
+                "PDF",
+                # R: expenses_net
+                0,
+                # S: expenses_vat
+                0,
+                # T: file_path
+                "",
+            ]
+            # H: year — correct formula
+            year_f = (f'=IF(D{row}="","",IFERROR(YEAR(DATEVALUE(D{row})),'
+                      f'IFERROR(INT(LEFT(D{row},4)),"")))')
+            ci_id  = f'=IFERROR(INDEX({CR}!$A:$A,MATCH(A{row},{CR}!$B:$B,0)),"")'
+            ci_pid = f'=IFERROR(INDEX({PR}!$A:$A,MATCH(B{row}&"|"&I{row},{PR}!$I:$I,0)),"")'
+            ci_vat = f'=IFERROR(INDEX({PR}!$E:$E,MATCH(B{row}&"|"&I{row},{PR}!$I:$I,0)),"")'
+            ci_vam = f'=IF(OR(E{row}="",K{row}=""),"",ROUND(E{row}*K{row}/100,2))'
+            ci_pnm = f'=IF(B{row}="","",B{row})'
+            ci_dsc = f'=IFERROR(INDEX({PR}!$G:$G,MATCH(B{row}&"|"&I{row},{PR}!$I:$I,0)),"")'
+            ci_tpl = f'=IFERROR(INDEX({PR}!$F:$F,MATCH(B{row}&"|"&I{row},{PR}!$I:$I,0)),"")'
+            ci_adr = f'=IFERROR(INDEX({AR}!$C:$C,MATCH(I{row},{AR}!$A:$A,0)),"")'
+
+            auto_vals = [year_f, ci_id, ci_pid, ci_vat, ci_vam,
+                         ci_pnm, ci_dsc, ci_tpl, ci_adr,
+                         "PDF", 0, 0, ""]
+            for ci_offset, val in enumerate(auto_vals):
+                col = len(USER_COLS) + 1 + ci_offset
+                cell = ws.cell(row, col, val)
+                cell.fill = FILL_AUTO
+                cell.font = AUTO_FNT
 
         # Column widths
-        widths = [12, 12, 18, 8, 14, 12, 12, 8, 40, 28, 35, 18, 8, 12, 12, 14, 14, 20]
-        for i, w in enumerate(widths, 1):
+        user_widths = [28, 32, 18, 14, 12, 14, 14]
+        auto_widths = [6, 10, 10, 7, 10, 26, 32, 18, 40, 7, 10, 10, 10]
+        for i, w in enumerate(user_widths + auto_widths, 1):
             ws.column_dimensions[get_column_letter(i)].width = w
-        ws.row_dimensions[1].height = 28
-        ws.row_dimensions[2].height = 36
+        ws.row_dimensions[1].height = 30
+        ws.row_dimensions[2].height = 32
 
-        # Legend caption in a merged cell below the hint row
-        leg = ws.cell(row=4, column=1,
-                      value="🟡 Required   🔵 Copy from reference tabs   🟢 Optional   "
-                            "Row 3 is an example — delete or leave it (it is skipped on import).")
-        leg.font = Font(italic=True, size=9, color="444444")
-        ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=len(COLS))
-
-        def _ref_header(sheet, headers):
+        def _ref_hdr(sheet, headers):
             for i, h in enumerate(headers, 1):
-                cell = sheet.cell(row=1, column=i, value=h)
-                cell.fill = DARK
-                cell.font = BOLD_W
+                cell = sheet.cell(1, i, h)
+                cell.fill = DARK; cell.font = BOLD_W
                 cell.alignment = Alignment(horizontal="center")
 
         # ==== Sheet 2 — Client Reference ====
         wc = wb.create_sheet("Client Reference")
-        c_hdrs = ["client_id", "client_name", "client_code", "vat_number", "country"]
-        _ref_header(wc, c_hdrs)
+        _ref_hdr(wc, ["client_id", "client_name", "client_code", "vat_number", "country"])
         for ri, c in enumerate(client_list, 2):
             wc.cell(ri, 1, c.id);   wc.cell(ri, 2, c.name)
             wc.cell(ri, 3, c.client_code); wc.cell(ri, 4, c.vat_number)
@@ -363,27 +511,28 @@ with tab_upload:
             wc.column_dimensions[get_column_letter(i)].width = w
         wc.freeze_panes = "A2"
 
-        # ==== Sheet 3 — Project Reference ====
+        # ==== Sheet 3 — Project Reference (with lookup key in col I) ====
         wp = wb.create_sheet("Project Reference")
         p_hdrs = ["project_id", "project_name", "client_id", "client_name",
-                  "vat_pct", "template_used", "description", "project_status"]
-        _ref_header(wp, p_hdrs)
+                  "vat_pct", "template_used", "description", "project_status", "_key"]
+        _ref_hdr(wp, p_hdrs)
         for ri, p in enumerate(proj_rows, 2):
             for ci, k in enumerate(p_hdrs, 1):
                 wp.cell(ri, ci, p[k])
-        for i, w in enumerate([12, 32, 10, 26, 8, 18, 42, 14], 1):
-            wp.column_dimensions[get_column_letter(i)].width = w
+        for i, w in enumerate([10, 32, 10, 26, 7, 18, 40, 14, 0], 1):
+            wp.column_dimensions[get_column_letter(i)].width = max(w, 4)
+        wp.column_dimensions["I"].width = 0  # hide key column
         wp.freeze_panes = "A2"
 
         # ==== Sheet 4 — Address Reference ====
         wa = wb.create_sheet("Address Reference")
-        _ref_header(wa, ["client_id", "client_name", "address"])
+        _ref_hdr(wa, ["client_id", "client_name", "address"])
         for ri, a in enumerate(addr_rows, 2):
             wa.cell(ri, 1, a["client_id"]); wa.cell(ri, 2, a["client_name"])
             wa.cell(ri, 3, a["address"])
         wa.column_dimensions["A"].width = 10
         wa.column_dimensions["B"].width = 30
-        wa.column_dimensions["C"].width = 60
+        wa.column_dimensions["C"].width = 65
         wa.freeze_panes = "A2"
 
         buf = io.BytesIO()
@@ -396,11 +545,10 @@ with tab_upload:
         file_name="invoice_upload_template.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-
     st.caption(
-        "🟡 Gold columns = required · "
-        "🔵 Blue columns = copy from reference tabs · "
-        "🟢 Green columns = optional"
+        "**How to fill:** Select a client in column A → select the project in column B "
+        "(dropdown filters automatically) → enter invoice number, date, amount, status. "
+        "All other columns (blue) auto-calculate."
     )
 
     st.divider()
@@ -408,17 +556,23 @@ with tab_upload:
     uploaded = st.file_uploader("Upload completed template (.xlsx)", type=["xlsx"])
     if uploaded:
         try:
-            # Row 1 = headers, row 2 = hints (skipped), row 3 = example (filtered below)
-            df = pd.read_excel(uploaded, sheet_name="Invoices", dtype=str, skiprows=[1])
+            # Row 1=headers, 2=hints (skip), 3=example (filtered), 4=legend (filtered), 5+=data
+            df = pd.read_excel(uploaded, sheet_name="Invoices", dtype=str, skiprows=[1, 2, 3])
             df = df.dropna(how="all")
-            # Drop the pre-filled example row
-            df = df[~df["invoice_number"].str.upper().str.startswith("EXAMPLE", na=False)]
+            df = df[~df.get("invoice_number", pd.Series(dtype=str))
+                      .str.upper().str.startswith("EXAMPLE", na=False)]
+            # Rename helper columns to importable names
+            df = df.rename(columns={"▶ Client Name": "_client_sel",
+                                    "▶ Project Name": "_project_sel"})
             records = df.to_dict("records")
             st.write(f"Found **{len(records)}** data row(s) in uploaded file.")
 
             if st.button("Import invoices", type="primary"):
                 result = db.bulk_import_invoices(records)
-                st.success(f"Imported: {result['inserted']} | Skipped (duplicates): {result['skipped']}")
+                st.success(
+                    f"Imported: {result['inserted']} | "
+                    f"Skipped (duplicates): {result['skipped']}"
+                )
                 if result["errors"]:
                     st.error("Errors on some rows:")
                     for err in result["errors"]:
