@@ -349,7 +349,7 @@ with tab_upload:
 
         # Row 3 — example row (pre-filled, skipped on import)
         ex_client = client_list[0] if client_list else None
-        ex_proj   = client_projects.get(ex_client.id, [None])[0] if ex_client else None
+        ex_proj   = (client_projects.get(ex_client.id) or [None])[0] if ex_client else None
         ex_addr   = next((a["address"] for a in addr_rows
                           if ex_client and a["client_id"] == ex_client.id), "")
         ex_vals = {
