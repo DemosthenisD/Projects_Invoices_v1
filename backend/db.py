@@ -443,18 +443,25 @@ def delete_address(address_id: int) -> None:
 # Project CRUD
 # ---------------------------------------------------------------------------
 
-def get_projects_with_summary(client_id: int) -> list[dict]:
-    """Return projects for a client with per-project financial summary columns."""
+def get_projects_with_summary(client_id: int | None = None) -> list[dict]:
+    """Return projects with per-project financial summary columns.
+
+    client_id=None returns all clients (adds client_name to each row).
+    """
+    where = "WHERE p.client_id = ?" if client_id is not None else ""
+    params = (client_id,) if client_id is not None else ()
     with get_connection() as conn:
-        rows = conn.execute("""
+        rows = conn.execute(f"""
             SELECT
                 p.id, p.name, p.status, p.date_start, p.vat_pct, p.template, p.description,
+                c.name                                      AS client_name,
                 COUNT(DISTINCT pc.id)                       AS code_count,
                 COALESCE(SUM(DISTINCT pc.budget_amount), 0) AS total_budget,
                 COALESCE(te.billable_charges, 0)            AS billable_charges,
                 COALESCE(wo.write_offs, 0)                  AS write_offs,
                 COALESCE(inv.invoiced, 0)                   AS invoiced
             FROM projects p
+            JOIN clients c ON c.id = p.client_id
             LEFT JOIN project_codes pc ON pc.project_id = p.id
             LEFT JOIN (SELECT project_id, SUM(non_z_charges) AS billable_charges
                        FROM time_entries GROUP BY project_id) te ON te.project_id = p.id
@@ -462,10 +469,10 @@ def get_projects_with_summary(client_id: int) -> list[dict]:
                        FROM write_offs WHERE reversed=0 GROUP BY project_id) wo ON wo.project_id = p.id
             LEFT JOIN (SELECT project_id, SUM(amount) AS invoiced
                        FROM invoices GROUP BY project_id) inv ON inv.project_id = p.id
-            WHERE p.client_id = ?
+            {where}
             GROUP BY p.id
-            ORDER BY p.name
-        """, (client_id,)).fetchall()
+            ORDER BY c.name, p.name
+        """, params).fetchall()
     return [dict(r) for r in rows]
 
 

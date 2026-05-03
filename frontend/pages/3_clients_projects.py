@@ -168,8 +168,10 @@ with tab_projects:
         st.stop()
 
     col_cl, col_st = st.columns([3, 2])
-    selected_client = col_cl.selectbox("Client", [c.name for c in clients], key="proj_client_select")
-    client_obj = next(c for c in clients if c.name == selected_client)
+    client_options = ["All"] + [c.name for c in clients]
+    selected_client = col_cl.selectbox("Client", client_options, key="proj_client_select")
+    show_all = selected_client == "All"
+    client_obj = None if show_all else next(c for c in clients if c.name == selected_client)
 
     status_filter = col_st.multiselect(
         "Show statuses", PROJECT_STATUSES, default=["Active"],
@@ -177,7 +179,7 @@ with tab_projects:
     )
 
     # ---- Summary table ----
-    all_proj_summary = db.get_projects_with_summary(client_obj.id)
+    all_proj_summary = db.get_projects_with_summary(None if show_all else client_obj.id)
     filtered_summary = [
         r for r in all_proj_summary
         if not status_filter or r["status"] in status_filter
@@ -189,6 +191,7 @@ with tab_projects:
         table_rows = [
             {
                 "": STATUS_PROJ_BADGE.get(r["status"], ""),
+                **( {"Client": r["client_name"]} if show_all else {} ),
                 "Project": r["name"],
                 "Status": r["status"],
                 "Started": r["date_start"] or "—",
@@ -218,9 +221,13 @@ with tab_projects:
     elif all_proj_summary:
         st.info(f"No projects with status {status_filter}. Clear the filter to see all.")
     else:
-        st.info("No projects for this client yet.")
+        st.info("No projects for this client yet." if not show_all else "No projects found.")
 
     st.divider()
+
+    if show_all:
+        st.caption("Select a specific client above to add or edit projects.")
+        st.stop()
 
     # ---- Add new project ----
     with st.expander("Add new project", expanded=False):
