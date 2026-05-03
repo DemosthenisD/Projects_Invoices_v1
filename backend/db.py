@@ -303,31 +303,42 @@ def init_db() -> None:
 # Client CRUD
 # ---------------------------------------------------------------------------
 
-def get_clients() -> list[Client]:
+def get_clients(exclude_types: list[str] | None = None) -> list[Client]:
+    """Return clients ordered by name.
+
+    exclude_types — omit clients whose client_type is in this list.
+                    e.g. ['internal'] hides 0009xxx overhead codes.
+    """
+    query = ("SELECT id, name, name_for_invoices, client_code, vat_number, "
+             "client_type, created_at FROM clients")
+    params: list = []
+    if exclude_types:
+        placeholders = ",".join("?" * len(exclude_types))
+        query += f" WHERE client_type NOT IN ({placeholders})"
+        params = list(exclude_types)
+    query += " ORDER BY name"
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT id, name, name_for_invoices, client_code, vat_number, created_at "
-            "FROM clients ORDER BY name"
-        ).fetchall()
+        rows = conn.execute(query, params).fetchall()
     return [Client(**dict(r)) for r in rows]
 
 
 def get_client_by_name(name: str) -> Client | None:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, name, name_for_invoices, client_code, vat_number, created_at "
+            "SELECT id, name, name_for_invoices, client_code, vat_number, client_type, created_at "
             "FROM clients WHERE name = ?", (name,)
         ).fetchone()
     return Client(**dict(row)) if row else None
 
 
 def add_client(name: str, name_for_invoices: str = "", client_code: str = "",
-               vat_number: str = "") -> int:
+               vat_number: str = "", client_type: str = "managed") -> int:
     with get_connection() as conn:
         cur = conn.execute(
-            "INSERT OR IGNORE INTO clients (name, name_for_invoices, client_code, vat_number) "
-            "VALUES (?, ?, ?, ?)",
-            (name, name_for_invoices or name, client_code, vat_number)
+            "INSERT OR IGNORE INTO clients "
+            "(name, name_for_invoices, client_code, vat_number, client_type) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (name, name_for_invoices or name, client_code, vat_number, client_type)
         )
         if cur.lastrowid:
             return cur.lastrowid
@@ -336,12 +347,12 @@ def add_client(name: str, name_for_invoices: str = "", client_code: str = "",
 
 
 def update_client(client_id: int, name_for_invoices: str, client_code: str,
-                  vat_number: str) -> None:
+                  vat_number: str, client_type: str = "managed") -> None:
     with get_connection() as conn:
         conn.execute(
-            "UPDATE clients SET name_for_invoices=?, client_code=?, vat_number=? "
+            "UPDATE clients SET name_for_invoices=?, client_code=?, vat_number=?, client_type=? "
             "WHERE id=?",
-            (name_for_invoices, client_code, vat_number, client_id)
+            (name_for_invoices, client_code, vat_number, client_type, client_id)
         )
 
 
@@ -388,7 +399,8 @@ def delete_address(address_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 def get_projects(client_id: int | None = None, status: str | None = None) -> list[Project]:
-    query = "SELECT id, client_id, name, description, vat_pct, template, status FROM projects"
+    query = ("SELECT id, client_id, name, description, vat_pct, template, status, date_start "
+             "FROM projects")
     params: list = []
     filters = []
     if client_id is not None:
@@ -407,13 +419,13 @@ def get_projects(client_id: int | None = None, status: str | None = None) -> lis
 
 def add_project(client_id: int, name: str, description: str = "",
                 vat_pct: float = 19.0, template: str = "template1_v3",
-                status: str = "Active") -> int:
+                status: str = "Active", date_start: str = "") -> int:
     with get_connection() as conn:
         cur = conn.execute(
             "INSERT OR IGNORE INTO projects "
-            "(client_id, name, description, vat_pct, template, status) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (client_id, name, description, vat_pct, template, status)
+            "(client_id, name, description, vat_pct, template, status, date_start) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (client_id, name, description, vat_pct, template, status, date_start)
         )
         if cur.lastrowid:
             return cur.lastrowid
@@ -425,11 +437,12 @@ def add_project(client_id: int, name: str, description: str = "",
 
 
 def update_project(project_id: int, description: str, vat_pct: float,
-                   template: str, status: str) -> None:
+                   template: str, status: str, date_start: str = "") -> None:
     with get_connection() as conn:
         conn.execute(
-            "UPDATE projects SET description=?, vat_pct=?, template=?, status=? WHERE id=?",
-            (description, vat_pct, template, status, project_id)
+            "UPDATE projects SET description=?, vat_pct=?, template=?, status=?, date_start=? "
+            "WHERE id=?",
+            (description, vat_pct, template, status, date_start, project_id)
         )
 
 
@@ -687,6 +700,61 @@ def get_project_codes(project_id: int | None = None, status: str | None = None) 
     return [ProjectCode(**dict(r)) for r in rows]
 
 
+def analyse_csv_gaps(pairs: list[tuple[str, str]]) -> dict:
+    """Analyse (client_code, client_suffix) pairs from a CSV upload.
+
+    Returns a dict with three keys:
+      matched        — list of (cc, cs) already in project_codes
+      missing_code   — list of dicts where client exists but project code absent
+                       keys: client_code, client_suffix, client_name, existing_projects
+      missing_client — list of dicts where client itself is not in DB
+                       keys: client_code, client_suffix, is_internal
+    """
+    with get_connection() as conn:
+        db_clients = {
+            r["client_code"]: r["name"]
+            for r in conn.execute("SELECT client_code, name FROM clients").fetchall()
+        }
+        db_pc = {
+            (r["client_code"], r["client_suffix"])
+            for r in conn.execute(
+                "SELECT client_code, client_suffix FROM project_codes"
+            ).fetchall()
+        }
+
+        matched, missing_code, missing_client = [], [], []
+        for cc, cs in pairs:
+            if (cc, cs) in db_pc:
+                matched.append((cc, cs))
+            elif cc in db_clients:
+                projects = [
+                    r["name"] for r in conn.execute(
+                        "SELECT p.name FROM projects p "
+                        "JOIN clients c ON c.id = p.client_id "
+                        "WHERE c.client_code = ? ORDER BY p.name",
+                        (cc,)
+                    ).fetchall()
+                ]
+                missing_code.append({
+                    "client_code": cc,
+                    "client_suffix": cs,
+                    "client_name": db_clients[cc],
+                    "existing_projects": projects,
+                })
+            else:
+                missing_client.append({
+                    "client_code": cc,
+                    "client_suffix": cs,
+                    "is_internal": cc.startswith("0009"),
+                })
+
+    return {
+        "matched": matched,
+        "missing_code": missing_code,
+        "missing_client": missing_client,
+    }
+
+
 def get_project_code_by_keys(client_code: str, client_suffix: str,
                               period: str | None = None) -> ProjectCode | None:
     """Lookup a project code by client_code + client_suffix.
@@ -927,44 +995,75 @@ def get_project_time_totals(project_id: int) -> dict:
     }
 
 
-def get_all_projects_overview() -> list[dict]:
-    """Single query returning rolled-up financials for every project."""
+def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
+    """Rolled-up financials for every project, including year-by-year breakdown.
+
+    years — list of calendar years to expand (default: current year + 3 prior).
+    """
+    from datetime import date as _date
+    if years is None:
+        cy = _date.today().year
+        years = [cy - i for i in range(4)]
+
+    # Build per-year subquery fragments
+    sel, inv_j, te_j, wo_j = "", "", "", ""
+    for yr in years:
+        sel += (
+            f", COALESCE(inv_{yr}.invoiced, 0) AS invoiced_{yr}"
+            f", COALESCE(te_{yr}.charges,  0) AS charges_{yr}"
+            f", COALESCE(wo_{yr}.write_offs,0) AS writeoffs_{yr}"
+        )
+        inv_j += (
+            f" LEFT JOIN (SELECT project_id, SUM(amount) AS invoiced"
+            f" FROM invoices WHERE year={yr} GROUP BY project_id)"
+            f" inv_{yr} ON inv_{yr}.project_id = p.id"
+        )
+        te_j += (
+            f" LEFT JOIN (SELECT project_id, SUM(non_z_charges) AS charges"
+            f" FROM time_entries WHERE period LIKE '{yr}%' GROUP BY project_id)"
+            f" te_{yr} ON te_{yr}.project_id = p.id"
+        )
+        wo_j += (
+            f" LEFT JOIN (SELECT project_id, SUM(amount) AS write_offs"
+            f" FROM write_offs WHERE reversed=0"
+            f" AND strftime('%Y', created_at)='{yr}' GROUP BY project_id)"
+            f" wo_{yr} ON wo_{yr}.project_id = p.id"
+        )
+
+    query = f"""
+        SELECT
+            p.id          AS project_id,
+            c.name        AS client,
+            c.client_code,
+            p.name        AS project,
+            p.status,
+            COUNT(DISTINCT pc.id)                       AS code_count,
+            COALESCE(SUM(DISTINCT pc.budget_amount), 0) AS budget,
+            COALESCE(te_all.billable_charges, 0)        AS billable_charges,
+            COALESCE(wo_all.write_offs,       0)        AS write_offs,
+            COALESCE(inv_all.invoiced,        0)        AS invoiced
+            {sel}
+        FROM projects p
+        JOIN clients c ON c.id = p.client_id
+        LEFT JOIN project_codes pc ON pc.project_id = p.id
+        LEFT JOIN (SELECT project_id, SUM(non_z_charges) AS billable_charges
+                   FROM time_entries GROUP BY project_id) te_all ON te_all.project_id = p.id
+        LEFT JOIN (SELECT project_id, SUM(amount) AS write_offs
+                   FROM write_offs WHERE reversed=0 GROUP BY project_id) wo_all ON wo_all.project_id = p.id
+        LEFT JOIN (SELECT project_id, SUM(amount) AS invoiced
+                   FROM invoices GROUP BY project_id) inv_all ON inv_all.project_id = p.id
+        {inv_j} {te_j} {wo_j}
+        GROUP BY p.id
+        ORDER BY c.name, p.name
+    """
     with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT
-                p.id              AS project_id,
-                c.name            AS client,
-                c.client_code,
-                p.name            AS project,
-                p.status,
-                COUNT(DISTINCT pc.id)                                              AS code_count,
-                COALESCE(SUM(DISTINCT pc.budget_amount), 0)                        AS budget,
-                COALESCE(te_sum.billable_charges, 0)                               AS billable_charges,
-                COALESCE(wo_sum.write_offs, 0)                                     AS write_offs,
-                COALESCE(inv_sum.invoiced, 0)                                      AS invoiced
-            FROM projects p
-            JOIN clients c ON c.id = p.client_id
-            LEFT JOIN project_codes pc ON pc.project_id = p.id
-            LEFT JOIN (
-                SELECT project_id, SUM(non_z_charges) AS billable_charges
-                FROM time_entries GROUP BY project_id
-            ) te_sum ON te_sum.project_id = p.id
-            LEFT JOIN (
-                SELECT project_id, SUM(amount) AS write_offs
-                FROM write_offs WHERE reversed = 0 GROUP BY project_id
-            ) wo_sum ON wo_sum.project_id = p.id
-            LEFT JOIN (
-                SELECT project_id, SUM(amount) AS invoiced
-                FROM invoices GROUP BY project_id
-            ) inv_sum ON inv_sum.project_id = p.id
-            GROUP BY p.id
-            ORDER BY c.name, p.name
-        """).fetchall()
+        rows = conn.execute(query).fetchall()
+
     result = []
     for r in rows:
         d = dict(r)
         d["net_charges"] = d["billable_charges"] - d["write_offs"]
-        d["remaining"] = d["budget"] - d["invoiced"]
+        d["remaining"]   = d["budget"] - d["invoiced"]
         prefix = (d.get("client_code") or "")[:4]
         if prefix == "0478":
             d["project_source"] = "CY"

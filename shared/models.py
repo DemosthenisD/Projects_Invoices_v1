@@ -8,6 +8,7 @@ class Client:
     name_for_invoices: str       # Formal name on invoice documents
     client_code: str = ""        # Short code (e.g. "ETN")
     vat_number: str = ""         # Client's VAT registration number
+    client_type: str = "managed" # managed | external | internal
     created_at: str = ""
 
 
@@ -27,6 +28,7 @@ class Project:
     vat_pct: float = 19.0
     template: str = "template1_v3"
     status: str = "Active"
+    date_start: str = ""         # YYYY-MM-DD; when the project started
 
 
 @dataclass

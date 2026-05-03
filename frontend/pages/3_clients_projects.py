@@ -2,8 +2,8 @@
 Page 2 — Clients & Projects.
 
 Tabbed CRUD:
-  Clients   — list, add (duplicate detection), edit, delete
-  Projects  — list by client, add, edit (description/VAT/template/status), delete
+  Clients   — list managed/external clients (internal hidden by default), add, edit, delete
+  Projects  — list by client with status filter, budget breakdown, add, edit, delete
   Addresses — list by client, add, delete
 """
 import sys
@@ -12,28 +12,17 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import streamlit as st
+import pandas as pd
 import backend.db as db
 from shared.config import TEMPLATES_DIR
-
-# ------------------------------------------------------------------
-# Auth guard
-# ------------------------------------------------------------------
 
 if not st.session_state.get("authenticated", False):
     st.warning("Please sign in from the Home page.")
     st.stop()
 
-# ------------------------------------------------------------------
-# Page setup
-# ------------------------------------------------------------------
-
 st.title("Clients & Projects")
 
 tab_clients, tab_projects, tab_addresses = st.tabs(["Clients", "Projects", "Addresses"])
-
-# ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
 
 def _templates() -> list[str]:
     return sorted(
@@ -43,9 +32,8 @@ def _templates() -> list[str]:
     )
 
 PROJECT_STATUSES = ["Active", "On Hold", "Completed", "Prospect"]
+CLIENT_TYPES     = ["managed", "external", "internal"]
 
-# Form-key counters — incrementing these forces Streamlit to treat the
-# form as brand-new on rerun, preventing double-submission of add forms.
 for _k in ("_add_client_v", "_add_proj_v", "_add_addr_v"):
     st.session_state.setdefault(_k, 0)
 
@@ -56,25 +44,28 @@ for _k in ("_add_client_v", "_add_proj_v", "_add_addr_v"):
 with tab_clients:
     st.subheader("Clients")
 
-    # Show any pending success message from a previous rerun
     if _msg := st.session_state.pop("_client_msg", None):
         st.success(_msg)
 
-    clients = db.get_clients()
+    show_internal = st.checkbox("Show internal / non-billable clients (0009xxx)", value=False)
+    exclude = [] if show_internal else ["internal"]
+    clients = db.get_clients(exclude_types=exclude)
 
     # ---- Add new client ----
     with st.expander("Add new client", expanded=False):
         with st.form(f"add_client_form_{st.session_state['_add_client_v']}"):
             new_name     = st.text_input("Internal name *", placeholder="e.g. Ethniki CY")
             new_inv_name = st.text_input("Name for invoices", placeholder="Formal legal name")
-            new_code     = st.text_input("Client code", placeholder="e.g. ETN")
+            new_code     = st.text_input("Client code", placeholder="e.g. 0478ETH30")
             new_vat      = st.text_input("VAT number")
+            new_type     = st.selectbox("Client type", CLIENT_TYPES,
+                                        help="managed = full; external = time tracking only; internal = non-billable overhead")
             submitted    = st.form_submit_button("Add client")
 
         if submitted:
             if not new_name.strip():
                 st.error("Internal name is required.")
-            elif any(c.name.lower() == new_name.strip().lower() for c in clients):
+            elif any(c.name.lower() == new_name.strip().lower() for c in db.get_clients()):
                 st.error(f"Client '{new_name.strip()}' already exists.")
             else:
                 db.add_client(
@@ -82,6 +73,7 @@ with tab_clients:
                     name_for_invoices=new_inv_name.strip() or new_name.strip(),
                     client_code=new_code.strip(),
                     vat_number=new_vat.strip(),
+                    client_type=new_type,
                 )
                 st.session_state["_add_client_v"] += 1
                 st.session_state["_client_msg"] = f"Client '{new_name.strip()}' added."
@@ -90,22 +82,25 @@ with tab_clients:
 
     st.divider()
 
-    # ---- List & edit/delete ----
     if not clients:
-        st.info("No clients yet.")
+        st.info("No clients found." + ("" if show_internal else " (Internal clients are hidden — toggle above to show.)"))
     else:
+        TYPE_BADGE = {"managed": "🟢", "external": "🔵", "internal": "⚪"}
         for client in clients:
-            with st.expander(f"{client.name}  ({client.client_code or '—'})", expanded=False):
+            badge = TYPE_BADGE.get(client.client_type, "")
+            with st.expander(f"{badge} {client.name}  ({client.client_code or '—'})", expanded=False):
                 with st.form(f"edit_client_{client.id}"):
                     e_inv  = st.text_input("Name for invoices", value=client.name_for_invoices)
                     e_code = st.text_input("Client code",       value=client.client_code)
                     e_vat  = st.text_input("VAT number",        value=client.vat_number)
+                    type_idx = CLIENT_TYPES.index(client.client_type) if client.client_type in CLIENT_TYPES else 0
+                    e_type = st.selectbox("Client type", CLIENT_TYPES, index=type_idx)
                     col_save, col_del, _ = st.columns([1, 1, 4])
                     save   = col_save.form_submit_button("Save")
                     delete = col_del.form_submit_button("Delete", type="secondary")
 
                 if save:
-                    db.update_client(client.id, e_inv, e_code, e_vat)
+                    db.update_client(client.id, e_inv, e_code, e_vat, e_type)
                     st.success("Updated.")
                     st.cache_data.clear()
                     st.rerun()
@@ -113,9 +108,7 @@ with tab_clients:
                 if delete:
                     invoices = db.get_invoices(client_id=client.id)
                     if invoices:
-                        st.error(
-                            f"Cannot delete — {len(invoices)} invoice(s) linked to this client."
-                        )
+                        st.error(f"Cannot delete — {len(invoices)} invoice(s) linked to this client.")
                     else:
                         db.delete_client(client.id)
                         st.session_state["_client_msg"] = f"Deleted '{client.name}'."
@@ -132,15 +125,20 @@ with tab_projects:
     if _msg := st.session_state.pop("_proj_msg", None):
         st.success(_msg)
 
-    clients = db.get_clients()
+    # Only managed + external clients make sense for project management
+    clients = db.get_clients(exclude_types=["internal"])
     if not clients:
         st.info("Add a client first.")
         st.stop()
 
-    selected_client = st.selectbox(
-        "Client", [c.name for c in clients], key="proj_client_select"
-    )
+    col_cl, col_st = st.columns([3, 2])
+    selected_client = col_cl.selectbox("Client", [c.name for c in clients], key="proj_client_select")
     client_obj = next(c for c in clients if c.name == selected_client)
+
+    status_filter = col_st.multiselect(
+        "Show statuses", PROJECT_STATUSES, default=["Active"],
+        key="proj_status_filter"
+    )
 
     # ---- Add new project ----
     with st.expander("Add new project", expanded=False):
@@ -148,10 +146,12 @@ with tab_projects:
         with st.form(f"add_project_form_{st.session_state['_add_proj_v']}"):
             p_name  = st.text_input("Project name *")
             p_desc  = st.text_area("Description", height=70)
-            p_vat   = st.number_input("VAT %", min_value=0.0, max_value=100.0,
+            p_start = st.text_input("Start date (YYYY-MM-DD)", placeholder="e.g. 2024-01-01")
+            c1, c2 = st.columns(2)
+            p_vat   = c1.number_input("VAT %", min_value=0.0, max_value=100.0,
                                       value=19.0, step=1.0)
+            p_stat  = c2.selectbox("Status", PROJECT_STATUSES)
             p_tmpl  = st.selectbox("Template", templates)
-            p_stat  = st.selectbox("Status", PROJECT_STATUSES)
             add_btn = st.form_submit_button("Add project")
 
         if add_btn:
@@ -169,6 +169,7 @@ with tab_projects:
                         vat_pct=p_vat,
                         template=p_tmpl,
                         status=p_stat,
+                        date_start=p_start.strip(),
                     )
                     st.session_state["_add_proj_v"] += 1
                     st.session_state["_proj_msg"] = f"Project '{p_name.strip()}' added."
@@ -178,31 +179,41 @@ with tab_projects:
     st.divider()
 
     # ---- List & edit/delete ----
-    projects = db.get_projects(client_id=client_obj.id)
+    all_projects = db.get_projects(client_id=client_obj.id)
+    projects = [p for p in all_projects if (not status_filter or p.status in status_filter)]
+
     if not projects:
-        st.info("No projects for this client yet.")
+        msg = "No projects for this client yet." if not all_projects else \
+              f"No projects with status {status_filter}. Clear the filter to see all."
+        st.info(msg)
     else:
         templates = _templates()
         for proj in projects:
-            label = f"{proj.name}  [{proj.status}]"
+            start_label = f"  started {proj.date_start}" if proj.date_start else ""
+            label = f"{proj.name}  [{proj.status}]{start_label}"
             with st.expander(label, expanded=False):
+
+                # ---- Edit form ----
                 with st.form(f"edit_proj_{proj.id}"):
-                    e_desc = st.text_area("Description", value=proj.description, height=70)
-                    e_vat  = st.number_input("VAT %", min_value=0.0, max_value=100.0,
-                                             value=proj.vat_pct, step=1.0,
-                                             key=f"vat_{proj.id}")
+                    e_desc  = st.text_area("Description", value=proj.description, height=70)
+                    e_start = st.text_input("Start date (YYYY-MM-DD)", value=proj.date_start)
+                    c1, c2 = st.columns(2)
+                    e_vat   = c1.number_input("VAT %", min_value=0.0, max_value=100.0,
+                                              value=proj.vat_pct, step=1.0,
+                                              key=f"vat_{proj.id}")
+                    e_stat  = c2.selectbox("Status", PROJECT_STATUSES,
+                                           index=PROJECT_STATUSES.index(proj.status)
+                                           if proj.status in PROJECT_STATUSES else 0,
+                                           key=f"stat_{proj.id}")
                     tmpl_idx = templates.index(proj.template) if proj.template in templates else 0
-                    e_tmpl = st.selectbox("Template", templates, index=tmpl_idx,
-                                          key=f"tmpl_{proj.id}")
-                    stat_idx = PROJECT_STATUSES.index(proj.status) if proj.status in PROJECT_STATUSES else 0
-                    e_stat = st.selectbox("Status", PROJECT_STATUSES, index=stat_idx,
-                                          key=f"stat_{proj.id}")
+                    e_tmpl  = st.selectbox("Template", templates, index=tmpl_idx,
+                                           key=f"tmpl_{proj.id}")
                     col_save, col_del, _ = st.columns([1, 1, 4])
                     save   = col_save.form_submit_button("Save")
                     delete = col_del.form_submit_button("Delete", type="secondary")
 
                 if save:
-                    db.update_project(proj.id, e_desc, e_vat, e_tmpl, e_stat)
+                    db.update_project(proj.id, e_desc, e_vat, e_tmpl, e_stat, e_start)
                     st.success("Updated.")
                     st.cache_data.clear()
                     st.rerun()
@@ -210,16 +221,34 @@ with tab_projects:
                 if delete:
                     invoices = db.get_invoices(project_name=proj.name)
                     if invoices:
-                        st.error(
-                            f"Cannot delete — {len(invoices)} invoice(s) linked to this project."
-                        )
+                        st.error(f"Cannot delete — {len(invoices)} invoice(s) linked to this project.")
                     else:
                         db.delete_project(proj.id)
                         st.session_state["_proj_msg"] = f"Deleted '{proj.name}'."
                         st.cache_data.clear()
                         st.rerun()
 
-                # Time & billing summary
+                # ---- Budget breakdown by project codes ----
+                codes = db.get_project_codes(project_id=proj.id)
+                if codes:
+                    st.divider()
+                    st.caption("**Budget by project code**")
+                    code_rows = [
+                        {
+                            "Code": f"{pc.client_code} / {pc.client_suffix}",
+                            "Name": pc.name or "—",
+                            "Description": pc.description or "—",
+                            "Budget (€)": f"{pc.budget_amount:,.0f}" if pc.budget_amount else "—",
+                            "Status": pc.status,
+                        }
+                        for pc in codes
+                    ]
+                    total_budget = sum(pc.budget_amount for pc in codes)
+                    st.dataframe(pd.DataFrame(code_rows), use_container_width=True, hide_index=True)
+                    if total_budget:
+                        st.caption(f"Total budget across all codes: **€{total_budget:,.0f}**")
+
+                # ---- Billing summary ----
                 totals = db.get_project_time_totals(proj.id)
                 if totals["billable_charges"] > 0 or totals["invoiced"] > 0:
                     st.divider()
@@ -240,7 +269,7 @@ with tab_addresses:
     if _msg := st.session_state.pop("_addr_msg", None):
         st.success(_msg)
 
-    clients = db.get_clients()
+    clients = db.get_clients(exclude_types=["internal"])
     if not clients:
         st.info("Add a client first.")
         st.stop()
@@ -250,7 +279,6 @@ with tab_addresses:
     )
     client_addr = next(c for c in clients if c.name == selected_client_addr)
 
-    # ---- Add address ----
     with st.expander("Add address", expanded=False):
         with st.form(f"add_address_form_{st.session_state['_add_addr_v']}"):
             new_addr = st.text_area("Address *", height=80)
@@ -268,7 +296,6 @@ with tab_addresses:
 
     st.divider()
 
-    # ---- List & delete ----
     addresses = db.get_addresses(client_addr.id)
     if not addresses:
         st.info("No addresses for this client yet.")

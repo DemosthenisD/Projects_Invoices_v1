@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import streamlit as st
 import pandas as pd
 import backend.db as db
+from shared.gap_report import build_gap_excel
 
 # ------------------------------------------------------------------
 # Auth guard
@@ -56,7 +57,7 @@ with tab_import:
 
     if uploaded:
         try:
-            df = pd.read_csv(uploaded)
+            df = pd.read_csv(uploaded, dtype={"client_suffix": str})
         except Exception as e:
             st.error(f"Could not read file: {e}")
             st.stop()
@@ -70,26 +71,72 @@ with tab_import:
         st.write(f"**{len(df)} rows** found. Preview:")
         st.dataframe(df.head(10), use_container_width=True)
 
-        # Pre-flight: check which (client_code, client_suffix) pairs are unrecognised
-        pairs = df[["client_code", "client_suffix"]].drop_duplicates()
-        unmatched_pairs = []
-        for _, row in pairs.iterrows():
-            if db.get_project_code_by_keys(str(row["client_code"]), str(row["client_suffix"])) is None:
-                unmatched_pairs.append(f"{row['client_code']} / {row['client_suffix']}")
+        # Pre-flight gap analysis
+        rc_df = df.groupby(["client_code", "client_suffix"]).size().reset_index(name="n")
+        rc = {(str(r["client_code"]), str(r["client_suffix"])): r["n"] for _, r in rc_df.iterrows()}
 
-        if unmatched_pairs:
+        pairs_list = list(rc.keys())
+        gaps = db.analyse_csv_gaps(pairs_list)
+
+        n_miss = len(gaps["missing_code"]) + len(gaps["missing_client"])
+        matched_rows = sum(rc.get(p, 0) for p in gaps["matched"])
+        unmatched_rows = len(df) - matched_rows
+
+        if n_miss == 0:
+            st.success(f"All {len(gaps['matched'])} code(s) matched — **{len(df)} row(s)** ready to import.")
+        else:
             st.warning(
-                f"**{len(unmatched_pairs)} unmatched code(s)** — these rows will NOT be imported "
-                "(add them on the Project Codes page first):\n\n"
-                + "\n".join(f"- {p}" for p in unmatched_pairs)
+                f"**{n_miss} unmatched code(s)** found — "
+                f"**{unmatched_rows} row(s) will be skipped** until those codes are set up. "
+                f"{matched_rows} row(s) from {len(gaps['matched'])} matched code(s) will import."
             )
 
-        matched_count = len(df) - len(
-            df[df.apply(
-                lambda r: f"{r['client_code']} / {r['client_suffix']}" in unmatched_pairs, axis=1
-            )]
-        )
-        st.info(f"**{matched_count}** row(s) will be attempted for import.")
+            if gaps["missing_code"]:
+                with st.expander(
+                    f"Group A — {len(gaps['missing_code'])} code(s): client exists, just add the Project Code (page 6)"
+                ):
+                    st.dataframe(pd.DataFrame([
+                        {
+                            "Client": f"{i['client_name']} ({i['client_code']})",
+                            "Suffix": i["client_suffix"],
+                            "Rows": rc.get((i["client_code"], i["client_suffix"]), 0),
+                            "Existing projects": " | ".join(i["existing_projects"]),
+                        }
+                        for i in sorted(gaps["missing_code"], key=lambda x: x["client_code"])
+                    ]), use_container_width=True, hide_index=True)
+
+            if gaps["missing_client"]:
+                ext = [i for i in gaps["missing_client"] if not i["is_internal"]]
+                intl = [i for i in gaps["missing_client"] if i["is_internal"]]
+                with st.expander(
+                    f"Group B — {len(gaps['missing_client'])} code(s): client not in DB, "
+                    f"add Client + Project + Code (page 11)  "
+                    f"[{len(ext)} external, {len(intl)} internal/overhead]"
+                ):
+                    if ext:
+                        st.caption(f"**External clients ({len(ext)})**")
+                        st.dataframe(pd.DataFrame([
+                            {"Client code": i["client_code"], "Suffix": i["client_suffix"],
+                             "Rows": rc.get((i["client_code"], i["client_suffix"]), 0)}
+                            for i in sorted(ext, key=lambda x: x["client_code"])
+                        ]), use_container_width=True, hide_index=True)
+                    if intl:
+                        st.caption(f"**Internal / overhead 0009xxx codes ({len(intl)}) — add only if you want to track them**")
+                        st.dataframe(pd.DataFrame([
+                            {"Client code": i["client_code"], "Suffix": i["client_suffix"],
+                             "Rows": rc.get((i["client_code"], i["client_suffix"]), 0)}
+                            for i in sorted(intl, key=lambda x: x["client_code"])
+                        ]), use_container_width=True, hide_index=True)
+
+            excel_bytes = build_gap_excel(gaps, rc)
+            st.download_button(
+                label="Download gap report (Excel)",
+                data=excel_bytes,
+                file_name=f"gap_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+        st.info(f"**{matched_rows if n_miss else len(df)}** row(s) will be attempted for import.")
 
         batch_ref = f"{uploaded.name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
