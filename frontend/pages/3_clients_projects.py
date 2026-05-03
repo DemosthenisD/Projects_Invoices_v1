@@ -227,46 +227,45 @@ with tab_projects:
 
     if show_all:
         st.caption("Select a specific client above to add or edit projects.")
-        st.stop()
+    else:
+        # ---- Add new project ----
+        with st.expander("Add new project", expanded=False):
+            templates = _templates()
+            with st.form(f"add_project_form_{st.session_state['_add_proj_v']}"):
+                p_name  = st.text_input("Project name *")
+                p_desc  = st.text_area("Description", height=70)
+                p_start = st.text_input("Start date (YYYY-MM-DD)", placeholder="e.g. 2024-01-01")
+                c1, c2 = st.columns(2)
+                p_vat   = c1.number_input("VAT %", min_value=0.0, max_value=100.0,
+                                          value=19.0, step=1.0)
+                p_stat  = c2.selectbox("Status", PROJECT_STATUSES)
+                p_tmpl  = st.selectbox("Template", templates)
+                add_btn = st.form_submit_button("Add project")
 
-    # ---- Add new project ----
-    with st.expander("Add new project", expanded=False):
-        templates = _templates()
-        with st.form(f"add_project_form_{st.session_state['_add_proj_v']}"):
-            p_name  = st.text_input("Project name *")
-            p_desc  = st.text_area("Description", height=70)
-            p_start = st.text_input("Start date (YYYY-MM-DD)", placeholder="e.g. 2024-01-01")
-            c1, c2 = st.columns(2)
-            p_vat   = c1.number_input("VAT %", min_value=0.0, max_value=100.0,
-                                      value=19.0, step=1.0)
-            p_stat  = c2.selectbox("Status", PROJECT_STATUSES)
-            p_tmpl  = st.selectbox("Template", templates)
-            add_btn = st.form_submit_button("Add project")
-
-        if add_btn:
-            if not p_name.strip():
-                st.error("Project name is required.")
-            else:
-                existing = db.get_projects(client_id=client_obj.id)
-                if any(p.name.lower() == p_name.strip().lower() for p in existing):
-                    st.error(f"Project '{p_name.strip()}' already exists for this client.")
+            if add_btn:
+                if not p_name.strip():
+                    st.error("Project name is required.")
                 else:
-                    db.add_project(
-                        client_id=client_obj.id,
-                        name=p_name.strip(),
-                        description=p_desc.strip(),
-                        vat_pct=p_vat,
-                        template=p_tmpl,
-                        status=p_stat,
-                        date_start=p_start.strip(),
-                    )
-                    st.session_state["_add_proj_v"] += 1
-                    st.session_state["_proj_msg"] = f"Project '{p_name.strip()}' added."
-                    st.cache_data.clear()
-                    st.rerun()
+                    existing = db.get_projects(client_id=client_obj.id)
+                    if any(p.name.lower() == p_name.strip().lower() for p in existing):
+                        st.error(f"Project '{p_name.strip()}' already exists for this client.")
+                    else:
+                        db.add_project(
+                            client_id=client_obj.id,
+                            name=p_name.strip(),
+                            description=p_desc.strip(),
+                            vat_pct=p_vat,
+                            template=p_tmpl,
+                            status=p_stat,
+                            date_start=p_start.strip(),
+                        )
+                        st.session_state["_add_proj_v"] += 1
+                        st.session_state["_proj_msg"] = f"Project '{p_name.strip()}' added."
+                        st.cache_data.clear()
+                        st.rerun()
 
     # ---- Edit / delete a project ----
-    all_projects = db.get_projects(client_id=client_obj.id)
+    all_projects = [] if show_all else db.get_projects(client_id=client_obj.id)
     if all_projects:
         with st.expander("Edit / delete a project", expanded=False):
             proj_names = [p.name for p in all_projects]
