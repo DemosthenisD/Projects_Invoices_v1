@@ -50,7 +50,9 @@ The landing page after sign-in. Use the **left sidebar** to navigate between pag
 
 ### Page 1 — Invoice Log
 
-**What it does:** Shows all recorded invoices with filters and per-row file download.
+**What it does:** Shows all recorded invoices with filters, payment-status tracking, and per-row file download. A second tab lets you bulk-upload historical invoices.
+
+#### Log tab
 
 **Filters:**
 
@@ -59,13 +61,27 @@ The landing page after sign-in. Use the **left sidebar** to navigate between pag
 | Year | Shows only invoices from that year |
 | Client | Shows only invoices for that client |
 | Project | Shows only invoices for that project |
+| Status | `outstanding` / `paid` / `partial` / All |
 | Search | Matches invoice number or project name |
 
-**Columns:** Date | Invoice # | Client | Project | Net € | VAT € | Expenses € | File
+**Summary strip:** Shows count, net total, gross total, and total outstanding (unpaid gross).
 
-**File column:** Click the PDF/DOCX button to download the file from your local disk. If the file has been moved or deleted, the button shows "—".
+**Columns:** Date | Invoice # | Client | Project | Net € | VAT € | Status | File | Action
 
-**Export to Excel:** Downloads all visible (filtered) rows as an `.xlsx` file.
+- **Status** — colour-coded badge: 🔴 outstanding · 🟢 paid · 🟡 partial.
+- **Action** — **Mark Paid** sets today as the paid date; **Outstanding** reverses it.
+- **File column** — click the PDF/DOCX button to download from your local disk. Shows "—" if file was moved.
+
+**Export to Excel:** Downloads all visible rows including Status and Paid Date columns.
+
+#### Bulk Upload tab
+
+Use this when you need to load several historical invoices at once.
+
+1. Click **Download blank template** to get a pre-filled Excel file with all columns and a Client Reference sheet.
+2. Fill in the `Invoices` sheet (one row per invoice). `client_id` must match the reference sheet.
+3. Upload the completed file — the app shows a preview row count.
+4. Click **Import invoices**. Duplicates (same Invoice No + Year) are skipped automatically.
 
 ---
 
@@ -74,25 +90,36 @@ The landing page after sign-in. Use the **left sidebar** to navigate between pag
 **What it does:** Manages client and project master data.
 
 **Client section:**
-- Add a new client with name, billing name, client code, VAT number, and VAT %.
-- Edit or delete existing clients (deletion is blocked if projects exist).
+- A summary table shows all clients with columns: Name, Code, Type (🟢 managed / 🔵 external / ⚪ internal), Country, Name for invoices, total projects, active projects, and active codes.
+- Internal clients (0009xxx) are hidden by default; toggle "Show internal" to include them.
+- **Add new client** expander: name, billing name, client code, country, VAT number, client type.
+- **Edit / delete a client** expander: select a client from a dropdown then edit its fields. Deletion is blocked if invoices are linked.
 
 **Project section:**
-- For each client, view their projects in expandable cards.
-- Each card shows: description, VAT %, template, status, and a billing summary (billable charges, invoiced, write-offs, remaining).
-- Add, edit, or delete projects.
+- Filter by client and project status.
+- Each project expander shows: description, VAT %, template, status, start date, budget breakdown by project code (including date ranges), and a billing summary (billable charges, invoiced, write-offs).
+- **Setting a project to Completed** automatically closes all its active project codes (sets status = Completed, date_end = today) and shows a confirmation message with the count of codes closed.
 
 ---
 
 ### Page 3 — Pipeline / CRM
 
-**What it does:** Tracks prospective and in-progress business opportunities.
+**What it does:** Tracks prospective and in-progress business opportunities with inline editing.
 
-**Summary table:** Shows all pipeline entries with stage, value, and notes at a glance. Filter by stage.
+**Summary strip:** Count and total value per stage (Prospect / Active / On Hold / Completed).
 
-**Per-project detail:** Expand a project to edit its pipeline stage, estimated value, probability, and notes. Budget fields (Min/Est/Max) are used for forecasting.
+**Probability-weighted forecast** (shown when at least one project has budget fields set):
+- Weighted Min, Weighted Est, Weighted Max = budget × probability for each project.
 
-**Dashboard integration:** The Dashboard page shows probability-weighted pipeline forecasts derived from these fields.
+**Inline editing table:** All pipeline rows are displayed in a single editable grid. You can directly edit:
+- Stage (dropdown: Prospect / Active / On Hold / Completed)
+- Value (€), Min (€), Est (€), Max (€)
+- Prob % (0–100)
+- Notes
+
+Click **Save changes** to persist all edits in one go.
+
+Filters (Stage, Client) apply before the table is rendered. Changes outside the filter are not affected.
 
 ---
 

@@ -290,6 +290,26 @@ def init_db() -> None:
             except Exception:
                 pass
 
+        # --- Migration: clients.country column ---
+        for col, defval in [("client_type", "'managed'"), ("country", "''")]:
+            try:
+                conn.execute(f"ALTER TABLE clients ADD COLUMN {col} TEXT NOT NULL DEFAULT {defval}")
+            except Exception:
+                pass
+
+        # --- Migration: invoices.status and invoices.paid_date columns ---
+        for col, defval in [("status", "'outstanding'"), ("paid_date", "''")]:
+            try:
+                conn.execute(f"ALTER TABLE invoices ADD COLUMN {col} TEXT NOT NULL DEFAULT {defval}")
+            except Exception:
+                pass
+
+        # --- Migration: projects.date_start column ---
+        try:
+            conn.execute("ALTER TABLE projects ADD COLUMN date_start TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+
         # --- Migration: normalise stale template values in projects ---
         conn.execute(
             "UPDATE projects SET template = 'template1_v3' WHERE template IN ('Template-1', 'template1')"
@@ -310,7 +330,7 @@ def get_clients(exclude_types: list[str] | None = None) -> list[Client]:
                     e.g. ['internal'] hides 0009xxx overhead codes.
     """
     query = ("SELECT id, name, name_for_invoices, client_code, vat_number, "
-             "client_type, created_at FROM clients")
+             "client_type, country, created_at FROM clients")
     params: list = []
     if exclude_types:
         placeholders = ",".join("?" * len(exclude_types))
@@ -322,23 +342,47 @@ def get_clients(exclude_types: list[str] | None = None) -> list[Client]:
     return [Client(**dict(r)) for r in rows]
 
 
+def get_clients_with_counts(exclude_types: list[str] | None = None) -> list[dict]:
+    """Return clients with project/code counts for the tabular overview."""
+    base_query = """
+        SELECT c.id, c.name, c.name_for_invoices, c.client_code, c.vat_number,
+               c.client_type, c.country, c.created_at,
+               COUNT(DISTINCT p.id)                                          AS total_projects,
+               COUNT(DISTINCT CASE WHEN p.status='Active' THEN p.id END)    AS active_projects,
+               COUNT(DISTINCT CASE WHEN pc.status='Active' THEN pc.id END)  AS active_codes
+        FROM clients c
+        LEFT JOIN projects p ON p.client_id = c.id
+        LEFT JOIN project_codes pc ON pc.project_id = p.id
+    """
+    params: list = []
+    if exclude_types:
+        placeholders = ",".join("?" * len(exclude_types))
+        base_query += f" WHERE c.client_type NOT IN ({placeholders})"
+        params = list(exclude_types)
+    base_query += " GROUP BY c.id ORDER BY c.name"
+    with get_connection() as conn:
+        rows = conn.execute(base_query, params).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_client_by_name(name: str) -> Client | None:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, name, name_for_invoices, client_code, vat_number, client_type, created_at "
+            "SELECT id, name, name_for_invoices, client_code, vat_number, client_type, country, created_at "
             "FROM clients WHERE name = ?", (name,)
         ).fetchone()
     return Client(**dict(row)) if row else None
 
 
 def add_client(name: str, name_for_invoices: str = "", client_code: str = "",
-               vat_number: str = "", client_type: str = "managed") -> int:
+               vat_number: str = "", client_type: str = "managed",
+               country: str = "") -> int:
     with get_connection() as conn:
         cur = conn.execute(
             "INSERT OR IGNORE INTO clients "
-            "(name, name_for_invoices, client_code, vat_number, client_type) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (name, name_for_invoices or name, client_code, vat_number, client_type)
+            "(name, name_for_invoices, client_code, vat_number, client_type, country) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (name, name_for_invoices or name, client_code, vat_number, client_type, country)
         )
         if cur.lastrowid:
             return cur.lastrowid
@@ -347,12 +391,13 @@ def add_client(name: str, name_for_invoices: str = "", client_code: str = "",
 
 
 def update_client(client_id: int, name_for_invoices: str, client_code: str,
-                  vat_number: str, client_type: str = "managed") -> None:
+                  vat_number: str, client_type: str = "managed",
+                  country: str = "") -> None:
     with get_connection() as conn:
         conn.execute(
-            "UPDATE clients SET name_for_invoices=?, client_code=?, vat_number=?, client_type=? "
-            "WHERE id=?",
-            (name_for_invoices, client_code, vat_number, client_type, client_id)
+            "UPDATE clients SET name_for_invoices=?, client_code=?, vat_number=?, "
+            "client_type=?, country=? WHERE id=?",
+            (name_for_invoices, client_code, vat_number, client_type, country, client_id)
         )
 
 
@@ -437,13 +482,26 @@ def add_project(client_id: int, name: str, description: str = "",
 
 
 def update_project(project_id: int, description: str, vat_pct: float,
-                   template: str, status: str, date_start: str = "") -> None:
+                   template: str, status: str, date_start: str = "") -> int:
+    """Update project fields. Returns count of project codes auto-closed (0 if no auto-close)."""
+    from datetime import date as _date
+    closed_count = 0
     with get_connection() as conn:
+        old = conn.execute("SELECT status FROM projects WHERE id=?", (project_id,)).fetchone()
         conn.execute(
             "UPDATE projects SET description=?, vat_pct=?, template=?, status=?, date_start=? "
             "WHERE id=?",
             (description, vat_pct, template, status, date_start, project_id)
         )
+        if status == "Completed" and old and old["status"] != "Completed":
+            today = _date.today().isoformat()
+            cur = conn.execute(
+                "UPDATE project_codes SET status='Completed', date_end=? "
+                "WHERE project_id=? AND status='Active' AND date_end=''",
+                (today, project_id)
+            )
+            closed_count = cur.rowcount
+    return closed_count
 
 
 def delete_project(project_id: int) -> None:
@@ -460,11 +518,12 @@ def get_invoices(
     year: int | None = None,
     project_name: str | None = None,
     search: str | None = None,
+    status: str | None = None,
 ) -> list[Invoice]:
     query = (
         "SELECT id, client_id, project_id, invoice_number, year, date, amount, "
         "vat_amount, vat_pct, address, project_name, description, template_used, format, "
-        "file_path, expenses_net, expenses_vat, created_at FROM invoices"
+        "file_path, expenses_net, expenses_vat, status, paid_date, created_at FROM invoices"
     )
     params: list = []
     filters = []
@@ -480,6 +539,9 @@ def get_invoices(
     if search:
         filters.append("(invoice_number LIKE ? OR project_name LIKE ?)")
         params.extend([f"%{search}%", f"%{search}%"])
+    if status:
+        filters.append("status = ?")
+        params.append(status)
     if filters:
         query += " WHERE " + " AND ".join(filters)
     query += " ORDER BY year DESC, invoice_number DESC"
@@ -542,6 +604,70 @@ def get_next_invoice_number(year: int) -> int:
             "SELECT COUNT(*) as cnt FROM invoices WHERE year = ?", (year,)
         ).fetchone()
     return (row["cnt"] or 0) + 1
+
+
+def update_invoice_status(invoice_id: int, status: str, paid_date: str = "") -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE invoices SET status=?, paid_date=? WHERE id=?",
+            (status, paid_date, invoice_id)
+        )
+
+
+def bulk_import_invoices(records: list[dict]) -> dict:
+    """Insert invoices from an Excel template upload.
+
+    Each record dict should contain the columns from the template.
+    Returns {inserted, skipped, errors} counts.
+    Duplicates (same invoice_number + year) are skipped.
+    """
+    inserted = skipped = 0
+    errors = []
+    for rec in records:
+        try:
+            inv_num = str(rec.get("invoice_number", "")).strip()
+            year = int(rec.get("year", 0))
+            if not inv_num or not year:
+                errors.append(f"Row missing invoice_number or year: {rec}")
+                continue
+            with get_connection() as conn:
+                existing = conn.execute(
+                    "SELECT id FROM invoices WHERE invoice_number=? AND year=?",
+                    (inv_num, year)
+                ).fetchone()
+                if existing:
+                    skipped += 1
+                    continue
+                conn.execute(
+                    "INSERT INTO invoices "
+                    "(client_id, project_id, invoice_number, year, date, amount, vat_amount, "
+                    "vat_pct, address, project_name, description, template_used, format, "
+                    "file_path, expenses_net, expenses_vat, status, paid_date) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        int(rec.get("client_id", 0)),
+                        int(rec.get("project_id", 0)) or None,
+                        inv_num, year,
+                        str(rec.get("date", "")),
+                        float(rec.get("amount", 0)),
+                        float(rec.get("vat_amount", 0)),
+                        float(rec.get("vat_pct", 19.0)),
+                        str(rec.get("address", "")),
+                        str(rec.get("project_name", "")),
+                        str(rec.get("description", "")),
+                        str(rec.get("template_used", "")),
+                        str(rec.get("format", "PDF")),
+                        str(rec.get("file_path", "")),
+                        float(rec.get("expenses_net", 0)),
+                        float(rec.get("expenses_vat", 0)),
+                        str(rec.get("status", "outstanding")),
+                        str(rec.get("paid_date", "")),
+                    )
+                )
+                inserted += 1
+        except Exception as exc:
+            errors.append(f"{rec.get('invoice_number', '?')}: {exc}")
+    return {"inserted": inserted, "skipped": skipped, "errors": errors}
 
 
 def get_invoice_allocations(invoice_id: int) -> list[InvoiceAllocation]:

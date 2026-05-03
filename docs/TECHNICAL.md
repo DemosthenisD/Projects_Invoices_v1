@@ -68,6 +68,8 @@ scripts/
 | name_for_invoices | TEXT | Printed on invoices |
 | client_code | TEXT | e.g. `0478EUR30` |
 | vat_number | TEXT | Printed on invoices |
+| client_type | TEXT | `managed` / `external` / `internal` |
+| country | TEXT | e.g. `Cyprus` |
 | created_at | TEXT | ISO datetime |
 
 ### `addresses`
@@ -90,9 +92,12 @@ Unique on `(client_id, address)`.
 | description | TEXT | Default invoice description |
 | vat_pct | REAL | e.g. 19.0 or 0.0 |
 | template | TEXT | Template filename (no .docx) |
-| status | TEXT | Active / Completed / On Hold |
+| status | TEXT | Active / Completed / On Hold / Prospect |
+| date_start | TEXT | YYYY-MM-DD; when the project started |
 
 Unique on `(client_id, name)`.
+
+Setting `status = 'Completed'` via the UI automatically sets all active project codes to `Completed` with `date_end = today`.
 
 ### `invoices`
 
@@ -115,6 +120,8 @@ Unique on `(client_id, name)`.
 | file_path | TEXT | Absolute path of generated file |
 | expenses_net | REAL | |
 | expenses_vat | REAL | |
+| status | TEXT | `outstanding` / `paid` / `partial` |
+| paid_date | TEXT | ISO date; blank if not yet paid |
 | created_at | TEXT | |
 
 ### `invoice_allocations`

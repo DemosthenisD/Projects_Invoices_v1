@@ -9,6 +9,7 @@ class Client:
     client_code: str = ""        # Short code (e.g. "ETN")
     vat_number: str = ""         # Client's VAT registration number
     client_type: str = "managed" # managed | external | internal
+    country: str = ""
     created_at: str = ""
 
 
@@ -50,6 +51,8 @@ class Invoice:
     file_path: str = ""
     expenses_net: float = 0.0
     expenses_vat: float = 0.0
+    status: str = "outstanding"  # outstanding | paid | partial
+    paid_date: str = ""
     created_at: str = ""
 
 

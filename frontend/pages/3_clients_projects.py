@@ -2,7 +2,7 @@
 Page 2 — Clients & Projects.
 
 Tabbed CRUD:
-  Clients   — list managed/external clients (internal hidden by default), add, edit, delete
+  Clients   — tabular overview with counts, add + edit panel (internal hidden by default)
   Projects  — list by client with status filter, budget breakdown, add, edit, delete
   Addresses — list by client, add, delete
 """
@@ -49,14 +49,49 @@ with tab_clients:
 
     show_internal = st.checkbox("Show internal / non-billable clients (0009xxx)", value=False)
     exclude = [] if show_internal else ["internal"]
-    clients = db.get_clients(exclude_types=exclude)
+
+    # ---- Summary table ----
+    rows_with_counts = db.get_clients_with_counts(exclude_types=exclude)
+    if rows_with_counts:
+        TYPE_BADGE = {"managed": "🟢", "external": "🔵", "internal": "⚪"}
+        summary_rows = [
+            {
+                "": TYPE_BADGE.get(r["client_type"], ""),
+                "Name": r["name"],
+                "Code": r["client_code"] or "—",
+                "Type": r["client_type"],
+                "Country": r["country"] or "—",
+                "Name for invoices": r["name_for_invoices"] or "—",
+                "Projects": r["total_projects"],
+                "Active projects": r["active_projects"],
+                "Active codes": r["active_codes"],
+            }
+            for r in rows_with_counts
+        ]
+        st.dataframe(
+            pd.DataFrame(summary_rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "": st.column_config.TextColumn(width="small"),
+                "Projects": st.column_config.NumberColumn(width="small"),
+                "Active projects": st.column_config.NumberColumn(width="small"),
+                "Active codes": st.column_config.NumberColumn(width="small"),
+            },
+        )
+    else:
+        st.info("No clients found." + ("" if show_internal else " (Internal clients are hidden — toggle above to show.)"))
+
+    st.divider()
 
     # ---- Add new client ----
     with st.expander("Add new client", expanded=False):
         with st.form(f"add_client_form_{st.session_state['_add_client_v']}"):
             new_name     = st.text_input("Internal name *", placeholder="e.g. Ethniki CY")
             new_inv_name = st.text_input("Name for invoices", placeholder="Formal legal name")
-            new_code     = st.text_input("Client code", placeholder="e.g. 0478ETH30")
+            col_a, col_b = st.columns(2)
+            new_code     = col_a.text_input("Client code", placeholder="e.g. 0478ETH30")
+            new_country  = col_b.text_input("Country", placeholder="e.g. Cyprus")
             new_vat      = st.text_input("VAT number")
             new_type     = st.selectbox("Client type", CLIENT_TYPES,
                                         help="managed = full; external = time tracking only; internal = non-billable overhead")
@@ -74,46 +109,47 @@ with tab_clients:
                     client_code=new_code.strip(),
                     vat_number=new_vat.strip(),
                     client_type=new_type,
+                    country=new_country.strip(),
                 )
                 st.session_state["_add_client_v"] += 1
                 st.session_state["_client_msg"] = f"Client '{new_name.strip()}' added."
                 st.cache_data.clear()
                 st.rerun()
 
-    st.divider()
+    # ---- Edit existing client ----
+    clients = db.get_clients(exclude_types=exclude)
+    if clients:
+        with st.expander("Edit / delete a client", expanded=False):
+            edit_name = st.selectbox("Select client to edit", [c.name for c in clients], key="edit_client_sel")
+            client_obj = next(c for c in clients if c.name == edit_name)
 
-    if not clients:
-        st.info("No clients found." + ("" if show_internal else " (Internal clients are hidden — toggle above to show.)"))
-    else:
-        TYPE_BADGE = {"managed": "🟢", "external": "🔵", "internal": "⚪"}
-        for client in clients:
-            badge = TYPE_BADGE.get(client.client_type, "")
-            with st.expander(f"{badge} {client.name}  ({client.client_code or '—'})", expanded=False):
-                with st.form(f"edit_client_{client.id}"):
-                    e_inv  = st.text_input("Name for invoices", value=client.name_for_invoices)
-                    e_code = st.text_input("Client code",       value=client.client_code)
-                    e_vat  = st.text_input("VAT number",        value=client.vat_number)
-                    type_idx = CLIENT_TYPES.index(client.client_type) if client.client_type in CLIENT_TYPES else 0
-                    e_type = st.selectbox("Client type", CLIENT_TYPES, index=type_idx)
-                    col_save, col_del, _ = st.columns([1, 1, 4])
-                    save   = col_save.form_submit_button("Save")
-                    delete = col_del.form_submit_button("Delete", type="secondary")
+            with st.form(f"edit_client_{client_obj.id}"):
+                e_inv    = st.text_input("Name for invoices", value=client_obj.name_for_invoices)
+                col_a, col_b = st.columns(2)
+                e_code   = col_a.text_input("Client code",   value=client_obj.client_code)
+                e_country= col_b.text_input("Country",       value=client_obj.country)
+                e_vat    = st.text_input("VAT number",       value=client_obj.vat_number)
+                type_idx = CLIENT_TYPES.index(client_obj.client_type) if client_obj.client_type in CLIENT_TYPES else 0
+                e_type   = st.selectbox("Client type", CLIENT_TYPES, index=type_idx)
+                col_save, col_del, _ = st.columns([1, 1, 4])
+                save     = col_save.form_submit_button("Save")
+                delete   = col_del.form_submit_button("Delete", type="secondary")
 
-                if save:
-                    db.update_client(client.id, e_inv, e_code, e_vat, e_type)
-                    st.success("Updated.")
+            if save:
+                db.update_client(client_obj.id, e_inv, e_code, e_vat, e_type, e_country)
+                st.success("Updated.")
+                st.cache_data.clear()
+                st.rerun()
+
+            if delete:
+                invoices = db.get_invoices(client_id=client_obj.id)
+                if invoices:
+                    st.error(f"Cannot delete — {len(invoices)} invoice(s) linked to this client.")
+                else:
+                    db.delete_client(client_obj.id)
+                    st.session_state["_client_msg"] = f"Deleted '{client_obj.name}'."
                     st.cache_data.clear()
                     st.rerun()
-
-                if delete:
-                    invoices = db.get_invoices(client_id=client.id)
-                    if invoices:
-                        st.error(f"Cannot delete — {len(invoices)} invoice(s) linked to this client.")
-                    else:
-                        db.delete_client(client.id)
-                        st.session_state["_client_msg"] = f"Deleted '{client.name}'."
-                        st.cache_data.clear()
-                        st.rerun()
 
 # ==================================================================
 # TAB 2 — PROJECTS
@@ -213,8 +249,11 @@ with tab_projects:
                     delete = col_del.form_submit_button("Delete", type="secondary")
 
                 if save:
-                    db.update_project(proj.id, e_desc, e_vat, e_tmpl, e_stat, e_start)
-                    st.success("Updated.")
+                    closed = db.update_project(proj.id, e_desc, e_vat, e_tmpl, e_stat, e_start)
+                    msg = "Updated."
+                    if closed:
+                        msg += f" {closed} project code(s) automatically set to Completed."
+                    st.success(msg)
                     st.cache_data.clear()
                     st.rerun()
 
@@ -240,6 +279,8 @@ with tab_projects:
                             "Description": pc.description or "—",
                             "Budget (€)": f"{pc.budget_amount:,.0f}" if pc.budget_amount else "—",
                             "Status": pc.status,
+                            "From": pc.date_start or "—",
+                            "To": pc.date_end or "open",
                         }
                         for pc in codes
                     ]

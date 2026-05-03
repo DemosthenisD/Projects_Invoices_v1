@@ -2,6 +2,38 @@
 
 ---
 
+## Sprint 11 — Status Tracking, Tabular Clients, Pipeline Inline Edit (April 2026)
+
+> **Updates on 30 Apr 2026** — Four UX improvements delivered: (1) Clients tab now shows a tabular summary with Country, Name for invoices, project/code counts — a selectbox-based edit panel replaces accordion expanders. (2) Invoice Log gains Status filter, Mark Paid / Outstanding action buttons, and a Bulk Upload tab with a downloadable Excel template. (3) Pipeline / CRM replaced per-project expanders with a single inline `st.data_editor` grid — edit Stage, Value, budget fields, Probability, and Notes for all projects at once, then save in one click. (4) Completing a project now auto-closes all its active project codes (sets status = Completed, date_end = today) with a confirmation count.
+
+### DB Schema Changes (non-breaking, migrated automatically on startup)
+
+- **`clients`** — added `client_type TEXT DEFAULT 'managed'` and `country TEXT DEFAULT ''`.
+- **`invoices`** — added `status TEXT DEFAULT 'outstanding'` and `paid_date TEXT DEFAULT ''`.
+- **`projects`** — added `date_start TEXT DEFAULT ''`.
+
+### New / Updated DB Functions
+
+- `get_clients()` — now includes `country` in SELECT.
+- `get_clients_with_counts()` — new; returns client rows joined with total_projects, active_projects, active_codes counts for the tabular overview.
+- `add_client()` / `update_client()` — new `country` parameter.
+- `get_invoices()` — now includes `status`, `paid_date`; new `status` filter parameter.
+- `update_invoice_status(invoice_id, status, paid_date)` — new; used by Mark Paid / Outstanding buttons.
+- `bulk_import_invoices(records)` — new; inserts from upload template, skips duplicates, returns `{inserted, skipped, errors}`.
+- `update_project()` — now auto-closes active project codes when status changes to Completed; returns count of codes closed.
+
+### Page Changes
+
+- **Page 1 — Invoice Log:** Status filter, status badge column, Mark Paid / Outstanding per row, Outstanding summary metric, Bulk Upload tab (template download + file uploader + import button). Excel export now includes Status and Paid Date columns.
+- **Page 2 — Clients & Projects:** Clients tab replaced accordion expanders with `st.dataframe` summary table (Name, Code, Type badge, Country, Name for invoices, Projects, Active projects, Active codes); "Edit / delete a client" selectbox panel added below. Project cards now also show date range (From / To) per project code row.
+- **Page 3 — Pipeline / CRM:** Replaced per-project expander forms with a single `st.data_editor` table; summary metrics retained; probability-weighted forecast shown when budget fields are populated; one Save button persists all changes at once.
+
+### .gitignore
+
+- `DB_Tbls_Structure/*.csv` and `DB_Tbls_Structure/*.xlsx` — all data exports from the DB_Tbls_Structure folder are now excluded. The `data_dependencies.md` structure file is still committed.
+
+---
+
 ## Numbered Pages — Launch shortcut → ready to test!
 
 > **Updates on 24 Apr 2026 (UX)** — Sidebar now grouped into 6 sections (Invoices, Clients & Projects, Pipeline & Reporting, Time & Billing, Annual Review, Admin) with pages numbered 1–14. How to Use stays pinned at the top ungrouped. One-click `launch_app.bat` added — double-click to start the app and auto-open the browser. Currency fixed to € across all Annual Review pages.
