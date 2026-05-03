@@ -176,6 +176,52 @@ with tab_projects:
         key="proj_status_filter"
     )
 
+    # ---- Summary table ----
+    all_proj_summary = db.get_projects_with_summary(client_obj.id)
+    filtered_summary = [
+        r for r in all_proj_summary
+        if not status_filter or r["status"] in status_filter
+    ]
+
+    STATUS_PROJ_BADGE = {"Active": "🟢", "On Hold": "🟡", "Completed": "⚫", "Prospect": "🔵"}
+
+    if filtered_summary:
+        table_rows = [
+            {
+                "": STATUS_PROJ_BADGE.get(r["status"], ""),
+                "Project": r["name"],
+                "Status": r["status"],
+                "Started": r["date_start"] or "—",
+                "VAT %": r["vat_pct"],
+                "Codes": r["code_count"],
+                "Budget (€)": int(r["total_budget"]),
+                "Billable (€)": int(r["billable_charges"]),
+                "Write-offs (€)": int(r["write_offs"]),
+                "Invoiced (€)": int(r["invoiced"]),
+            }
+            for r in filtered_summary
+        ]
+        st.dataframe(
+            pd.DataFrame(table_rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "": st.column_config.TextColumn(width="small"),
+                "VAT %": st.column_config.NumberColumn(format="%.0f%%", width="small"),
+                "Codes": st.column_config.NumberColumn(width="small"),
+                "Budget (€)": st.column_config.NumberColumn(format="%d", width="medium"),
+                "Billable (€)": st.column_config.NumberColumn(format="%d", width="medium"),
+                "Write-offs (€)": st.column_config.NumberColumn(format="%d", width="medium"),
+                "Invoiced (€)": st.column_config.NumberColumn(format="%d", width="medium"),
+            },
+        )
+    elif all_proj_summary:
+        st.info(f"No projects with status {status_filter}. Clear the filter to see all.")
+    else:
+        st.info("No projects for this client yet.")
+
+    st.divider()
+
     # ---- Add new project ----
     with st.expander("Add new project", expanded=False):
         templates = _templates()
@@ -212,93 +258,84 @@ with tab_projects:
                     st.cache_data.clear()
                     st.rerun()
 
-    st.divider()
-
-    # ---- List & edit/delete ----
+    # ---- Edit / delete a project ----
     all_projects = db.get_projects(client_id=client_obj.id)
-    projects = [p for p in all_projects if (not status_filter or p.status in status_filter)]
+    if all_projects:
+        with st.expander("Edit / delete a project", expanded=False):
+            proj_names = [p.name for p in all_projects]
+            edit_proj_name = st.selectbox(
+                "Select project to edit", proj_names, key="edit_proj_sel"
+            )
+            proj = next(p for p in all_projects if p.name == edit_proj_name)
+            templates = _templates()
 
-    if not projects:
-        msg = "No projects for this client yet." if not all_projects else \
-              f"No projects with status {status_filter}. Clear the filter to see all."
-        st.info(msg)
-    else:
-        templates = _templates()
-        for proj in projects:
-            start_label = f"  started {proj.date_start}" if proj.date_start else ""
-            label = f"{proj.name}  [{proj.status}]{start_label}"
-            with st.expander(label, expanded=False):
+            with st.form(f"edit_proj_{proj.id}"):
+                e_desc  = st.text_area("Description", value=proj.description, height=70)
+                e_start = st.text_input("Start date (YYYY-MM-DD)", value=proj.date_start)
+                c1, c2 = st.columns(2)
+                e_vat   = c1.number_input("VAT %", min_value=0.0, max_value=100.0,
+                                          value=proj.vat_pct, step=1.0)
+                e_stat  = c2.selectbox(
+                    "Status", PROJECT_STATUSES,
+                    index=PROJECT_STATUSES.index(proj.status) if proj.status in PROJECT_STATUSES else 0,
+                )
+                tmpl_idx = templates.index(proj.template) if proj.template in templates else 0
+                e_tmpl  = st.selectbox("Template", templates, index=tmpl_idx)
+                col_save, col_del, _ = st.columns([1, 1, 4])
+                save   = col_save.form_submit_button("Save")
+                delete = col_del.form_submit_button("Delete", type="secondary")
 
-                # ---- Edit form ----
-                with st.form(f"edit_proj_{proj.id}"):
-                    e_desc  = st.text_area("Description", value=proj.description, height=70)
-                    e_start = st.text_input("Start date (YYYY-MM-DD)", value=proj.date_start)
-                    c1, c2 = st.columns(2)
-                    e_vat   = c1.number_input("VAT %", min_value=0.0, max_value=100.0,
-                                              value=proj.vat_pct, step=1.0,
-                                              key=f"vat_{proj.id}")
-                    e_stat  = c2.selectbox("Status", PROJECT_STATUSES,
-                                           index=PROJECT_STATUSES.index(proj.status)
-                                           if proj.status in PROJECT_STATUSES else 0,
-                                           key=f"stat_{proj.id}")
-                    tmpl_idx = templates.index(proj.template) if proj.template in templates else 0
-                    e_tmpl  = st.selectbox("Template", templates, index=tmpl_idx,
-                                           key=f"tmpl_{proj.id}")
-                    col_save, col_del, _ = st.columns([1, 1, 4])
-                    save   = col_save.form_submit_button("Save")
-                    delete = col_del.form_submit_button("Delete", type="secondary")
+            if save:
+                closed = db.update_project(proj.id, e_desc, e_vat, e_tmpl, e_stat, e_start)
+                msg = "Updated."
+                if closed:
+                    msg += f" {closed} project code(s) automatically set to Completed."
+                st.success(msg)
+                st.cache_data.clear()
+                st.rerun()
 
-                if save:
-                    closed = db.update_project(proj.id, e_desc, e_vat, e_tmpl, e_stat, e_start)
-                    msg = "Updated."
-                    if closed:
-                        msg += f" {closed} project code(s) automatically set to Completed."
-                    st.success(msg)
+            if delete:
+                invoices = db.get_invoices(project_name=proj.name)
+                if invoices:
+                    st.error(f"Cannot delete — {len(invoices)} invoice(s) linked to this project.")
+                else:
+                    db.delete_project(proj.id)
+                    st.session_state["_proj_msg"] = f"Deleted '{proj.name}'."
                     st.cache_data.clear()
                     st.rerun()
 
-                if delete:
-                    invoices = db.get_invoices(project_name=proj.name)
-                    if invoices:
-                        st.error(f"Cannot delete — {len(invoices)} invoice(s) linked to this project.")
-                    else:
-                        db.delete_project(proj.id)
-                        st.session_state["_proj_msg"] = f"Deleted '{proj.name}'."
-                        st.cache_data.clear()
-                        st.rerun()
+            # ---- Budget breakdown by project codes ----
+            codes = db.get_project_codes(project_id=proj.id)
+            if codes:
+                st.divider()
+                st.caption("**Budget by project code**")
+                code_rows = [
+                    {
+                        "Code": f"{pc.client_code} / {pc.client_suffix}",
+                        "Name": pc.name or "—",
+                        "Description": pc.description or "—",
+                        "Budget (€)": f"{pc.budget_amount:,.0f}" if pc.budget_amount else "—",
+                        "Status": pc.status,
+                        "From": pc.date_start or "—",
+                        "To": pc.date_end or "open",
+                    }
+                    for pc in codes
+                ]
+                total_budget = sum(pc.budget_amount for pc in codes)
+                st.dataframe(pd.DataFrame(code_rows), use_container_width=True, hide_index=True)
+                if total_budget:
+                    st.caption(f"Total budget across all codes: **€{total_budget:,.0f}**")
 
-                # ---- Budget breakdown by project codes ----
-                codes = db.get_project_codes(project_id=proj.id)
-                if codes:
-                    st.divider()
-                    st.caption("**Budget by project code**")
-                    code_rows = [
-                        {
-                            "Code": f"{pc.client_code} / {pc.client_suffix}",
-                            "Name": pc.name or "—",
-                            "Description": pc.description or "—",
-                            "Budget (€)": f"{pc.budget_amount:,.0f}" if pc.budget_amount else "—",
-                            "Status": pc.status,
-                            "From": pc.date_start or "—",
-                            "To": pc.date_end or "open",
-                        }
-                        for pc in codes
-                    ]
-                    total_budget = sum(pc.budget_amount for pc in codes)
-                    st.dataframe(pd.DataFrame(code_rows), use_container_width=True, hide_index=True)
-                    if total_budget:
-                        st.caption(f"Total budget across all codes: **€{total_budget:,.0f}**")
-
-                # ---- Billing summary ----
-                totals = db.get_project_time_totals(proj.id)
-                if totals["billable_charges"] > 0 or totals["invoiced"] > 0:
-                    st.divider()
-                    st.caption("**Billing summary**")
-                    s1, s2, s3, s4 = st.columns(4)
-                    s1.metric("Billable charges (€)", f"{totals['billable_charges']:,.2f}")
-                    s2.metric("Write-offs (€)",       f"{totals['write_offs']:,.2f}")
-                    s3.metric("Net billable (€)",     f"{totals['net_charges']:,.2f}")
-                    s4.metric("Invoiced net (€)",     f"{totals['invoiced']:,.2f}")
+            # ---- Billing summary ----
+            totals = db.get_project_time_totals(proj.id)
+            if totals["billable_charges"] > 0 or totals["invoiced"] > 0:
+                st.divider()
+                st.caption("**Billing summary**")
+                s1, s2, s3, s4 = st.columns(4)
+                s1.metric("Billable charges (€)", f"{totals['billable_charges']:,.2f}")
+                s2.metric("Write-offs (€)",       f"{totals['write_offs']:,.2f}")
+                s3.metric("Net billable (€)",     f"{totals['net_charges']:,.2f}")
+                s4.metric("Invoiced net (€)",     f"{totals['invoiced']:,.2f}")
 
 # ==================================================================
 # TAB 3 — ADDRESSES

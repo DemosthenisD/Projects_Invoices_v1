@@ -443,6 +443,32 @@ def delete_address(address_id: int) -> None:
 # Project CRUD
 # ---------------------------------------------------------------------------
 
+def get_projects_with_summary(client_id: int) -> list[dict]:
+    """Return projects for a client with per-project financial summary columns."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                p.id, p.name, p.status, p.date_start, p.vat_pct, p.template, p.description,
+                COUNT(DISTINCT pc.id)                       AS code_count,
+                COALESCE(SUM(DISTINCT pc.budget_amount), 0) AS total_budget,
+                COALESCE(te.billable_charges, 0)            AS billable_charges,
+                COALESCE(wo.write_offs, 0)                  AS write_offs,
+                COALESCE(inv.invoiced, 0)                   AS invoiced
+            FROM projects p
+            LEFT JOIN project_codes pc ON pc.project_id = p.id
+            LEFT JOIN (SELECT project_id, SUM(non_z_charges) AS billable_charges
+                       FROM time_entries GROUP BY project_id) te ON te.project_id = p.id
+            LEFT JOIN (SELECT project_id, SUM(amount) AS write_offs
+                       FROM write_offs WHERE reversed=0 GROUP BY project_id) wo ON wo.project_id = p.id
+            LEFT JOIN (SELECT project_id, SUM(amount) AS invoiced
+                       FROM invoices GROUP BY project_id) inv ON inv.project_id = p.id
+            WHERE p.client_id = ?
+            GROUP BY p.id
+            ORDER BY p.name
+        """, (client_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_projects(client_id: int | None = None, status: str | None = None) -> list[Project]:
     query = ("SELECT id, client_id, name, description, vat_pct, template, status, date_start "
              "FROM projects")
