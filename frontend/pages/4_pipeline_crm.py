@@ -4,8 +4,9 @@ Page 3 — Pipeline / CRM.
 Features:
   - Summary metrics by stage
   - Inline editing via st.data_editor (Stage, Value, Budget min/est/max, Probability %, Notes)
-  - Filter by stage and client
+  - Filter by stage, client, country, and client type
   - Probability-weighted forecast totals
+  - Date entered pipeline + date entered current stage (auto-updated on stage change)
 """
 import sys
 import os
@@ -23,6 +24,7 @@ if not st.session_state.get("authenticated", False):
 st.title("Pipeline / CRM")
 
 STAGES = ["Prospect", "Active", "On Hold", "Completed"]
+CLIENT_TYPES = ["managed", "external", "internal"]
 
 # ------------------------------------------------------------------
 # Load data
@@ -36,14 +38,8 @@ def _load_pipeline():
 def _load_projects():
     return db.get_projects()
 
-@st.cache_data(ttl=300)
-def _load_clients():
-    return db.get_clients()
-
 pipeline     = _load_pipeline()
 all_projects = _load_projects()
-all_clients  = _load_clients()
-client_names = sorted({c.name for c in all_clients})
 
 # Ensure every project has a pipeline entry
 pipeline_project_ids = {row["project_id"] for row in pipeline}
@@ -57,17 +53,31 @@ pipeline = db.get_pipeline()
 # Filters
 # ------------------------------------------------------------------
 
-col1, col2 = st.columns(2)
+client_names   = sorted({r["client_name"] for r in pipeline})
+all_countries  = sorted({r["country"] for r in pipeline if r.get("country")})
+
+col1, col2, col3, col4 = st.columns(4)
 with col1:
     stage_filter = st.selectbox("Stage", ["All"] + STAGES)
 with col2:
     client_filter = st.selectbox("Client", ["All"] + client_names)
+with col3:
+    country_filter = st.multiselect("Country", all_countries, key="pl_country_filter")
+with col4:
+    type_filter = st.multiselect(
+        "Client type", CLIENT_TYPES, key="pl_type_filter",
+        help="e.g. exclude 'internal' to see only billable pipeline",
+    )
 
 filtered = pipeline
 if stage_filter != "All":
     filtered = [r for r in filtered if r["stage"] == stage_filter]
 if client_filter != "All":
     filtered = [r for r in filtered if r["client_name"] == client_filter]
+if country_filter:
+    filtered = [r for r in filtered if r.get("country") in country_filter]
+if type_filter:
+    filtered = [r for r in filtered if r.get("client_type") in type_filter]
 
 # ------------------------------------------------------------------
 # Summary metrics by stage
@@ -111,18 +121,21 @@ if not filtered:
 # Build editable DataFrame — internal IDs kept for save round-trip
 editor_rows = [
     {
-        "_id":          r["id"],
-        "_project_id":  r["project_id"],
-        "Client":       r["client_name"],
-        "Project":      r["project_name"],
-        "Stage":        r["stage"],
-        "Value (€)":    float(r["value"] or 0),
-        "Min (€)":      float(r.get("budget_min") or 0),
-        "Est (€)":      float(r.get("budget_est") or 0),
-        "Max (€)":      float(r.get("budget_max") or 0),
-        "Prob %":       round(float(r.get("probability") or 0.5) * 100, 0),
-        "Notes":        r["notes"] or "",
-        "Updated":      (r["updated_at"] or "")[:10],
+        "_id":           r["id"],
+        "_project_id":   r["project_id"],
+        "Client":        r["client_name"],
+        "Country":       r.get("country") or "—",
+        "Project":       r["project_name"],
+        "Stage":         r["stage"],
+        "Value (€)":     float(r["value"] or 0),
+        "Min (€)":       float(r.get("budget_min") or 0),
+        "Est (€)":       float(r.get("budget_est") or 0),
+        "Max (€)":       float(r.get("budget_max") or 0),
+        "Prob %":        round(float(r.get("probability") or 0.5) * 100, 0),
+        "Notes":         r["notes"] or "",
+        "In Pipeline":   (r.get("date_entered_pipeline") or "")[:10],
+        "In Stage Since":(r.get("date_entered_stage") or "")[:10],
+        "Updated":       (r["updated_at"] or "")[:10],
     }
     for r in filtered
 ]
@@ -132,18 +145,22 @@ edited = st.data_editor(
     editor_df,
     use_container_width=True,
     hide_index=True,
-    disabled=["_id", "_project_id", "Client", "Project", "Updated"],
+    disabled=["_id", "_project_id", "Client", "Country", "Project",
+              "In Pipeline", "In Stage Since", "Updated"],
     column_config={
-        "_id":         st.column_config.NumberColumn("_id",        width="small"),
-        "_project_id": st.column_config.NumberColumn("_project_id",width="small"),
-        "Stage":       st.column_config.SelectboxColumn("Stage", options=STAGES, width="medium"),
-        "Value (€)":   st.column_config.NumberColumn("Value (€)",  min_value=0, step=1000, format="%.0f"),
-        "Min (€)":     st.column_config.NumberColumn("Min (€)",    min_value=0, step=1000, format="%.0f"),
-        "Est (€)":     st.column_config.NumberColumn("Est (€)",    min_value=0, step=1000, format="%.0f"),
-        "Max (€)":     st.column_config.NumberColumn("Max (€)",    min_value=0, step=1000, format="%.0f"),
-        "Prob %":      st.column_config.NumberColumn("Prob %",     min_value=0, max_value=100, step=5, format="%.0f%%"),
-        "Notes":       st.column_config.TextColumn("Notes",        width="large"),
-        "Updated":     st.column_config.TextColumn("Updated",      width="small"),
+        "_id":            st.column_config.NumberColumn("_id",         width="small"),
+        "_project_id":    st.column_config.NumberColumn("_project_id", width="small"),
+        "Country":        st.column_config.TextColumn("Country",       width="small"),
+        "Stage":          st.column_config.SelectboxColumn("Stage", options=STAGES, width="medium"),
+        "Value (€)":      st.column_config.NumberColumn("Value (€)",   min_value=0, step=1000, format="%.0f"),
+        "Min (€)":        st.column_config.NumberColumn("Min (€)",     min_value=0, step=1000, format="%.0f"),
+        "Est (€)":        st.column_config.NumberColumn("Est (€)",     min_value=0, step=1000, format="%.0f"),
+        "Max (€)":        st.column_config.NumberColumn("Max (€)",     min_value=0, step=1000, format="%.0f"),
+        "Prob %":         st.column_config.NumberColumn("Prob %",      min_value=0, max_value=100, step=5, format="%.0f%%"),
+        "Notes":          st.column_config.TextColumn("Notes",         width="large"),
+        "In Pipeline":    st.column_config.TextColumn("In Pipeline",   width="small"),
+        "In Stage Since": st.column_config.TextColumn("In Stage Since",width="small"),
+        "Updated":        st.column_config.TextColumn("Updated",       width="small"),
     },
     key="pipeline_editor",
 )

@@ -310,6 +310,22 @@ def init_db() -> None:
         except Exception:
             pass
 
+        # --- Migration: pipeline date tracking columns ---
+        for col in ("date_entered_pipeline", "date_entered_stage"):
+            try:
+                conn.execute(f"ALTER TABLE pipeline ADD COLUMN {col} TEXT DEFAULT ''")
+            except Exception:
+                pass
+        # Back-fill existing rows so dates are not blank
+        conn.execute("""
+            UPDATE pipeline SET date_entered_pipeline = date(updated_at)
+            WHERE date_entered_pipeline = '' OR date_entered_pipeline IS NULL
+        """)
+        conn.execute("""
+            UPDATE pipeline SET date_entered_stage = date(updated_at)
+            WHERE date_entered_stage = '' OR date_entered_stage IS NULL
+        """)
+
         # --- Migration: normalise stale template values in projects ---
         conn.execute(
             "UPDATE projects SET template = 'template1_v3' WHERE template IN ('Template-1', 'template1')"
@@ -455,6 +471,8 @@ def get_projects_with_summary(client_id: int | None = None) -> list[dict]:
             SELECT
                 p.id, p.name, p.status, p.date_start, p.vat_pct, p.template, p.description,
                 c.name                                      AS client_name,
+                c.client_type                               AS client_type,
+                c.country                                   AS client_country,
                 COUNT(DISTINCT pc.id)                       AS code_count,
                 COALESCE(SUM(DISTINCT pc.budget_amount), 0) AS total_budget,
                 COALESCE(te.billable_charges, 0)            AS billable_charges,
@@ -703,6 +721,36 @@ def bulk_import_invoices(records: list[dict]) -> dict:
     return {"inserted": inserted, "skipped": skipped, "errors": errors}
 
 
+def get_all_project_codes_with_context() -> list[dict]:
+    """Return all active project codes joined with project and client info.
+
+    Used to populate the Project Codes Reference sheet in the bulk upload template.
+    """
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT pc.id, pc.client_code, pc.client_suffix, pc.name AS code_name,
+                   pc.budget_amount, pc.status,
+                   p.id AS project_id, p.name AS project_name,
+                   c.id AS client_id, c.name AS client_name
+            FROM project_codes pc
+            JOIN projects p ON p.id = pc.project_id
+            JOIN clients c ON c.id = p.client_id
+            WHERE pc.status = 'Active'
+            ORDER BY c.name, p.name, pc.client_code, pc.client_suffix
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_invoice_by_number(invoice_number: str) -> dict | None:
+    """Return invoice row as dict by invoice_number, or None."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM invoices WHERE invoice_number = ? LIMIT 1",
+            (invoice_number,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def get_invoice_allocations(invoice_id: int) -> list[InvoiceAllocation]:
     with get_connection() as conn:
         rows = conn.execute(
@@ -767,8 +815,9 @@ def get_pipeline() -> list[dict]:
             SELECT pl.id, pl.project_id, pl.stage, pl.value,
                    pl.budget_min, pl.budget_est, pl.budget_max, pl.probability,
                    pl.notes, pl.updated_at,
+                   pl.date_entered_pipeline, pl.date_entered_stage,
                    pr.name AS project_name, pr.status AS project_status,
-                   c.name AS client_name
+                   c.name AS client_name, c.client_type, c.country
             FROM pipeline pl
             JOIN projects pr ON pr.id = pl.project_id
             JOIN clients c ON c.id = pr.client_id
@@ -782,17 +831,26 @@ def upsert_pipeline(project_id: int, stage: str = "Prospect",
                     budget_min: float = 0.0, budget_est: float = 0.0,
                     budget_max: float = 0.0, probability: float = 0.5) -> None:
     now = datetime.now(timezone.utc).isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     with get_connection() as conn:
+        existing = conn.execute(
+            "SELECT stage FROM pipeline WHERE project_id = ?", (project_id,)
+        ).fetchone()
+        stage_changed = existing is None or existing["stage"] != stage
         conn.execute(
             "INSERT INTO pipeline "
-            "(project_id, stage, value, budget_min, budget_est, budget_max, probability, notes, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "(project_id, stage, value, budget_min, budget_est, budget_max, probability, notes, "
+            " updated_at, date_entered_pipeline, date_entered_stage) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(project_id) DO UPDATE SET "
             "stage=excluded.stage, value=excluded.value, "
             "budget_min=excluded.budget_min, budget_est=excluded.budget_est, "
             "budget_max=excluded.budget_max, probability=excluded.probability, "
-            "notes=excluded.notes, updated_at=excluded.updated_at",
-            (project_id, stage, value, budget_min, budget_est, budget_max, probability, notes, now)
+            "notes=excluded.notes, updated_at=excluded.updated_at, "
+            "date_entered_stage=CASE WHEN stage != excluded.stage THEN excluded.date_entered_stage "
+            "                        ELSE pipeline.date_entered_stage END",
+            (project_id, stage, value, budget_min, budget_est, budget_max, probability, notes,
+             now, today, today)
         )
 
 

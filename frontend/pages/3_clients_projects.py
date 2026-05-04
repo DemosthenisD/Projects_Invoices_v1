@@ -50,13 +50,30 @@ with tab_clients:
     show_internal = st.checkbox("Show internal / non-billable clients (0009xxx)", value=False)
     exclude = [] if show_internal else ["internal"]
 
-    # ---- Summary table ----
+    # ---- Filters ----
+    TYPE_BADGE = {"managed": "🟢", "external": "🔵", "internal": "⚪"}
     rows_with_counts = db.get_clients_with_counts(exclude_types=exclude)
-    if rows_with_counts:
-        TYPE_BADGE = {"managed": "🟢", "external": "🔵", "internal": "⚪"}
+
+    fcol1, fcol2, fcol3 = st.columns([3, 2, 2])
+    name_search   = fcol1.text_input("Search name", placeholder="Type to filter…", key="cl_name_search")
+    all_types     = sorted({r["client_type"] for r in rows_with_counts if r["client_type"]})
+    type_filter   = fcol2.multiselect("Type", all_types, key="cl_type_filter")
+    all_countries = sorted({r["country"] for r in rows_with_counts if r["country"]})
+    country_filter = fcol3.multiselect("Country", all_countries, key="cl_country_filter")
+
+    filtered_rows = rows_with_counts
+    if name_search:
+        filtered_rows = [r for r in filtered_rows if name_search.lower() in r["name"].lower()]
+    if type_filter:
+        filtered_rows = [r for r in filtered_rows if r["client_type"] in type_filter]
+    if country_filter:
+        filtered_rows = [r for r in filtered_rows if r["country"] in country_filter]
+
+    # ---- Summary table ----
+    if filtered_rows:
         summary_rows = [
             {
-                "": TYPE_BADGE.get(r["client_type"], ""),
+                "Status": TYPE_BADGE.get(r["client_type"], ""),
                 "Name": r["name"],
                 "Code": r["client_code"] or "—",
                 "Type": r["client_type"],
@@ -66,21 +83,22 @@ with tab_clients:
                 "Active projects": r["active_projects"],
                 "Active codes": r["active_codes"],
             }
-            for r in rows_with_counts
+            for r in filtered_rows
         ]
+        st.caption("🟢 managed · 🔵 external · ⚪ internal")
         st.dataframe(
             pd.DataFrame(summary_rows),
             use_container_width=True,
             hide_index=True,
             column_config={
-                "": st.column_config.TextColumn(width="small"),
+                "Status": st.column_config.TextColumn(width="small"),
                 "Projects": st.column_config.NumberColumn(width="small"),
                 "Active projects": st.column_config.NumberColumn(width="small"),
                 "Active codes": st.column_config.NumberColumn(width="small"),
             },
         )
     else:
-        st.info("No clients found." + ("" if show_internal else " (Internal clients are hidden — toggle above to show.)"))
+        st.info("No clients match the selected filters." + ("" if show_internal else " Internal clients are hidden — toggle above to show."))
 
     st.divider()
 
@@ -167,7 +185,7 @@ with tab_projects:
         st.info("Add a client first.")
         st.stop()
 
-    col_cl, col_st = st.columns([3, 2])
+    col_cl, col_st, col_tp = st.columns([3, 2, 2])
     client_options = ["All"] + [c.name for c in clients]
     selected_client = col_cl.selectbox("Client", client_options, key="proj_client_select")
     show_all = selected_client == "All"
@@ -177,12 +195,17 @@ with tab_projects:
         "Show statuses", PROJECT_STATUSES, default=["Active"],
         key="proj_status_filter"
     )
+    type_filter_proj = col_tp.multiselect(
+        "Client type", CLIENT_TYPES, key="proj_type_filter",
+        help="Filter projects by their client's type (e.g. hide internal).",
+    )
 
     # ---- Summary table ----
     all_proj_summary = db.get_projects_with_summary(None if show_all else client_obj.id)
     filtered_summary = [
         r for r in all_proj_summary
-        if not status_filter or r["status"] in status_filter
+        if (not status_filter or r["status"] in status_filter)
+        and (not type_filter_proj or r.get("client_type") in type_filter_proj)
     ]
 
     STATUS_PROJ_BADGE = {"Active": "🟢", "On Hold": "🟡", "Completed": "⚫", "Prospect": "🔵"}
@@ -190,10 +213,11 @@ with tab_projects:
     if filtered_summary:
         table_rows = [
             {
-                "": STATUS_PROJ_BADGE.get(r["status"], ""),
+                "Status": STATUS_PROJ_BADGE.get(r["status"], ""),
                 **( {"Client": r["client_name"]} if show_all else {} ),
                 "Project": r["name"],
-                "Status": r["status"],
+                "Stage": r["status"],
+                "Country": r.get("client_country") or "—",
                 "Started": r["date_start"] or "—",
                 "VAT %": r["vat_pct"],
                 "Codes": r["code_count"],
@@ -204,12 +228,13 @@ with tab_projects:
             }
             for r in filtered_summary
         ]
+        st.caption("🟢 Active · 🟡 On Hold · ⚫ Completed · 🔵 Prospect")
         st.dataframe(
             pd.DataFrame(table_rows),
             use_container_width=True,
             hide_index=True,
             column_config={
-                "": st.column_config.TextColumn(width="small"),
+                "Status": st.column_config.TextColumn(width="small"),
                 "VAT %": st.column_config.NumberColumn(format="%.0f%%", width="small"),
                 "Codes": st.column_config.NumberColumn(width="small"),
                 "Budget (€)": st.column_config.NumberColumn(format="%d", width="medium"),
@@ -218,8 +243,18 @@ with tab_projects:
                 "Invoiced (€)": st.column_config.NumberColumn(format="%d", width="medium"),
             },
         )
+        # Totals bar
+        t_budget  = sum(r["total_budget"]     for r in filtered_summary)
+        t_bill    = sum(r["billable_charges"]  for r in filtered_summary)
+        t_wo      = sum(r["write_offs"]        for r in filtered_summary)
+        t_inv     = sum(r["invoiced"]          for r in filtered_summary)
+        tc1, tc2, tc3, tc4 = st.columns(4)
+        tc1.metric("Budget (€)",      f"{t_budget:,.0f}")
+        tc2.metric("Billable (€)",    f"{t_bill:,.0f}")
+        tc3.metric("Write-offs (€)",  f"{t_wo:,.0f}")
+        tc4.metric("Invoiced (€)",    f"{t_inv:,.0f}")
     elif all_proj_summary:
-        st.info(f"No projects with status {status_filter}. Clear the filter to see all.")
+        st.info(f"No projects match the selected filters. Clear filters to see all.")
     else:
         st.info("No projects for this client yet." if not show_all else "No projects found.")
 

@@ -46,12 +46,18 @@ def _addresses(client_id: int):
 
 
 @st.cache_data(ttl=300)
-def _projects(client_id: int):
+def _projects(client_id: int, include_completed: bool = False):
+    if include_completed:
+        return [p for p in db.get_projects(client_id=client_id)
+                if p.status in ("Active", "Completed", "On Hold")]
     return db.get_projects(client_id=client_id, status="Active")
 
 
 @st.cache_data(ttl=300)
-def _all_projects():
+def _all_projects(include_completed: bool = False):
+    if include_completed:
+        return [p for p in db.get_projects()
+                if p.status in ("Active", "Completed", "On Hold")]
     return db.get_projects(status="Active")
 
 
@@ -70,10 +76,16 @@ def _available_templates():
 # Selection mode
 # ------------------------------------------------------------------
 
-selection_mode = st.radio(
+col_mode, col_comp = st.columns([3, 2])
+selection_mode = col_mode.radio(
     "Start from:",
     ["Client → Project", "Project → Client"],
     horizontal=True,
+)
+include_completed = col_comp.checkbox(
+    "Include completed projects",
+    value=False,
+    help="Show Active, On Hold, and Completed projects (not just Active).",
 )
 
 all_clients = _clients()
@@ -86,7 +98,7 @@ if not all_clients:
 # ------------------------------------------------------------------
 
 if selection_mode == "Project → Client":
-    all_projs = _all_projects()
+    all_projs = _all_projects(include_completed)
     if not all_projs:
         st.error("No active projects found.")
         st.stop()
@@ -121,7 +133,7 @@ else:
     selected_client_name = st.selectbox("Client", client_names)
     client = next(c for c in clients if c.name == selected_client_name)
 
-    projects = _projects(client.id)
+    projects = _projects(client.id, include_completed)
     project_names = [p.name for p in projects] if projects else []
 
     if project_names:

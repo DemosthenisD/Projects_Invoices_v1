@@ -535,6 +535,99 @@ with tab_upload:
         wa.column_dimensions["C"].width = 65
         wa.freeze_panes = "A2"
 
+        # ==== Sheet 5 — Project Codes Reference ====
+        all_codes = db.get_all_project_codes_with_context()
+        wpc = wb.create_sheet("Project Codes Reference")
+        pc_hdrs = ["code_id", "code_label", "project_id", "project_name",
+                   "client_id", "client_name", "budget_amount"]
+        _ref_hdr(wpc, pc_hdrs)
+        for ri, cd in enumerate(all_codes, 2):
+            label = f"{cd['client_code']}-{cd['client_suffix']}"
+            if cd["code_name"]:
+                label += f" | {cd['code_name']}"
+            wpc.cell(ri, 1, cd["id"])
+            wpc.cell(ri, 2, label)
+            wpc.cell(ri, 3, cd["project_id"])
+            wpc.cell(ri, 4, cd["project_name"])
+            wpc.cell(ri, 5, cd["client_id"])
+            wpc.cell(ri, 6, cd["client_name"])
+            wpc.cell(ri, 7, cd["budget_amount"])
+        for i, w in enumerate([10, 30, 10, 32, 10, 26, 14], 1):
+            wpc.column_dimensions[get_column_letter(i)].width = w
+        wpc.freeze_panes = "A2"
+
+        # Named range for code dropdown
+        n_codes = len(all_codes)
+        code_range_ref = f"'Project Codes Reference'!$B$2:$B${max(n_codes + 1, 3)}"
+        wb.defined_names["All_Codes"] = DefinedName(name="All_Codes", attr_text=code_range_ref)
+
+        # ==== Sheet 6 — Allocations (optional) ====
+        # One row per invoice_number; up to 4 (code, amount) pairs.
+        # Columns: invoice_number | code_1 | amount_1 | code_2 | amount_2 |
+        #          code_3 | amount_3 | code_4 | amount_4 |
+        #          [hidden] code_1_id | code_2_id | code_3_id | code_4_id
+        wal = wb.create_sheet("Allocations")
+        AL_HDRS = [
+            "invoice_number",
+            "code_1", "amount_1",
+            "code_2", "amount_2",
+            "code_3", "amount_3",
+            "code_4", "amount_4",
+            "code_1_id", "code_2_id", "code_3_id", "code_4_id",
+        ]
+        AL_HINTS = [
+            "Must match invoice_number in Invoices sheet",
+            "Select code from dropdown", "Net amount for this code",
+            "Select code from dropdown (optional)", "Net amount for this code",
+            "Select code from dropdown (optional)", "Net amount for this code",
+            "Select code from dropdown (optional)", "Net amount for this code",
+            "auto", "auto", "auto", "auto",
+        ]
+        for ci, h in enumerate(AL_HDRS, 1):
+            cell = wal.cell(1, ci, h)
+            is_auto = h.startswith("code_") and h.endswith("_id")
+            cell.fill = FILL_AUTO if is_auto else (GOLD if "amount" not in h else GREEN)
+            cell.font = Font(bold=True, color="0070C0") if is_auto else BOLD_BLK
+            cell.alignment = Alignment(horizontal="center", wrap_text=True)
+        for ci, hint in enumerate(AL_HINTS, 1):
+            wal.cell(2, ci, hint).font = HINT
+
+        AL_DATA_START = 3
+        AL_NUM_ROWS   = 100
+        PCR = "'Project Codes Reference'"
+
+        # Code dropdowns for columns B, D, F, H
+        for code_col_idx in [2, 4, 6, 8]:
+            code_dv = DataValidation(
+                type="list", formula1="=All_Codes",
+                allow_blank=True, showDropDown=False,
+            )
+            wal.add_data_validation(code_dv)
+            col_ltr = get_column_letter(code_col_idx)
+            code_dv.sqref = (f"{col_ltr}{AL_DATA_START}:"
+                             f"{col_ltr}{AL_DATA_START + AL_NUM_ROWS - 1}")
+
+        # Formula rows: code_id = INDEX(code_id col, MATCH(code_label, label col))
+        for row in range(AL_DATA_START, AL_DATA_START + AL_NUM_ROWS):
+            for pair_idx, (code_col, id_col) in enumerate(
+                [(2, 10), (4, 11), (6, 12), (8, 13)], 1
+            ):
+                code_ltr = get_column_letter(code_col)
+                id_ltr   = get_column_letter(id_col)
+                formula  = (f'=IFERROR(INDEX({PCR}!$A:$A,'
+                            f'MATCH({code_ltr}{row},{PCR}!$B:$B,0)),"")')
+                cell = wal.cell(row, id_col, formula)
+                cell.fill = FILL_AUTO; cell.font = AUTO_FNT
+
+        # Widths
+        al_widths = [20, 30, 12, 30, 12, 30, 12, 30, 12, 10, 10, 10, 10]
+        for i, w in enumerate(al_widths, 1):
+            wal.column_dimensions[get_column_letter(i)].width = w
+        wal.row_dimensions[1].height = 30
+        wal.row_dimensions[2].height = 28
+        wal.freeze_panes = f"A{AL_DATA_START}"
+        wal.sheet_state = "visible"
+
         buf = io.BytesIO()
         wb.save(buf)
         return buf.getvalue()
@@ -557,15 +650,25 @@ with tab_upload:
     if uploaded:
         try:
             # Row 1=headers, 2=hints (skip), 3=example (filtered), 4=legend (filtered), 5+=data
-            df = pd.read_excel(uploaded, sheet_name="Invoices", dtype=str, skiprows=[1, 2, 3])
+            xl = pd.ExcelFile(uploaded)
+            df = pd.read_excel(xl, sheet_name="Invoices", dtype=str, skiprows=[1, 2, 3])
             df = df.dropna(how="all")
             df = df[~df.get("invoice_number", pd.Series(dtype=str))
                       .str.upper().str.startswith("EXAMPLE", na=False)]
-            # Rename helper columns to importable names
             df = df.rename(columns={"▶ Client Name": "_client_sel",
                                     "▶ Project Name": "_project_sel"})
             records = df.to_dict("records")
-            st.write(f"Found **{len(records)}** data row(s) in uploaded file.")
+
+            # Optional Allocations sheet
+            alloc_records: list[dict] = []
+            if "Allocations" in xl.sheet_names:
+                dfa = pd.read_excel(xl, sheet_name="Allocations", dtype=str, skiprows=[1])
+                dfa = dfa.dropna(subset=["invoice_number"], how="any")
+                dfa = dfa[dfa["invoice_number"].str.strip() != ""]
+                alloc_records = dfa.to_dict("records")
+
+            st.write(f"Found **{len(records)}** invoice row(s) and "
+                     f"**{len(alloc_records)}** allocation row(s) in uploaded file.")
 
             if st.button("Import invoices", type="primary"):
                 result = db.bulk_import_invoices(records)
@@ -577,6 +680,45 @@ with tab_upload:
                     st.error("Errors on some rows:")
                     for err in result["errors"]:
                         st.write(f"- {err}")
+
+                # Process allocations
+                if alloc_records:
+                    alloc_ok = alloc_skip = 0
+                    alloc_errs = []
+                    for row in alloc_records:
+                        inv_no = str(row.get("invoice_number", "")).strip()
+                        if not inv_no:
+                            continue
+                        inv = db.get_invoice_by_number(inv_no)
+                        if not inv:
+                            alloc_errs.append(f"{inv_no}: invoice not found in DB")
+                            continue
+                        pairs = []
+                        for i in range(1, 5):
+                            code_id_raw = str(row.get(f"code_{i}_id", "")).strip()
+                            amt_raw     = str(row.get(f"amount_{i}", "")).strip()
+                            if code_id_raw and code_id_raw not in ("", "nan") \
+                                    and amt_raw and amt_raw not in ("", "nan"):
+                                try:
+                                    pairs.append({
+                                        "project_code_id": int(float(code_id_raw)),
+                                        "amount": float(amt_raw),
+                                    })
+                                except ValueError:
+                                    alloc_errs.append(
+                                        f"{inv_no} code_{i}: bad value ({code_id_raw}, {amt_raw})"
+                                    )
+                        if pairs:
+                            db.upsert_invoice_allocations(inv["id"], pairs)
+                            alloc_ok += 1
+                        else:
+                            alloc_skip += 1
+                    st.success(f"Allocations — applied: {alloc_ok} | skipped (empty): {alloc_skip}")
+                    if alloc_errs:
+                        st.error("Allocation errors:")
+                        for err in alloc_errs:
+                            st.write(f"- {err}")
+
                 st.cache_data.clear()
         except Exception as exc:
             st.error(f"Could not read file: {exc}")
