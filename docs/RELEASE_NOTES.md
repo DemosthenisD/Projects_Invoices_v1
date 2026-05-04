@@ -2,6 +2,32 @@
 
 ---
 
+## Sprint 12 — Filters, Pipeline Dates, Completed-Project Invoicing, Bulk Allocations (May 2026)
+
+> **Updates on 4 May 2026** — Six improvements across four pages: (1) Generate Invoice now has an "Include completed projects" checkbox so invoices can be raised against completed projects (e.g. ERGO / IFRS17-P1). (2) Clients tab gains name / type / country filter row and a labelled "Status" column header with badge legend. (3) Projects tab gains a Country column, client-type filter, and a totals bar (Budget / Billable / Write-offs / Invoiced) for the filtered selection. (4) Pipeline/CRM adds Country and Client type filter controls, plus two new read-only date columns: "In Pipeline" (date first added) and "In Stage Since" (auto-updated when stage changes on Save). (5) Bulk Upload template extended with a "Project Codes Reference" sheet and an "Allocations" sheet — up to 4 project-code / amount pairs per invoice with cascading dropdown and auto-computed code IDs. (6) Import logic reads the Allocations sheet and writes to `invoice_allocations` after each invoice is inserted.
+
+### DB Schema Changes (non-breaking, migrated automatically on startup)
+
+- **`pipeline`** — added `date_entered_pipeline TEXT DEFAULT ''` and `date_entered_stage TEXT DEFAULT ''`. Existing rows back-filled from `updated_at`.
+
+### New / Updated DB Functions
+
+- `get_pipeline()` — now includes `country`, `client_type`, `date_entered_pipeline`, `date_entered_stage`.
+- `upsert_pipeline()` — sets `date_entered_pipeline` on first INSERT; updates `date_entered_stage` only when `stage` changes.
+- `get_projects_with_summary()` — now includes `client_type` and `client_country`.
+- `get_all_project_codes_with_context()` — new; returns all active project codes joined with project and client info (used for bulk upload template).
+- `get_invoice_by_number(invoice_number)` — new; looks up a single invoice by number (used by allocation import).
+
+### Page Changes
+
+- **Page 0 — Generate Invoice:** "Include completed projects" checkbox (default off) placed beside the mode toggle. When checked, Active + On Hold + Completed projects are shown.
+- **Page 2 — Clients & Projects — Clients tab:** Unnamed circle column renamed to "Status"; badge legend caption added. Filter row (name search, Type multiselect, Country multiselect) added above the table.
+- **Page 2 — Clients & Projects — Projects tab:** Country column added. "Status" replaces unnamed circle column. Client type multiselect filter added. Totals bar (4 metrics) shown below filtered table.
+- **Page 3 — Pipeline / CRM:** Filter bar expanded to 4 controls: Stage, Client, Country (multiselect), Client type (multiselect). Table adds read-only Country, "In Pipeline", "In Stage Since" columns.
+- **Page 1 — Invoice Log — Bulk Upload:** Template now has 6 sheets — Invoices, Client Reference, Project Reference, Address Reference, **Project Codes Reference** (all active codes), **Allocations** (up to 4 code/amount pairs per invoice). Import processes Allocations sheet automatically after inserting invoices.
+
+---
+
 ## Sprint 11 — Status Tracking, Tabular Clients, Pipeline Inline Edit (April 2026)
 
 > **Updates on 30 Apr 2026** — Four UX improvements delivered: (1) Clients tab now shows a tabular summary with Country, Name for invoices, project/code counts — a selectbox-based edit panel replaces accordion expanders. (2) Invoice Log gains Status filter, Mark Paid / Outstanding action buttons, and a Bulk Upload tab with a downloadable Excel template. (3) Pipeline / CRM replaced per-project expanders with a single inline `st.data_editor` grid — edit Stage, Value, budget fields, Probability, and Notes for all projects at once, then save in one click. (4) Completing a project now auto-closes all its active project codes (sets status = Completed, date_end = today) with a confirmation count.
