@@ -64,9 +64,11 @@ if client_mode == "Select existing client":
     c_name_for_inv    = sel_client.name_for_invoices
     c_code            = sel_client.client_code
     c_vat             = sel_client.vat_number
+    c_type            = sel_client.client_type
+    c_country         = sel_client.country
     st.info(
         f"Code: **{c_code or '—'}** | Invoice name: **{c_name_for_inv or '—'}** | "
-        f"VAT: **{c_vat or '—'}**"
+        f"VAT: **{c_vat or '—'}** | Type: **{c_type}** | Country: **{c_country or '—'}**"
     )
 else:
     col1, col2 = st.columns(2)
@@ -75,6 +77,13 @@ else:
     col3, col4 = st.columns(2)
     c_code         = col3.text_input("Client code", placeholder="e.g. 0478ERG78")
     c_vat          = col4.text_input("VAT number",  placeholder="e.g. EL123456789")
+    col5, col6 = st.columns(2)
+    c_type         = col5.selectbox(
+        "Client type",
+        ["managed", "external", "internal"],
+        help="managed = full project tracking; external = basic tracking only; internal = non-billable overhead",
+    )
+    c_country      = col6.text_input("Country", placeholder="e.g. Cyprus")
 
 st.divider()
 
@@ -155,8 +164,9 @@ if st.button("Import to Database", type="primary"):
     if not p_name.strip():
         errors.append("Project name is required.")
     valid_codes = [r for r in codes if r["suffix"].strip()]
-    if not valid_codes:
-        errors.append("At least one project code (suffix) is required.")
+    # Codes are optional for external/internal clients; required for managed
+    if not valid_codes and c_type == "managed":
+        errors.append("At least one project code (suffix) is required for managed clients.")
     for r in valid_codes:
         if r["date_start"].strip() and len(r["date_start"].strip()) != 10:
             errors.append(f"Suffix '{r['suffix']}': Date Start must be YYYY-MM-DD or blank.")
@@ -175,6 +185,8 @@ if st.button("Import to Database", type="primary"):
                 name_for_invoices=c_name_for_inv.strip() or c_name.strip(),
                 client_code=c_code.strip(),
                 vat_number=c_vat.strip(),
+                client_type=c_type,
+                country=c_country.strip() if client_mode == "Create new client" else c_country,
             )
             existing_match = next((c for c in existing_clients if c.name == c_name.strip()), None)
             created["client"] = existing_match is None

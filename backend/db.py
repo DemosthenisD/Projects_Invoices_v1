@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import re
 from shared.models import (
-    Client, Address, Project, Invoice, InvoiceAllocation, PipelineEntry,
+    Client, Address, Project, Invoice, InvoiceAllocation, Payment, PipelineEntry,
     ProjectCode, TimeEntry, WriteOff,
     ConsultantProfile, AnnualSalaryHistory, BillingBasis, ReviewScore,
 )
@@ -125,6 +125,15 @@ def init_db() -> None:
                 amount          REAL    NOT NULL,
                 created_at      TEXT    DEFAULT (datetime('now')),
                 UNIQUE(invoice_id, project_code_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS payments (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                invoice_id  INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+                amount      REAL    NOT NULL,
+                date        TEXT    NOT NULL,
+                note        TEXT    DEFAULT '',
+                created_at  TEXT    DEFAULT (datetime('now'))
             );
 
             CREATE TABLE IF NOT EXISTS time_entries (
@@ -587,32 +596,35 @@ def get_invoices(
     search: str | None = None,
     status: str | None = None,
 ) -> list[Invoice]:
-    query = (
-        "SELECT id, client_id, project_id, invoice_number, year, date, amount, "
-        "vat_amount, vat_pct, address, project_name, description, template_used, format, "
-        "file_path, expenses_net, expenses_vat, status, paid_date, comment, "
-        "type, related_invoice_number, created_at FROM invoices"
+    base = (
+        "SELECT i.id, i.client_id, i.project_id, i.invoice_number, i.year, i.date, i.amount, "
+        "i.vat_amount, i.vat_pct, i.address, i.project_name, i.description, i.template_used, "
+        "i.format, i.file_path, i.expenses_net, i.expenses_vat, i.status, i.paid_date, "
+        "i.comment, i.type, i.related_invoice_number, i.created_at, "
+        "COALESCE(py.total_paid, 0.0) AS total_paid "
+        "FROM invoices i "
+        "LEFT JOIN (SELECT invoice_id, SUM(amount) AS total_paid "
+        "           FROM payments GROUP BY invoice_id) py ON py.invoice_id = i.id"
     )
     params: list = []
     filters = []
     if client_id is not None:
-        filters.append("client_id = ?")
+        filters.append("i.client_id = ?")
         params.append(client_id)
     if year is not None:
-        filters.append("year = ?")
+        filters.append("i.year = ?")
         params.append(year)
     if project_name:
-        filters.append("project_name = ?")
+        filters.append("i.project_name = ?")
         params.append(project_name)
     if search:
-        filters.append("(invoice_number LIKE ? OR project_name LIKE ?)")
+        filters.append("(i.invoice_number LIKE ? OR i.project_name LIKE ?)")
         params.extend([f"%{search}%", f"%{search}%"])
     if status:
-        filters.append("status = ?")
+        filters.append("i.status = ?")
         params.append(status)
-    if filters:
-        query += " WHERE " + " AND ".join(filters)
-    query += " ORDER BY year DESC, invoice_number DESC"
+    query = base + (" WHERE " + " AND ".join(filters) if filters else "")
+    query += " ORDER BY i.year DESC, CAST(i.invoice_number AS INTEGER) DESC"
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
     return [Invoice(**dict(r)) for r in rows]
@@ -690,6 +702,66 @@ def update_invoice_status(invoice_id: int, status: str, paid_date: str = "") -> 
         conn.execute(
             "UPDATE invoices SET status=?, paid_date=? WHERE id=?",
             (status, paid_date, invoice_id)
+        )
+
+
+def _recompute_invoice_status(invoice_id: int, conn) -> None:
+    """Derive outstanding / partial / paid from payment records and update the invoice row."""
+    inv = conn.execute(
+        "SELECT amount, vat_amount, expenses_net, expenses_vat FROM invoices WHERE id=?",
+        (invoice_id,)
+    ).fetchone()
+    if not inv:
+        return
+    gross = inv["amount"] + inv["vat_amount"] + inv["expenses_net"] + inv["expenses_vat"]
+    if gross <= 0:
+        return  # credit notes — payment tracking not applicable
+    row = conn.execute(
+        "SELECT COALESCE(SUM(amount), 0) AS paid, MAX(date) AS latest "
+        "FROM payments WHERE invoice_id=?", (invoice_id,)
+    ).fetchone()
+    total_paid = row["paid"]
+    latest_date = row["latest"] or ""
+    if total_paid <= 0:
+        status, paid_date = "outstanding", ""
+    elif total_paid >= gross - 0.01:
+        status, paid_date = "paid", latest_date
+    else:
+        status, paid_date = "partial", latest_date
+    conn.execute(
+        "UPDATE invoices SET status=?, paid_date=? WHERE id=?",
+        (status, paid_date, invoice_id)
+    )
+
+
+def add_payment(invoice_id: int, amount: float, date: str, note: str = "") -> int:
+    """Insert a payment record and recompute the invoice status."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO payments (invoice_id, amount, date, note) VALUES (?,?,?,?)",
+            (invoice_id, round(amount, 2), date, note)
+        )
+        _recompute_invoice_status(invoice_id, conn)
+        return cur.lastrowid
+
+
+def get_payments(invoice_id: int) -> list[Payment]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, invoice_id, amount, date, note, created_at "
+            "FROM payments WHERE invoice_id=? ORDER BY date, id",
+            (invoice_id,)
+        ).fetchall()
+    return [Payment(**dict(r)) for r in rows]
+
+
+def delete_payments(invoice_id: int) -> None:
+    """Delete all payment records for an invoice and reset its status to outstanding."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM payments WHERE invoice_id=?", (invoice_id,))
+        conn.execute(
+            "UPDATE invoices SET status='outstanding', paid_date='' WHERE id=?",
+            (invoice_id,)
         )
 
 

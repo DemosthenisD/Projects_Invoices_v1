@@ -106,9 +106,17 @@ with tab_log:
             ]
 
         # ---- Summary strip ----
+        def _gross(inv):
+            return inv.amount + inv.expenses_net + inv.vat_amount + inv.expenses_vat
+
         total_net   = sum(i.amount for i in filtered)
         total_vat   = sum(i.vat_amount for i in filtered)
-        outstanding = sum(i.amount + i.vat_amount for i in filtered if i.status == "outstanding")
+        # Outstanding = gross minus any payments already received, for unpaid/partial rows
+        outstanding = sum(
+            _gross(i) - i.total_paid
+            for i in filtered
+            if i.status in ("outstanding", "partial")
+        )
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Invoices", len(filtered))
@@ -147,34 +155,37 @@ with tab_log:
             TYPE_BADGE   = {"Invoice": "📄", "Credit Note": "🔄"}
 
             st.caption(
-                "PDF/DOCX buttons download the generated file from your local disk. "
-                "Use **Mark Paid** / **Mark Outstanding** to update payment status. "
-                "🔄 = Credit Note."
+                "**✓ Pay** = record full payment · **± Part.** = record partial payment · "
+                "**↩ Reset** = clear all payments · 🔄 = Credit Note"
             )
 
-            _cols = [1.0, 0.6, 1.0, 0.7, 1.5, 1.8, 0.9, 0.9, 0.8, 1.0, 1.0, 1.0]
+            _cols = [1.0, 0.6, 1.0, 0.7, 1.5, 1.8, 0.9, 0.9, 0.8, 1.0, 1.0, 1.2]
             hdr = st.columns(_cols)
             for label, col in zip(
                 ["Date", "ID", "Inv No", "Type", "Client", "Project",
-                 "Net €", "VAT €", "Status", "Paid", "File", "Action"],
+                 "Net €", "VAT €", "Status", "Balance €", "File", "Action"],
                 hdr,
             ):
                 col.markdown(f"**{label}**")
 
             def _fmt_date(d: str) -> str:
-                """Format YYYY-MM-DD (or datetime string) to DD/MM/YYYY for display."""
                 try:
                     from datetime import datetime
                     return datetime.strptime(str(d)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
                 except Exception:
                     return str(d)
 
+            st.session_state.setdefault("_pay_form", None)
+
             for inv in filtered:
                 (col_date, col_id, col_ref, col_type, col_client, col_proj,
-                 col_net, col_vat, col_st, col_paid, col_dl, col_act) = st.columns(_cols)
+                 col_net, col_vat, col_st, col_bal, col_dl, col_act) = st.columns(_cols)
 
-                inv_ref  = f"{inv.invoice_number}/{inv.year}"
-                t_badge  = TYPE_BADGE.get(getattr(inv, "type", "Invoice"), "📄")
+                inv_ref = f"{inv.invoice_number}/{inv.year}"
+                gross   = _gross(inv)
+                balance = gross - inv.total_paid
+
+                t_badge = TYPE_BADGE.get(getattr(inv, "type", "Invoice"), "📄")
                 col_date.write(_fmt_date(inv.date))
                 col_id.write(f"**{inv.invoice_number}**")
                 col_ref.write(f"**{inv_ref}**")
@@ -185,7 +196,14 @@ with tab_log:
                 col_vat.write(f"€{inv.vat_amount:,.0f}")
                 badge = STATUS_BADGE.get(inv.status, "")
                 col_st.write(f"{badge} {inv.status}")
-                col_paid.write(_fmt_date(inv.paid_date) if inv.paid_date else "—")
+
+                # Balance: show remaining for unpaid/partial; "—" for fully paid
+                if inv.status == "paid" and inv.total_paid == 0:
+                    col_bal.write("—")   # legacy paid record with no payment rows
+                elif inv.status == "paid":
+                    col_bal.write("€0")
+                else:
+                    col_bal.write(f"€{balance:,.0f}")
 
                 if inv.file_path and os.path.exists(inv.file_path):
                     ext  = os.path.splitext(inv.file_path)[1].lower()
@@ -202,22 +220,60 @@ with tab_log:
                 else:
                     col_dl.write("—")
 
-                if inv.status == "outstanding":
-                    if col_act.button("Mark Paid", key=f"paid_{inv.id}", type="primary"):
-                        db.update_invoice_status(inv.id, "paid", date.today().isoformat())
+                # Action buttons
+                if inv.status == "paid":
+                    if col_act.button("↩ Reset", key=f"reset_{inv.id}",
+                                      help="Clear payments and mark outstanding"):
+                        db.delete_payments(inv.id)
                         st.cache_data.clear()
                         st.rerun()
                 else:
-                    if col_act.button("Outstanding", key=f"unpaid_{inv.id}"):
-                        db.update_invoice_status(inv.id, "outstanding", "")
+                    a1, a2 = col_act.columns(2)
+                    remaining = max(balance, 0.0)
+                    if a1.button("✓", key=f"pay_{inv.id}", type="primary",
+                                 help="Record full payment"):
+                        db.add_payment(inv.id, remaining, date.today().isoformat())
+                        st.session_state["_pay_form"] = None
                         st.cache_data.clear()
                         st.rerun()
+                    if a2.button("±", key=f"part_{inv.id}",
+                                 help="Record partial payment"):
+                        st.session_state["_pay_form"] = (
+                            None if st.session_state["_pay_form"] == inv.id else inv.id
+                        )
+                        st.rerun()
 
+                # Notes + payment history below the row
                 if inv.comment:
                     st.caption(f"💬 {inv.comment}")
                 related = getattr(inv, "related_invoice_number", "")
                 if related:
                     st.caption(f"↩ Credits invoice {related}")
+
+                # Payment history
+                payments = db.get_payments(inv.id)
+                if payments:
+                    for p in payments:
+                        st.caption(
+                            f"💰 {_fmt_date(p.date)}: €{p.amount:,.2f}"
+                            + (f" — {p.note}" if p.note else "")
+                        )
+
+                # Inline partial payment form
+                if st.session_state.get("_pay_form") == inv.id:
+                    with st.form(key=f"pform_{inv.id}", clear_on_submit=True):
+                        fc1, fc2, fc3 = st.columns([2, 2, 3])
+                        p_amt  = fc1.number_input("Amount (€)", min_value=0.01,
+                                                   max_value=float(max(balance, 0.01)),
+                                                   value=float(min(balance, max(balance, 0.01))),
+                                                   step=100.0)
+                        p_date = fc2.date_input("Date", value=date.today())
+                        p_note = fc3.text_input("Note (optional)")
+                        if st.form_submit_button("Save payment"):
+                            db.add_payment(inv.id, p_amt, p_date.isoformat(), p_note)
+                            st.session_state["_pay_form"] = None
+                            st.cache_data.clear()
+                            st.rerun()
 
             st.divider()
 
@@ -238,9 +294,13 @@ with tab_log:
                         "Net (€)":              i.amount,
                         "VAT %":                i.vat_pct,
                         "VAT (€)":              i.vat_amount,
-                        "Gross (€)":            round(i.amount + i.vat_amount, 2),
+                        "Gross (€)":            round(_gross(i), 2),
                         "Expenses Net":         i.expenses_net,
                         "Expenses VAT":         i.expenses_vat,
+                        "Paid (€)":             i.total_paid,
+                        "Balance (€)":          round(_gross(i) - i.total_paid, 2)
+                                                if i.status != "paid" or i.total_paid > 0
+                                                else 0.0,
                         "Status":               i.status,
                         "Paid Date":            i.paid_date,
                         "Comment":              i.comment,

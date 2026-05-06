@@ -57,6 +57,17 @@ class Invoice:
     type: str = "Invoice"        # Invoice | Credit Note
     related_invoice_number: str = ""  # for Credit Notes: invoice number being credited
     created_at: str = ""
+    total_paid: float = 0.0      # sum of payments table (populated by get_invoices join)
+
+
+@dataclass
+class Payment:
+    id: int
+    invoice_id: int
+    amount: float
+    date: str
+    note: str = ""
+    created_at: str = ""
 
 
 @dataclass
