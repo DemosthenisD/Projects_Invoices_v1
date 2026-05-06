@@ -16,6 +16,9 @@ import streamlit as st
 import pandas as pd
 import backend.db as db
 from shared.gap_report import build_gap_excel
+from shared.config import load_office_codes
+
+_OFFICE_CODES = load_office_codes()
 
 # ------------------------------------------------------------------
 # Auth guard
@@ -115,6 +118,7 @@ with tab_import:
                 st.dataframe(pd.DataFrame([
                     {
                         "Client code":  i["client_code"],
+                        "Office":       _OFFICE_CODES.get(i["client_code"][:4], "Unknown"),
                         "Suffix":       i["client_suffix"],
                         "Rows":         rc.get((i["client_code"], i["client_suffix"]), 0),
                         "Will create":  (
@@ -164,7 +168,9 @@ with tab_import:
                     if needs_manual:
                         st.caption(f"**Managed CY clients — 0478xxx ({len(needs_manual)}) — set up via Add New Project (page 11)**")
                         st.dataframe(pd.DataFrame([
-                            {"Client code": i["client_code"], "Suffix": i["client_suffix"],
+                            {"Client code": i["client_code"],
+                             "Office": _OFFICE_CODES.get(i["client_code"][:4], "Unknown"),
+                             "Suffix": i["client_suffix"],
                              "Rows": rc.get((i["client_code"], i["client_suffix"]), 0)}
                             for i in sorted(needs_manual, key=lambda x: x["client_code"])
                         ]), use_container_width=True, hide_index=True)

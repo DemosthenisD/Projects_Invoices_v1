@@ -1,0 +1,33 @@
+
+first 4 digits code	OFFICE
+0011	Seattle
+0061	Seattle
+0141	Boston
+0199	Tokyo
+0361	New York
+0403	London
+0404	London
+0413	Milan
+0452	London
+0454	Madrid
+0455	Milan
+0458	Warsaw
+0470	Paris
+0471	Paris
+0473	Dublin
+0478	Cyprus
+0482	Dusseldorf
+0602	Singapore
+0607	Zurich
+0614	Bucharest
+0615	Warsaw
+0617	Warsaw
+0618	Warsaw
+0619	Bucharest
+0620	Bucharest
+0644	Istanbul
+0646	Istanbul
+0656	Istanbul
+0930	R & D - Pension
+0931	R & D - Life
+0932	R & D - Health

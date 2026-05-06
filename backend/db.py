@@ -17,7 +17,11 @@ from shared.models import (
     ProjectCode, TimeEntry, WriteOff,
     ConsultantProfile, AnnualSalaryHistory, BillingBasis, ReviewScore,
 )
-from shared.config import DB_PATH
+from shared.config import DB_PATH, load_office_codes
+
+# Loaded once at module import; reflects file state at server start.
+# 0009 (NotBillable) is handled separately in code; not expected in this dict.
+_OFFICE_CODES: dict[str, str] = load_office_codes()
 
 
 @contextmanager
@@ -1557,12 +1561,10 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
         d["net_charges"] = d["billable_charges"] - d["write_offs"]
         d["remaining"]   = d["budget"] - d["invoiced"]
         prefix = (d.get("client_code") or "")[:4]
-        if prefix == "0478":
-            d["project_source"] = "CY"
-        elif prefix == "0009":
+        if prefix == "0009":
             d["project_source"] = "NotBillable"
         else:
-            d["project_source"] = "Ext"
+            d["project_source"] = _OFFICE_CODES.get(prefix, "Ext")
         result.append(d)
     return result
 
