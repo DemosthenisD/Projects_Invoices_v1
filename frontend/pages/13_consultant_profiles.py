@@ -34,9 +34,23 @@ st.caption("Employment details, salary history, and billing rates per consultant
 # ---------------------------------------------------------------------------
 # Consultant selector
 # ---------------------------------------------------------------------------
-consultants = get_consultant_groups()
-if not consultants:
+all_consultants = get_consultant_groups()
+if not all_consultants:
     st.info("No consultants found. Import time entries first to populate the consultant list.")
+    st.stop()
+
+all_groups = sorted({cg["group_name"] for cg in all_consultants})
+group_filter = st.radio(
+    "Group", ["All"] + all_groups,
+    index=(["All"] + all_groups).index("Local") if "Local" in all_groups else 0,
+    horizontal=True,
+)
+consultants = (
+    all_consultants if group_filter == "All"
+    else [cg for cg in all_consultants if cg["group_name"] == group_filter]
+)
+if not consultants:
+    st.info(f"No consultants in group '{group_filter}'.")
     st.stop()
 
 consultant_options = {cg["consultant"]: cg for cg in consultants}

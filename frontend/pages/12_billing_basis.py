@@ -32,13 +32,23 @@ st.title("Billing Basis")
 st.caption("Annual billing summary per consultant — the basis for productivity-bonus calculation.")
 
 # ---------------------------------------------------------------------------
-# Year selector
+# Year + group selectors
 # ---------------------------------------------------------------------------
 current_year = datetime.now().year
-year = st.selectbox(
+col_yr, col_grp = st.columns([2, 3])
+year = col_yr.selectbox(
     "Financial Year",
     options=list(range(current_year - 1, current_year - 6, -1)),
     index=0,
+)
+
+_all_cg = get_consultant_groups()
+_all_groups = sorted({cg["group_name"] for cg in _all_cg})
+group_filter = col_grp.radio(
+    "Group",
+    ["All"] + _all_groups,
+    index=(["All"] + _all_groups).index("Local") if "Local" in _all_groups else 0,
+    horizontal=True,
 )
 
 # ---------------------------------------------------------------------------
@@ -150,9 +160,12 @@ with tab_manual:
         "Grand Total and all derived columns are computed automatically."
     )
 
-    consultants = get_consultant_groups()
+    consultants = (
+        _all_cg if group_filter == "All"
+        else [cg for cg in _all_cg if cg["group_name"] == group_filter]
+    )
     if not consultants:
-        st.info("No consultants found. Import time entries first or add consultants via Time Tracking page.")
+        st.info(f"No consultants in group '{group_filter}'.")
     else:
         # Pre-populate table from DB if data exists for this year
         existing_rows = {b.emp_nbr: b for b in get_billing_basis_year(year)}
