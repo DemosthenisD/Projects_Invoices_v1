@@ -58,7 +58,7 @@ def generate_invoice(data: dict, template_name: str, fmt: str = "PDF") -> str:
 
     os.makedirs(EXPORTS_DIR, exist_ok=True)
     year = data.get("placeholder6", "")
-    invoice_no = data.get("placeholder5", "")
+    invoice_no = data.get("placeholder5", "").replace("/", "-")
     client_code = data.get("placeholder1", "").replace(" ", "_")
     filename = f"{year}_{invoice_no}_{client_code}_Invoice.docx"
     docx_path = os.path.join(EXPORTS_DIR, filename)
