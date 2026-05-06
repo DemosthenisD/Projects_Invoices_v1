@@ -1176,6 +1176,77 @@ def analyse_csv_gaps(pairs: list[tuple[str, str]]) -> dict:
     }
 
 
+def quick_setup_external_codes(items: list[dict]) -> dict:
+    """Create placeholder client, project, and project code for unknown external codes.
+
+    Each item must have: client_code (str), client_suffix (str).
+    Naming:
+      client  → '{client_code}_Default_Client'   (type = external)
+      project → '{client_code}_Default_Project'
+      code    → suffix = client_suffix, name = '{client_code}_{suffix}_Default_SuffixCode'
+
+    Looks up client by client_code (not name) so a previously manually-created
+    client with the right code is reused rather than duplicated.
+    Returns {'created_clients', 'created_projects', 'created_codes'} counts.
+    """
+    from collections import defaultdict
+    by_client: dict[str, list[str]] = defaultdict(list)
+    for item in items:
+        by_client[str(item["client_code"])].append(str(item["client_suffix"]))
+
+    created_clients = created_projects = created_codes = 0
+
+    for client_code, suffixes in by_client.items():
+        client_name  = f"{client_code}_Default_Client"
+        project_name = f"{client_code}_Default_Project"
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM clients WHERE client_code = ?", (client_code,)
+            ).fetchone()
+        if row:
+            client_id = row["id"]
+        else:
+            client_id = add_client(
+                name=client_name,
+                name_for_invoices=client_name,
+                client_code=client_code,
+                client_type="external",
+            )
+            created_clients += 1
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM projects WHERE client_id = ? AND name = ?",
+                (client_id, project_name)
+            ).fetchone()
+        if row:
+            project_id = row["id"]
+        else:
+            project_id = add_project(
+                client_id=client_id,
+                name=project_name,
+                description=f"Auto-created placeholder for client code {client_code}",
+                vat_pct=0.0,
+                status="Active",
+            )
+            created_projects += 1
+
+        for suffix in suffixes:
+            add_project_code(
+                project_id=project_id,
+                client_suffix=suffix,
+                name=f"{client_code}_{suffix}_Default_SuffixCode",
+            )
+            created_codes += 1
+
+    return {
+        "created_clients": created_clients,
+        "created_projects": created_projects,
+        "created_codes": created_codes,
+    }
+
+
 def get_project_code_by_keys(client_code: str, client_suffix: str,
                               period: str | None = None) -> ProjectCode | None:
     """Lookup a project code by client_code + client_suffix.
@@ -1491,7 +1562,7 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
         elif prefix == "0009":
             d["project_source"] = "NotBillable"
         else:
-            d["project_source"] = "Other"
+            d["project_source"] = "Ext"
         result.append(d)
     return result
 

@@ -86,10 +86,10 @@ def _fmt(x):
     return f"{x:,.0f}" if x else "—"
 
 if view == "Summary":
+    _num_cols = ["budget", "billable_charges", "write_offs", "net_charges", "invoiced", "remaining"]
     display = filtered[[
         "client", "project", "project_source", "code_count",
-        "budget", "billable_charges", "write_offs", "net_charges", "invoiced", "remaining",
-        "status",
+        *_num_cols, "status",
     ]].rename(columns={
         "client":           "Client",
         "project":          "Project",
@@ -103,8 +103,28 @@ if view == "Summary":
         "remaining":        "Remaining (€)",
         "status":           "Status",
     })
-    for col in ["Budget (€)", "Billable (€)", "Write-offs (€)", "Net (€)", "Invoiced (€)", "Remaining (€)"]:
-        display[col] = display[col].map(_fmt)
+
+    # Totals row (computed before string formatting)
+    _totals = {
+        "Client": "TOTAL", "Project": "", "Source": "",
+        "Codes":        int(display["Codes"].sum()),
+        "Budget (€)":   display["Budget (€)"].sum(),
+        "Billable (€)": display["Billable (€)"].sum(),
+        "Write-offs (€)": display["Write-offs (€)"].sum(),
+        "Net (€)":      display["Net (€)"].sum(),
+        "Invoiced (€)": display["Invoiced (€)"].sum(),
+        "Remaining (€)": display["Remaining (€)"].sum(),
+        "Status": "",
+    }
+    display = pd.concat([display, pd.DataFrame([_totals])], ignore_index=True)
+
+    _money_cols = ["Budget (€)", "Billable (€)", "Write-offs (€)", "Net (€)", "Invoiced (€)", "Remaining (€)"]
+    n_data = len(display) - 1   # index of totals row
+    for col in _money_cols:
+        display[col] = [
+            _fmt(v) if i < n_data else f"{float(v):,.0f}"
+            for i, v in enumerate(display[col])
+        ]
 
     st.dataframe(display, use_container_width=True, hide_index=True)
 

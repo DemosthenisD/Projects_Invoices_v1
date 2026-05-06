@@ -165,6 +165,14 @@ edited = st.data_editor(
     key="pipeline_editor",
 )
 
+# Live subtotals (reflect unsaved edits in the editor)
+st.caption(f"Filtered totals — {len(edited)} project(s)")
+_tc = st.columns(4)
+_tc[0].metric("Value (€)",  f"{edited['Value (€)'].sum():,.0f}")
+_tc[1].metric("Min (€)",    f"{edited['Min (€)'].sum():,.0f}")
+_tc[2].metric("Est (€)",    f"{edited['Est (€)'].sum():,.0f}")
+_tc[3].metric("Max (€)",    f"{edited['Max (€)'].sum():,.0f}")
+
 if st.button("Save changes", type="primary"):
     changed = 0
     for _, row in edited.iterrows():

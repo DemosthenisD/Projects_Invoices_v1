@@ -78,6 +78,19 @@ with tab_import:
         pairs_list = list(rc.keys())
         gaps = db.analyse_csv_gaps(pairs_list)
 
+        # Classify missing_client entries into three buckets
+        # 0009 = internal overhead; 0478 = managed CY (need proper setup); everything else = quick-setup candidates
+        SKIP_PREFIXES = ("0009", "0478")
+        quick_candidates = [
+            i for i in gaps["missing_client"]
+            if not any(i["client_code"].startswith(p) for p in SKIP_PREFIXES)
+        ]
+        needs_manual = [
+            i for i in gaps["missing_client"]
+            if i["client_code"].startswith("0478")
+        ]
+        intl = [i for i in gaps["missing_client"] if i["is_internal"]]
+
         n_miss = len(gaps["missing_code"]) + len(gaps["missing_client"])
         matched_rows = sum(rc.get(p, 0) for p in gaps["matched"])
         unmatched_rows = len(df) - matched_rows
@@ -91,9 +104,46 @@ with tab_import:
                 f"{matched_rows} row(s) from {len(gaps['matched'])} matched code(s) will import."
             )
 
+            # ── Quick Setup (unknown external codes — not 0009 or 0478) ──────
+            if quick_candidates:
+                st.markdown(
+                    f"**{len(quick_candidates)} unknown external code(s)** — "
+                    "not a CY managed client (0478) or internal overhead (0009). "
+                    "Click below to auto-create placeholder client, project, and project code records "
+                    "so these rows import immediately."
+                )
+                st.dataframe(pd.DataFrame([
+                    {
+                        "Client code":  i["client_code"],
+                        "Suffix":       i["client_suffix"],
+                        "Rows":         rc.get((i["client_code"], i["client_suffix"]), 0),
+                        "Will create":  (
+                            f"{i['client_code']}_Default_Client / "
+                            f"{i['client_code']}_Default_Project / "
+                            f"{i['client_code']}_{i['client_suffix']}_Default_SuffixCode"
+                        ),
+                    }
+                    for i in sorted(quick_candidates, key=lambda x: x["client_code"])
+                ]), use_container_width=True, hide_index=True)
+
+                if st.button(
+                    f"Auto-create placeholder records for {len(quick_candidates)} code(s)",
+                    type="secondary",
+                    key="btn_quick_setup",
+                ):
+                    result = db.quick_setup_external_codes(quick_candidates)
+                    st.success(
+                        f"Done — {result['created_clients']} client(s), "
+                        f"{result['created_projects']} project(s), "
+                        f"{result['created_codes']} code(s) created. "
+                        "Re-analysing gaps…"
+                    )
+                    st.rerun()
+
+            # ── Group A — client exists, missing project code ─────────────────
             if gaps["missing_code"]:
                 with st.expander(
-                    f"Group A — {len(gaps['missing_code'])} code(s): client exists, just add the Project Code (page 6)"
+                    f"Group A — {len(gaps['missing_code'])} code(s): client exists, just add the Project Code (page 5)"
                 ):
                     st.dataframe(pd.DataFrame([
                         {
@@ -105,20 +155,18 @@ with tab_import:
                         for i in sorted(gaps["missing_code"], key=lambda x: x["client_code"])
                     ]), use_container_width=True, hide_index=True)
 
-            if gaps["missing_client"]:
-                ext = [i for i in gaps["missing_client"] if not i["is_internal"]]
-                intl = [i for i in gaps["missing_client"] if i["is_internal"]]
+            # ── Group B — needs full manual setup ────────────────────────────
+            if needs_manual or intl:
                 with st.expander(
-                    f"Group B — {len(gaps['missing_client'])} code(s): client not in DB, "
-                    f"add Client + Project + Code (page 11)  "
-                    f"[{len(ext)} external, {len(intl)} internal/overhead]"
+                    f"Group B — {len(needs_manual) + len(intl)} code(s): add Client + Project + Code via page 11  "
+                    f"[{len(needs_manual)} managed CY, {len(intl)} internal/overhead]"
                 ):
-                    if ext:
-                        st.caption(f"**External clients ({len(ext)})**")
+                    if needs_manual:
+                        st.caption(f"**Managed CY clients — 0478xxx ({len(needs_manual)}) — set up via Add New Project (page 11)**")
                         st.dataframe(pd.DataFrame([
                             {"Client code": i["client_code"], "Suffix": i["client_suffix"],
                              "Rows": rc.get((i["client_code"], i["client_suffix"]), 0)}
-                            for i in sorted(ext, key=lambda x: x["client_code"])
+                            for i in sorted(needs_manual, key=lambda x: x["client_code"])
                         ]), use_container_width=True, hide_index=True)
                     if intl:
                         st.caption(f"**Internal / overhead 0009xxx codes ({len(intl)}) — add only if you want to track them**")
