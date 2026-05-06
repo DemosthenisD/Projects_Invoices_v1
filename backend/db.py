@@ -486,17 +486,18 @@ def get_projects_with_summary(client_id: int | None = None) -> list[dict]:
         rows = conn.execute(f"""
             SELECT
                 p.id, p.name, p.status, p.date_start, p.vat_pct, p.template, p.description,
-                c.name                                      AS client_name,
-                c.client_type                               AS client_type,
-                c.country                                   AS client_country,
-                COUNT(DISTINCT pc.id)                       AS code_count,
-                COALESCE(SUM(DISTINCT pc.budget_amount), 0) AS total_budget,
-                COALESCE(te.billable_charges, 0)            AS billable_charges,
-                COALESCE(wo.write_offs, 0)                  AS write_offs,
-                COALESCE(inv.invoiced, 0)                   AS invoiced
+                c.name                         AS client_name,
+                c.client_type                  AS client_type,
+                c.country                      AS client_country,
+                COALESCE(pc.code_count, 0)     AS code_count,
+                COALESCE(pc.total_budget, 0)   AS total_budget,
+                COALESCE(te.billable_charges, 0) AS billable_charges,
+                COALESCE(wo.write_offs, 0)     AS write_offs,
+                COALESCE(inv.invoiced, 0)      AS invoiced
             FROM projects p
             JOIN clients c ON c.id = p.client_id
-            LEFT JOIN project_codes pc ON pc.project_id = p.id
+            LEFT JOIN (SELECT project_id, COUNT(*) AS code_count, SUM(budget_amount) AS total_budget
+                       FROM project_codes GROUP BY project_id) pc ON pc.project_id = p.id
             LEFT JOIN (SELECT project_id, SUM(non_z_charges) AS billable_charges
                        FROM time_entries GROUP BY project_id) te ON te.project_id = p.id
             LEFT JOIN (SELECT project_id, SUM(amount) AS write_offs
@@ -504,7 +505,6 @@ def get_projects_with_summary(client_id: int | None = None) -> list[dict]:
             LEFT JOIN (SELECT project_id, SUM(amount) AS invoiced
                        FROM invoices GROUP BY project_id) inv ON inv.project_id = p.id
             {where}
-            GROUP BY p.id
             ORDER BY c.name, p.name
         """, params).fetchall()
     return [dict(r) for r in rows]
@@ -791,6 +791,66 @@ def bulk_import_invoices(records: list[dict]) -> dict:
         except Exception as exc:
             errors.append(f"{rec.get('invoice_number', '?')}: {exc}")
     return {"inserted": inserted, "skipped": skipped, "errors": errors}
+
+
+def sync_completed_project_budgets() -> dict:
+    """For completed projects whose codes all have budget_amount=0, set each code's
+    budget to an equal share of the total invoiced net amount for that project.
+
+    Skips projects with no project codes (nowhere to store a budget).
+    Returns {updated: list of project names, skipped_no_codes: list, skipped_has_budget: list}.
+    """
+    updated: list[str] = []
+    skipped_no_codes: list[str] = []
+    skipped_has_budget: list[str] = []
+
+    with get_connection() as conn:
+        # Find completed projects
+        completed = conn.execute(
+            "SELECT id, name FROM projects WHERE status = 'Completed'"
+        ).fetchall()
+
+        for proj in completed:
+            proj_id, proj_name = proj["id"], proj["name"]
+
+            # Sum invoiced net amount (credit notes already stored negative)
+            inv_row = conn.execute(
+                "SELECT COALESCE(SUM(amount), 0) AS total FROM invoices WHERE project_id = ?",
+                (proj_id,)
+            ).fetchone()
+            total_invoiced = inv_row["total"]
+            if total_invoiced <= 0:
+                continue  # nothing invoiced, skip
+
+            # Get codes
+            codes = conn.execute(
+                "SELECT id, budget_amount FROM project_codes WHERE project_id = ?",
+                (proj_id,)
+            ).fetchall()
+
+            if not codes:
+                skipped_no_codes.append(proj_name)
+                continue
+
+            # Check if any code already has a non-zero budget
+            if any(c["budget_amount"] != 0 for c in codes):
+                skipped_has_budget.append(proj_name)
+                continue
+
+            # Equal split across codes
+            per_code = round(total_invoiced / len(codes), 2)
+            for c in codes:
+                conn.execute(
+                    "UPDATE project_codes SET budget_amount = ? WHERE id = ?",
+                    (per_code, c["id"])
+                )
+            updated.append(proj_name)
+
+    return {
+        "updated": updated,
+        "skipped_no_codes": skipped_no_codes,
+        "skipped_has_budget": skipped_has_budget,
+    }
 
 
 def get_all_project_codes_with_context() -> list[dict]:

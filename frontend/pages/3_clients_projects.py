@@ -253,6 +253,27 @@ with tab_projects:
         tc2.metric("Billable (€)",    f"{t_bill:,.0f}")
         tc3.metric("Write-offs (€)",  f"{t_wo:,.0f}")
         tc4.metric("Invoiced (€)",    f"{t_inv:,.0f}")
+
+        with st.expander("Admin: sync completed project budgets", expanded=False):
+            st.caption(
+                "For **Completed** projects whose project codes all have a zero budget, "
+                "this sets each code's budget to an equal share of the total invoiced amount. "
+                "Projects that already have at least one non-zero budget are left untouched."
+            )
+            if st.button("Run sync now", key="sync_budgets"):
+                result = db.sync_completed_project_budgets()
+                if result["updated"]:
+                    st.success(f"Updated {len(result['updated'])} project(s): " +
+                               ", ".join(result["updated"]))
+                else:
+                    st.info("No projects required updating.")
+                if result["skipped_no_codes"]:
+                    st.warning("Skipped (no project codes): " +
+                               ", ".join(result["skipped_no_codes"]))
+                if result["skipped_has_budget"]:
+                    st.info("Skipped (budget already set): " +
+                            ", ".join(result["skipped_has_budget"]))
+                st.cache_data.clear()
     elif all_proj_summary:
         st.info(f"No projects match the selected filters. Clear filters to see all.")
     else:
