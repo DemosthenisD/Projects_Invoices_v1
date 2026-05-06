@@ -129,20 +129,22 @@ with tab_log:
                 "Use **Mark Paid** / **Mark Outstanding** to update payment status."
             )
 
-            _cols = [1.2, 1, 1.8, 2, 1, 1, 0.8, 1.2, 1]
+            _cols = [1.2, 0.7, 1.1, 1.8, 2, 1, 1, 0.8, 1.2, 1]
             hdr = st.columns(_cols)
             for label, col in zip(
-                ["Date", "Invoice #", "Client", "Project", "Net €", "VAT €", "Status", "File", "Action"],
+                ["Date", "Invoice ID", "Invoice No", "Client", "Project", "Net €", "VAT €", "Status", "File", "Action"],
                 hdr,
             ):
                 col.markdown(f"**{label}**")
 
             for inv in filtered:
-                (col_date, col_num, col_client, col_proj,
+                (col_date, col_id, col_ref, col_client, col_proj,
                  col_net, col_vat, col_st, col_dl, col_act) = st.columns(_cols)
 
+                inv_ref = f"{inv.invoice_number}/{inv.year}"
                 col_date.write(inv.date)
-                col_num.write(f"**#{inv.invoice_number}**")
+                col_id.write(f"**{inv.invoice_number}**")
+                col_ref.write(f"**{inv_ref}**")
                 col_client.write(client_map.get(inv.client_id, "—"))
                 col_proj.write(inv.project_name or "—")
                 col_net.write(f"€{inv.amount:,.0f}")
@@ -183,7 +185,8 @@ with tab_log:
                 data = [
                     {
                         "Year":          i.year,
-                        "Invoice No":    i.invoice_number,
+                        "Invoice ID":    i.invoice_number,
+                        "Invoice No":    f"{i.invoice_number}/{i.year}",
                         "Date":          i.date,
                         "Client":        client_map.get(i.client_id, ""),
                         "Project":       i.project_name,

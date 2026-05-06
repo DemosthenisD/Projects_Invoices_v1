@@ -189,10 +189,10 @@ with col2:
     template_name = st.selectbox("Invoice Template", available_templates, index=template_index)
 
 # ------------------------------------------------------------------
-# Step 3 — Amount, Date, Invoice Number
+# Step 3 — Amount, Date, Invoice ID
 # ------------------------------------------------------------------
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
 
 with col1:
     invoice_date = st.date_input("Invoice Date", value=date_type.today())
@@ -203,7 +203,20 @@ with col2:
 
 with col3:
     suggested_no = db.get_next_invoice_number(year)
-    invoice_number = st.text_input("Invoice No", value=str(suggested_no))
+    invoice_number = st.text_input(
+        "Invoice ID",
+        value=str(suggested_no),
+        help="Sequential log counter per year. Auto-suggested; override if needed.",
+    )
+
+with col4:
+    invoice_ref = f"{invoice_number}/{year}"
+    st.text_input(
+        "Invoice No (on invoice)",
+        value=invoice_ref,
+        disabled=True,
+        help="This is how the Invoice No will appear on the invoice document.",
+    )
 
 vat_amount = round(amount * vat_pct / 100, 2)
 gross = round(amount + vat_amount, 2)
@@ -293,7 +306,7 @@ if generate_clicked:
         "placeholder2":    address,
         "placeholder3":    vat_no,
         "placeholder4":    invoice_date.strftime("%d/%m/%Y"),
-        "placeholder5":    invoice_number,
+        "placeholder5":    invoice_ref,
         "placeholder6":    str(year),
         "placeholder7":    description or selected_project_name,
         "placeholder8":    f"{amount:,.2f}",
@@ -355,7 +368,7 @@ if generate_clicked:
     file_ext = "pdf" if fmt == "PDF" else "docx"
     download_name = f"{year}_{invoice_number}_{client.client_code or client.name}_Invoice.{file_ext}"
 
-    st.success(f"Invoice generated and saved. Invoice #{invoice_number} — {client.name}")
+    st.success(f"Invoice generated and saved. Invoice No {invoice_ref} (ID: {invoice_number}) — {client.name}")
     st.download_button(
         label=f"Download {fmt}",
         data=file_bytes,

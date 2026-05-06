@@ -326,6 +326,16 @@ def init_db() -> None:
             WHERE date_entered_stage = '' OR date_entered_stage IS NULL
         """)
 
+        # --- Data fix: invoices with corrupt year values ---
+        # Rows where year is clearly wrong (not a plausible 4-digit year) are corrected
+        # by extracting the year from the stored date string.
+        conn.execute("""
+            UPDATE invoices
+            SET year = CAST(SUBSTR(date, 1, 4) AS INTEGER)
+            WHERE (year < 2000 OR year > 2100)
+              AND SUBSTR(date, 1, 4) GLOB '[0-9][0-9][0-9][0-9]'
+        """)
+
         # --- Migration: normalise stale template values in projects ---
         conn.execute(
             "UPDATE projects SET template = 'template1_v3' WHERE template IN ('Template-1', 'template1')"
@@ -649,12 +659,20 @@ def add_invoice(
 
 
 def get_next_invoice_number(year: int) -> int:
-    """Returns the next sequential invoice number for the given year."""
+    """Returns the next sequential invoice number for the given year.
+
+    Uses MAX(CAST(invoice_number AS INTEGER)) scoped to year so the result is
+    correct even when rows have been deleted or imported out of order.
+    Numeric casting means non-numeric values (e.g. 'EXAMPLE-001') resolve to 0
+    and do not affect the result.
+    """
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM invoices WHERE year = ?", (year,)
+            "SELECT MAX(CAST(invoice_number AS INTEGER)) AS max_no "
+            "FROM invoices WHERE year = ?",
+            (year,)
         ).fetchone()
-    return (row["cnt"] or 0) + 1
+    return (row["max_no"] or 0) + 1
 
 
 def update_invoice_status(invoice_id: int, status: str, paid_date: str = "") -> None:
