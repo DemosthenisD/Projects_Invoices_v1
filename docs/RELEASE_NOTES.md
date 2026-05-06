@@ -2,6 +2,40 @@
 
 ---
 
+## Sprint 13 — Credit Notes, Partial Payments, Sorting & Group Filters (May 2026)
+
+> **Updates on 6 May 2026** — Eight improvements across five pages: (1) Generate Invoice now supports **Credit Notes** — a toggle switches document type; credit notes store a negative amount and share the same sequential counter as invoices; an optional "Credits invoice" reference field links to the original. (2) Invoice Log now has **sortable columns** (Date, Invoice ID, Amount, Client, Status, Type) with ascending/descending toggle. (3) Invoice Log gains a **Balance €** column showing gross minus payments received; legacy paid rows without payment records show `—`. (4) **Partial payments** supported — a `payments` table tracks each receipt; the log shows `✓ Pay` (full), `± Part.` (partial), and `↩ Reset` buttons; payment history shown as captions below each row. (5) Invoice filename fix — `/` in Invoice No (e.g. `1/2026`) was causing a `FileNotFoundError`; replaced with `-` in the generated filename. (6) Budget aggregation bug fixed — `SUM(DISTINCT)` on project codes with equal budgets was undercounting; replaced with a subquery aggregate. (7) **Sync completed project budgets** admin action added to Clients & Projects → Projects tab — auto-distributes total invoiced amount equally across any zero-budget codes for Completed projects. (8) **Add New Project** "Create new client" now includes Client Type and Country fields; project codes are optional for external and internal clients.
+
+> **Group filter for Annual Review pages (6 May 2026):** Billing Basis and Consultant Profiles now have a Group radio (Local / ICEE / Other / All) defaulting to Local, so the annual review workflow stays focused on the local team.
+
+### DB Schema Changes (non-breaking, migrated automatically on startup)
+
+- **`invoices`** — added `type TEXT DEFAULT 'Invoice'` and `related_invoice_number TEXT DEFAULT ''`.
+- **`payments`** — new table: `id`, `invoice_id`, `amount REAL`, `date TEXT`, `note TEXT DEFAULT ''`, `created_at TEXT`. Tracks individual payment receipts per invoice.
+
+### New / Updated DB Functions
+
+- `add_invoice()` — new `doc_type` and `related_invoice_number` parameters; stores `type` and `related_invoice_number` in `invoices`.
+- `bulk_import_invoices()` — extended to read `type` and `related_invoice_number` columns from the upload template.
+- `get_invoices()` — now JOINs a `payments` aggregate subquery to populate `total_paid` on each Invoice object; returns `type` and `related_invoice_number`.
+- `add_payment(invoice_id, amount, date, note)` — new; inserts a payment row and calls `_recompute_invoice_status()`.
+- `get_payments(invoice_id)` — new; returns all payment rows for an invoice.
+- `delete_payments(invoice_id)` — new; removes all payment rows and resets invoice status to `outstanding`.
+- `_recompute_invoice_status(invoice_id, conn)` — internal helper; derives `outstanding / partial / paid` from gross vs `SUM(payments.amount)` and writes back `status` and `paid_date`.
+- `get_projects_with_summary()` — fixed `SUM(DISTINCT pc.budget_amount)` bug; now uses a subquery aggregate so codes with equal budgets are not collapsed.
+- `sync_completed_project_budgets()` — new; finds Completed projects whose codes all have zero budget but a positive invoiced amount; sets each code's budget to `invoiced ÷ code count`.
+
+### Page Changes
+
+- **Page 0 — Generate Invoice:** Document type toggle (Invoice / Credit Note) added in the header row. Credit Note mode: positive amount entered by user; stored as negative. Optional "Credits invoice No" text input (reference only, not validated). Invoice No format `ID/YYYY`; filename uses `ID-YYYY` to avoid OS path separator issue.
+- **Page 2 — Invoice Log:** Sort controls (selectbox + radio) above the table. New columns: Type (📄 / 🔄), Inv No (`ID/YYYY`), Balance €. Action column split into `✓` (full pay) and `±` (partial toggle) buttons; `↩ Reset` button for paid/partial invoices. Inline partial-payment form (amount, date, note) toggled per row via session state. Payment history shown as captions below each row. Related invoice caption for credit notes. Excel export extended with Type, Related Invoice No, Paid (€), Balance (€) columns. Bulk upload template extended with `type` (dropdown) and `related_invoice_number` columns.
+- **Page 3 — Clients & Projects — Projects tab:** "Admin: sync completed project budgets" expander added below the totals bar; one-click button shows count of codes updated.
+- **Page 11 — Add New Project:** "Create new client" mode now includes Client Type (managed / external / internal) and Country fields. Validation: project codes required only when client type is managed.
+- **Page 12 — Billing Basis:** Group radio (All / Local / ICEE / Other) defaults to Local; Manual Entry tab filters consultant list by selected group.
+- **Page 13 — Consultant Profiles:** Group radio (All / Local / ICEE / Other) defaults to Local; consultant selectbox filters to the chosen group.
+
+---
+
 ## Sprint 12 — Filters, Pipeline Dates, Completed-Project Invoicing, Bulk Allocations (May 2026)
 
 > **Updates on 4 May 2026** — Six improvements across four pages: (1) Generate Invoice now has an "Include completed projects" checkbox so invoices can be raised against completed projects (e.g. ERGO / IFRS17-P1). (2) Clients tab gains name / type / country filter row and a labelled "Status" column header with badge legend. (3) Projects tab gains a Country column, client-type filter, and a totals bar (Budget / Billable / Write-offs / Invoiced) for the filtered selection. (4) Pipeline/CRM adds Country and Client type filter controls, plus two new read-only date columns: "In Pipeline" (date first added) and "In Stage Since" (auto-updated when stage changes on Save). (5) Bulk Upload template extended with a "Project Codes Reference" sheet and an "Allocations" sheet — up to 4 project-code / amount pairs per invoice with cascading dropdown and auto-computed code IDs. (6) Import logic reads the Allocations sheet and writes to `invoice_allocations` after each invoice is inserted.
