@@ -194,6 +194,13 @@ with tab_import:
 
         batch_ref = f"{uploaded.name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
+        def _flt(v) -> float:
+            """Convert a value to float, tolerating comma thousands-separators and surrounding spaces."""
+            try:
+                return float(str(v).replace(",", "").strip()) if v not in (None, "", "nan") else 0.0
+            except (ValueError, TypeError):
+                return 0.0
+
         if st.button("Confirm Import", type="primary"):
             entries = []
             for _, row in df.iterrows():
@@ -203,12 +210,12 @@ with tab_import:
                     "consultant":    str(row.get("name_fam_last_first", "")),
                     "client_code":   str(row["client_code"]),
                     "client_suffix": str(row["client_suffix"]),
-                    "total_hours":   float(row.get("total_hours", 0) or 0),
-                    "non_z_hours":   float(row.get("non_z_hours", 0) or 0),
-                    "z_hours":       float(row.get("z_hours", 0) or 0),
-                    "total_charges": float(row.get("total_charges", 0) or 0),
-                    "non_z_charges": float(row.get("non_z_charges", 0) or 0),
-                    "z_charges":     float(row.get("z_charges", 0) or 0),
+                    "total_hours":   _flt(row.get("total_hours", 0)),
+                    "non_z_hours":   _flt(row.get("non_z_hours", 0)),
+                    "z_hours":       _flt(row.get("z_hours", 0)),
+                    "total_charges": _flt(row.get("total_charges", 0)),
+                    "non_z_charges": _flt(row.get("non_z_charges", 0)),
+                    "z_charges":     _flt(row.get("z_charges", 0)),
                     "description":   str(row.get("description", "") or ""),
                     "batch_ref":     batch_ref,
                 })
