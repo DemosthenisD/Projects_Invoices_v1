@@ -38,9 +38,23 @@ st.caption("Performance assessment and compensation calculation per consultant p
 # ---------------------------------------------------------------------------
 # Header row: consultant, year, assessor, date
 # ---------------------------------------------------------------------------
-consultants = get_consultant_groups()
-if not consultants:
+all_consultants = get_consultant_groups()
+if not all_consultants:
     st.info("No consultants found. Import time entries first.")
+    st.stop()
+
+_all_groups_ar = sorted({cg["group_name"] for cg in all_consultants})
+ar_group = st.radio(
+    "Group", ["All"] + _all_groups_ar,
+    index=(["All"] + _all_groups_ar).index("Local") if "Local" in _all_groups_ar else 0,
+    horizontal=True,
+)
+consultants = (
+    all_consultants if ar_group == "All"
+    else [cg for cg in all_consultants if cg["group_name"] == ar_group]
+)
+if not consultants:
+    st.info(f"No consultants in group '{ar_group}'.")
     st.stop()
 
 consultant_options = {cg["consultant"]: cg for cg in consultants}

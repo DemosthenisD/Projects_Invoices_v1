@@ -1396,6 +1396,7 @@ def get_time_entries(
     period_from: str | None = None,
     period_to: str | None = None,
     emp_nbr: str | None = None,
+    consultants: list[str] | None = None,
     include_internal: bool = True,
 ) -> list[TimeEntry]:
     query = (
@@ -1421,6 +1422,10 @@ def get_time_entries(
     if emp_nbr:
         filters.append("emp_nbr = ?")
         params.append(emp_nbr)
+    if consultants:
+        placeholders = ",".join("?" * len(consultants))
+        filters.append(f"consultant IN ({placeholders})")
+        params.extend(consultants)
     if not include_internal:
         filters.append("non_z_charges > 0")
     if filters:
@@ -1432,6 +1437,51 @@ def get_time_entries(
         "project_code_id", "project_id", "total_hours", "non_z_hours", "z_hours",
         "total_charges", "non_z_charges", "z_charges"
     ) else v) for k, v in dict(r).items()}) for r in rows]
+
+
+def get_team_time_summary(
+    period_from: str | None = None,
+    period_to: str | None = None,
+    group_names: list[str] | None = None,
+) -> list[dict]:
+    """Cross-client billable summary per consultant per period (YYYYMM).
+
+    Returns list of dicts: consultant, emp_nbr, group_name, period,
+    billable_hrs, billable_charges, internal_hrs, internal_charges, total_hrs.
+    group_names — if provided, only returns rows matching those groups.
+    """
+    q = """
+        SELECT
+            te.consultant,
+            te.emp_nbr,
+            COALESCE(cg.group_name, 'Other') AS group_name,
+            te.period,
+            SUM(te.non_z_hours)   AS billable_hrs,
+            SUM(te.non_z_charges) AS billable_charges,
+            SUM(te.z_hours)       AS internal_hrs,
+            SUM(te.z_charges)     AS internal_charges,
+            SUM(te.total_hours)   AS total_hrs
+        FROM time_entries te
+        LEFT JOIN consultant_groups cg ON cg.emp_nbr = te.emp_nbr
+    """
+    params: list = []
+    filters: list[str] = []
+    if period_from:
+        filters.append("te.period >= ?")
+        params.append(period_from)
+    if period_to:
+        filters.append("te.period <= ?")
+        params.append(period_to)
+    if group_names:
+        ph = ",".join("?" * len(group_names))
+        filters.append(f"COALESCE(cg.group_name, 'Other') IN ({ph})")
+        params.extend(group_names)
+    if filters:
+        q += " WHERE " + " AND ".join(filters)
+    q += " GROUP BY te.consultant, te.emp_nbr, cg.group_name, te.period ORDER BY te.consultant, te.period"
+    with get_connection() as conn:
+        rows = conn.execute(q, params).fetchall()
+    return [dict(r) for r in rows]
 
 
 def delete_time_batch(batch_ref: str) -> int:
@@ -1821,6 +1871,14 @@ def upsert_salary_record(
             "notes=excluded.notes",
             (emp_nbr, year, starting_salary, exams_passed, exam_raise_per_exam,
              other_raise, effective_date, objective_bonus_pct, bonus_paid, proposed_rate, notes)
+        )
+
+
+def delete_salary_record(emp_nbr: str, year: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "DELETE FROM annual_salary_history WHERE emp_nbr = ? AND year = ?",
+            (emp_nbr, year)
         )
 
 

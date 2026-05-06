@@ -111,9 +111,10 @@ tab_auto, tab_manual, tab_saved = st.tabs(["Auto (from Time Tracking)", "Manual 
 with tab_auto:
     st.subheader(f"Auto-aggregate from Time Tracking — {year}")
     st.info(
-        "Aggregates **non_z_charges** per consultant from imported time entries for the selected year. "
-        "Write-offs recorded in the same calendar year are mapped to the *Charged Off* column. "
-        "Other billing categories (Billed, Unbilled, Pre-bill) are not tracked in time entries — "
+        "Aggregates time entries for the selected year: "
+        "**non_z_charges** (billable charges) → *Paid* column; "
+        "write-offs for the same year → *Charged Off* column. "
+        "Other billing categories (Billed, Capped Pre-bill, Unbilled) are not tracked in time entries — "
         "set them via Manual Entry if needed."
     )
 
@@ -296,6 +297,7 @@ with tab_saved:
     if not saved_rows:
         st.info(f"No billing basis saved for {year} yet.")
     else:
+        _name_map = {cg["emp_nbr"]: cg["consultant"] for cg in get_consultant_groups() if cg.get("emp_nbr")}
         records = []
         for b in saved_rows:
             derived = _derive({
@@ -305,6 +307,7 @@ with tab_saved:
             })
             records.append({
                 "Emp #":             b.emp_nbr,
+                "Consultant":        _name_map.get(b.emp_nbr, ""),
                 "Billed €":          b.billed,
                 "Capped Paid €":     b.capped_paid_prebill,
                 "Capped Unpaid €":   b.capped_unpaid_prebill,

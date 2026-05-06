@@ -34,7 +34,9 @@ if not st.session_state.get("authenticated", False):
 
 st.title("Time Tracking")
 
-tab_import, tab_entries, tab_rollup, tab_groups = st.tabs(["Import", "Entries", "Rollup", "Consultant Groups"])
+tab_import, tab_entries, tab_rollup, tab_summary, tab_groups = st.tabs(
+    ["Import", "Entries", "Rollup", "Team Summary", "Consultant Groups"]
+)
 
 # Expected CSV columns (fixed format matching sample_time_sheet.csv)
 REQUIRED_COLS = {
@@ -245,7 +247,7 @@ with tab_entries:
         st.info("No clients yet.")
         st.stop()
 
-    # Filters
+    # Row 1 — client / project / period / billable
     fcols = st.columns([2, 2, 1, 1, 1])
     f_client = fcols[0].selectbox("Client", ["All"] + [c.name for c in clients],
                                   key="te_client_filter")
@@ -261,10 +263,24 @@ with tab_entries:
     f_period_to   = fcols[3].text_input("Period to",   placeholder="yyyymm", key="te_pt")
     f_billable    = fcols[4].checkbox("Billable only", key="te_bill")
 
+    # Row 2 — consultant / group filters (applied in Python after fetch)
+    _all_cg = db.get_consultant_groups()
+    _all_groups = sorted({cg["group_name"] for cg in _all_cg})
+    gcols = st.columns([2, 4])
+    f_group = gcols[0].selectbox("Group", ["All"] + _all_groups, key="te_group_filter")
+    _consultants_in_group = (
+        [cg["consultant"] for cg in _all_cg]
+        if f_group == "All"
+        else [cg["consultant"] for cg in _all_cg if cg["group_name"] == f_group]
+    )
+    f_consultants = gcols[1].multiselect("Consultant(s)", sorted(_consultants_in_group),
+                                          key="te_consultant_filter")
+
     entries = db.get_time_entries(
         project_id=project_obj.id if project_obj else None,
         period_from=f_period_from or None,
         period_to=f_period_to or None,
+        consultants=f_consultants if f_consultants else None,
         include_internal=not f_billable,
     )
 
@@ -315,7 +331,7 @@ with tab_rollup:
         st.info("No clients yet.")
         st.stop()
 
-    rcols = st.columns(2)
+    rcols = st.columns([2, 2, 1, 1])
     r_client = rcols[0].selectbox("Client", [c.name for c in clients], key="ru_client")
     client_obj = next(c for c in clients if c.name == r_client)
 
@@ -326,6 +342,9 @@ with tab_rollup:
 
     r_project = rcols[1].selectbox("Project", [p.name for p in projects], key="ru_project")
     project_obj = next(p for p in projects if p.name == r_project)
+
+    r_period_from = rcols[2].text_input("Period from", placeholder="yyyymm", key="ru_pf")
+    r_period_to   = rcols[3].text_input("Period to",   placeholder="yyyymm", key="ru_pt")
 
     summary  = db.get_time_summary(project_obj.id)
     totals   = db.get_project_time_totals(project_obj.id)
@@ -360,31 +379,159 @@ with tab_rollup:
 
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-        # Internal hours section
-        entries_all = db.get_time_entries(project_id=project_obj.id, include_internal=True)
+        # Internal hours and group breakdown — period-filtered when filters are set
+        entries_all = db.get_time_entries(
+            project_id=project_obj.id, include_internal=True,
+            period_from=r_period_from.strip() or None,
+            period_to=r_period_to.strip() or None,
+        )
         z_hours = sum(e.z_hours for e in entries_all)
+        _period_note = ""
+        if r_period_from or r_period_to:
+            _period_note = f" ({r_period_from or '…'} – {r_period_to or '…'})"
+            st.caption("*Budget vs actual above is all-time. Period filter applies to sections below.*")
         if z_hours > 0:
-            st.caption(f"Internal (non-billable) hours on this project: **{z_hours:,.1f} hrs**")
+            st.caption(f"Internal (non-billable) hours{_period_note}: **{z_hours:,.1f} hrs**")
 
-        # Local / ICEE / Other breakdown
-        group_summary = db.get_time_summary_by_group(project_obj.id)
-        if group_summary:
-            st.divider()
-            st.subheader("Breakdown by Consultant Group")
+        # Compute group breakdown from period-filtered entries
+        if entries_all:
+            from collections import defaultdict
+            _cg_map = {cg["consultant"]: cg["group_name"] for cg in db.get_consultant_groups()}
+            _grp_acc: dict = defaultdict(lambda: {"billable_hrs": 0.0, "billable_chg": 0.0})
+            for _e in entries_all:
+                _g = _cg_map.get(_e.consultant, "Other")
+                _grp_acc[_g]["billable_hrs"] += _e.non_z_hours
+                _grp_acc[_g]["billable_chg"] += _e.non_z_charges
             grp_rows = [
-                {
-                    "Group":         g["group_name"],
-                    "Billable hrs":  f"{g['billable_hrs']:,.1f}" if g["billable_hrs"] else "—",
-                    "Billable (€)":  f"{g['billable_chg']:,.2f}" if g["billable_chg"] else "—",
-                }
-                for g in group_summary
+                {"Group": grp, "Billable hrs": f"{v['billable_hrs']:,.1f}",
+                 "Billable (€)": f"{v['billable_chg']:,.2f}"}
+                for grp, v in sorted(_grp_acc.items())
+                if v["billable_hrs"] > 0 or v["billable_chg"] > 0
             ]
-            st.dataframe(pd.DataFrame(grp_rows), use_container_width=True, hide_index=True)
-            st.caption("Groups are assigned on the Consultant Groups tab. "
-                       "Unassigned consultants appear as 'Other'.")
+            if grp_rows:
+                st.divider()
+                st.subheader(f"Breakdown by Consultant Group{_period_note}")
+                st.dataframe(pd.DataFrame(grp_rows), use_container_width=True, hide_index=True)
+                st.caption("Groups assigned on the Consultant Groups tab; unassigned → 'Other'.")
 
 # ==================================================================
-# TAB 4 — CONSULTANT GROUPS
+# TAB 4 — TEAM SUMMARY
+# ==================================================================
+
+with tab_summary:
+    st.subheader("Team Summary")
+    st.caption("Cross-client billable summary per consultant, aggregated across all projects.")
+
+    _ts_cg = db.get_consultant_groups()
+    _ts_groups = sorted({cg["group_name"] for cg in _ts_cg})
+
+    ts_fcols = st.columns([1, 1, 3])
+    ts_period_from = ts_fcols[0].text_input(
+        "Period from (yyyymm)", placeholder=f"{datetime.now().year}01", key="ts_pf"
+    )
+    ts_period_to = ts_fcols[1].text_input(
+        "Period to (yyyymm)", placeholder=f"{datetime.now().year}12", key="ts_pt"
+    )
+    ts_group = ts_fcols[2].radio(
+        "Group", ["All"] + _ts_groups,
+        index=(["All"] + _ts_groups).index("Local") if "Local" in _ts_groups else 0,
+        horizontal=True, key="ts_group",
+    )
+    _ts_opts = (
+        [cg["consultant"] for cg in _ts_cg] if ts_group == "All"
+        else [cg["consultant"] for cg in _ts_cg if cg["group_name"] == ts_group]
+    )
+    ts_consultants = st.multiselect(
+        "Consultant(s) (leave blank for all)", sorted(_ts_opts), key="ts_consultants"
+    )
+
+    _ts_group_filter = None if ts_group == "All" else [ts_group]
+    ts_rows = db.get_team_time_summary(
+        period_from=ts_period_from.strip() or None,
+        period_to=ts_period_to.strip() or None,
+        group_names=_ts_group_filter,
+    )
+
+    if not ts_rows:
+        st.info("No time entries for the selected period / group.")
+    else:
+        ts_df = pd.DataFrame(ts_rows)
+        if ts_consultants:
+            ts_df = ts_df[ts_df["consultant"].isin(ts_consultants)]
+        if ts_df.empty:
+            st.info("No data for the selected consultants.")
+        else:
+            # Consultant summary aggregated across all periods
+            st.subheader("By Consultant")
+            cons_df = (
+                ts_df.groupby(["consultant", "group_name"], as_index=False)
+                .agg(
+                    Bill_Hrs = ("billable_hrs",     "sum"),
+                    Bill_EUR = ("billable_charges", "sum"),
+                    Int_Hrs  = ("internal_hrs",     "sum"),
+                    Tot_Hrs  = ("total_hrs",        "sum"),
+                )
+            )
+            cons_df["Bill_pct"] = (
+                cons_df["Bill_Hrs"] / cons_df["Tot_Hrs"].replace(0, float("nan")) * 100
+            ).round(1)
+            _t = cons_df[["Bill_Hrs", "Bill_EUR", "Int_Hrs", "Tot_Hrs"]].sum()
+            _tot_pct = _t["Bill_Hrs"] / _t["Tot_Hrs"] * 100 if _t["Tot_Hrs"] > 0 else 0.0
+            cons_df = pd.concat([cons_df, pd.DataFrame([{
+                "consultant": "TOTAL", "group_name": "",
+                "Bill_Hrs": _t["Bill_Hrs"], "Bill_EUR": _t["Bill_EUR"],
+                "Int_Hrs": _t["Int_Hrs"], "Tot_Hrs": _t["Tot_Hrs"],
+                "Bill_pct": round(_tot_pct, 1),
+            }])], ignore_index=True)
+            st.dataframe(
+                cons_df.rename(columns={
+                    "consultant": "Consultant", "group_name": "Group",
+                    "Bill_Hrs": "Bill Hrs", "Bill_EUR": "Bill €",
+                    "Int_Hrs": "Int Hrs", "Tot_Hrs": "Tot Hrs", "Bill_pct": "Bill %",
+                }),
+                use_container_width=True, hide_index=True,
+                column_config={
+                    "Bill €": st.column_config.NumberColumn(format="€%.2f"),
+                    "Bill %": st.column_config.NumberColumn(format="%.1f"),
+                },
+            )
+
+            # Period breakdown pivot
+            st.divider()
+            st.subheader("Period Breakdown")
+            _pgcols = st.columns([2, 2])
+            ts_gran   = _pgcols[0].radio("Granularity", ["Month", "Quarter", "Year"],
+                                          horizontal=True, key="ts_gran")
+            ts_metric = _pgcols[1].radio("Show", ["Bill Hrs", "Bill €"],
+                                          horizontal=True, key="ts_metric")
+
+            def _ts_label(p: str, gran: str) -> str:
+                try:
+                    y, m = int(str(p)[:4]), int(str(p)[4:6])
+                    if gran == "Year":    return str(y)
+                    if gran == "Quarter": return f"{y}-Q{(m-1)//3+1}"
+                    return f"{y}-{m:02d}"
+                except (ValueError, IndexError):
+                    return str(p)
+
+            ts_df["label"] = ts_df["period"].apply(lambda p: _ts_label(str(p), ts_gran))
+            _ts_col = "billable_hrs" if ts_metric == "Bill Hrs" else "billable_charges"
+            piv = ts_df.groupby(["consultant", "label"])[_ts_col].sum().reset_index()
+            piv_wide = piv.pivot_table(index="consultant", columns="label", values=_ts_col, fill_value=0)
+            piv_wide = piv_wide.reindex(sorted(piv_wide.columns), axis=1)
+            piv_wide["TOTAL"] = piv_wide.sum(axis=1)
+            piv_wide = piv_wide.reset_index()
+            _ts_fmt = "€%.0f" if ts_metric == "Bill €" else "%.1f"
+            _ts_cc  = {c: st.column_config.NumberColumn(format=_ts_fmt)
+                       for c in piv_wide.columns if c != "consultant"}
+            st.dataframe(
+                piv_wide.rename(columns={"consultant": "Consultant"}),
+                use_container_width=True, hide_index=True,
+                column_config=_ts_cc,
+            )
+
+# ==================================================================
+# TAB 5 — CONSULTANT GROUPS
 # ==================================================================
 
 with tab_groups:

@@ -20,6 +20,7 @@ from backend.db import (
     get_salary_history,
     get_salary_record,
     upsert_salary_record,
+    delete_salary_record,
     get_billing_basis,
 )
 from shared.models import MILLIMAN_STATUSES, EXTERNAL_LEVELS
@@ -324,6 +325,17 @@ with tab_salary:
                 notes=rec_notes.strip(),
             )
             st.success(f"Saved {int(year_sel)} record for {selected_name}.")
+            st.rerun()
+
+    if existing_years:
+        st.divider()
+        st.subheader("Delete a Year Record")
+        del_year = st.selectbox("Select year to delete", sorted(existing_years, reverse=True),
+                                key="sal_del_year")
+        st.warning(f"This will permanently delete the **{del_year}** salary record for {selected_name}.")
+        if st.button("Delete Year Record", type="secondary", key="btn_sal_del"):
+            delete_salary_record(emp_nbr, int(del_year))
+            st.success(f"Deleted {del_year} record for {selected_name}.")
             st.rerun()
 
 # ── Rates by Year tab ─────────────────────────────────────────────────────────
