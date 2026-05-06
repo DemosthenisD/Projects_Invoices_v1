@@ -54,6 +54,8 @@ class Invoice:
     status: str = "outstanding"  # outstanding | paid | partial
     paid_date: str = ""
     comment: str = ""            # internal note — not shown on invoice document
+    type: str = "Invoice"        # Invoice | Credit Note
+    related_invoice_number: str = ""  # for Credit Notes: invoice number being credited
     created_at: str = ""
 
 

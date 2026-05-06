@@ -118,21 +118,45 @@ with tab_log:
 
         st.divider()
 
+        # ---- Sort controls ----
+        sort_c1, sort_c2 = st.columns([3, 2])
+        sort_by  = sort_c1.selectbox(
+            "Sort by",
+            ["Date", "Invoice ID", "Amount", "Client", "Status", "Type"],
+            index=0, label_visibility="collapsed",
+        )
+        sort_dir = sort_c2.radio("Order", ["↓ Desc", "↑ Asc"], horizontal=True, index=0,
+                                  label_visibility="collapsed")
+        asc = sort_dir == "↑ Asc"
+
+        _sort_key = {
+            "Date":       lambda i: i.date,
+            "Invoice ID": lambda i: int(i.invoice_number) if i.invoice_number.isdigit() else 0,
+            "Amount":     lambda i: i.amount,
+            "Client":     lambda i: client_map.get(i.client_id, ""),
+            "Status":     lambda i: i.status,
+            "Type":       lambda i: i.type,
+        }
+        filtered = sorted(filtered, key=_sort_key[sort_by], reverse=not asc)
+
         # ---- Table with per-row actions ----
         if not filtered:
             st.info("No invoices match the selected filters.")
         else:
             STATUS_BADGE = {"outstanding": "🔴", "paid": "🟢", "partial": "🟡"}
+            TYPE_BADGE   = {"Invoice": "📄", "Credit Note": "🔄"}
 
             st.caption(
                 "PDF/DOCX buttons download the generated file from your local disk. "
-                "Use **Mark Paid** / **Mark Outstanding** to update payment status."
+                "Use **Mark Paid** / **Mark Outstanding** to update payment status. "
+                "🔄 = Credit Note."
             )
 
-            _cols = [1.2, 0.7, 1.1, 1.8, 2, 1, 1, 0.8, 1.2, 1]
+            _cols = [1.0, 0.6, 1.0, 0.7, 1.5, 1.8, 0.9, 0.9, 0.8, 1.0, 1.0, 1.0]
             hdr = st.columns(_cols)
             for label, col in zip(
-                ["Date", "Invoice ID", "Invoice No", "Client", "Project", "Net €", "VAT €", "Status", "File", "Action"],
+                ["Date", "ID", "Inv No", "Type", "Client", "Project",
+                 "Net €", "VAT €", "Status", "Paid", "File", "Action"],
                 hdr,
             ):
                 col.markdown(f"**{label}**")
@@ -146,19 +170,22 @@ with tab_log:
                     return str(d)
 
             for inv in filtered:
-                (col_date, col_id, col_ref, col_client, col_proj,
-                 col_net, col_vat, col_st, col_dl, col_act) = st.columns(_cols)
+                (col_date, col_id, col_ref, col_type, col_client, col_proj,
+                 col_net, col_vat, col_st, col_paid, col_dl, col_act) = st.columns(_cols)
 
-                inv_ref = f"{inv.invoice_number}/{inv.year}"
+                inv_ref  = f"{inv.invoice_number}/{inv.year}"
+                t_badge  = TYPE_BADGE.get(getattr(inv, "type", "Invoice"), "📄")
                 col_date.write(_fmt_date(inv.date))
                 col_id.write(f"**{inv.invoice_number}**")
                 col_ref.write(f"**{inv_ref}**")
+                col_type.write(t_badge)
                 col_client.write(client_map.get(inv.client_id, "—"))
                 col_proj.write(inv.project_name or "—")
                 col_net.write(f"€{inv.amount:,.0f}")
                 col_vat.write(f"€{inv.vat_amount:,.0f}")
                 badge = STATUS_BADGE.get(inv.status, "")
                 col_st.write(f"{badge} {inv.status}")
+                col_paid.write(_fmt_date(inv.paid_date) if inv.paid_date else "—")
 
                 if inv.file_path and os.path.exists(inv.file_path):
                     ext  = os.path.splitext(inv.file_path)[1].lower()
@@ -188,6 +215,9 @@ with tab_log:
 
                 if inv.comment:
                     st.caption(f"💬 {inv.comment}")
+                related = getattr(inv, "related_invoice_number", "")
+                if related:
+                    st.caption(f"↩ Credits invoice {related}")
 
             st.divider()
 
@@ -195,25 +225,27 @@ with tab_log:
             def _build_excel(rows) -> bytes:
                 data = [
                     {
-                        "Year":          i.year,
-                        "Invoice ID":    i.invoice_number,
-                        "Invoice No":    f"{i.invoice_number}/{i.year}",
-                        "Date":          i.date,
-                        "Client":        client_map.get(i.client_id, ""),
-                        "Project":       i.project_name,
-                        "Description":   i.description,
-                        "Address":       i.address,
-                        "Net (€)":       i.amount,
-                        "VAT %":         i.vat_pct,
-                        "VAT (€)":       i.vat_amount,
-                        "Gross (€)":     round(i.amount + i.vat_amount, 2),
-                        "Expenses Net":  i.expenses_net,
-                        "Expenses VAT":  i.expenses_vat,
-                        "Status":        i.status,
-                        "Paid Date":     i.paid_date,
-                        "Comment":       i.comment,
-                        "Format":        i.format,
-                        "File":          i.file_path,
+                        "Year":                 i.year,
+                        "Type":                 getattr(i, "type", "Invoice"),
+                        "Invoice ID":           i.invoice_number,
+                        "Invoice No":           f"{i.invoice_number}/{i.year}",
+                        "Related Invoice No":   getattr(i, "related_invoice_number", ""),
+                        "Date":                 i.date,
+                        "Client":               client_map.get(i.client_id, ""),
+                        "Project":              i.project_name,
+                        "Description":          i.description,
+                        "Address":              i.address,
+                        "Net (€)":              i.amount,
+                        "VAT %":                i.vat_pct,
+                        "VAT (€)":              i.vat_amount,
+                        "Gross (€)":            round(i.amount + i.vat_amount, 2),
+                        "Expenses Net":         i.expenses_net,
+                        "Expenses VAT":         i.expenses_vat,
+                        "Status":               i.status,
+                        "Paid Date":            i.paid_date,
+                        "Comment":              i.comment,
+                        "Format":               i.format,
+                        "File":                 i.file_path,
                     }
                     for i in rows
                 ]
@@ -291,15 +323,17 @@ with tab_upload:
         # AUTO cols J–U: formula-driven, do not edit (blue)
         USER_COLS = [
             # (header, fill, hint)
-            ("▶ Client Name",  GOLD,  "Select from dropdown"),
-            ("▶ Project Name", GOLD,  "Select from dropdown — filtered by client"),
-            ("invoice_number", GOLD,  "Required — sequential ID, e.g. 12"),
-            ("date",           GOLD,  "Required — enter as DD/MM/YYYY"),
-            ("amount",         GOLD,  "Required — net fee excluding VAT"),
-            ("status",         GOLD,  "outstanding / paid / partial"),
-            ("paid_date",      GREEN, "DD/MM/YYYY or leave blank"),
-            ("description",    GREEN, "Invoice description — leave blank to use project default"),
-            ("comment",        GREEN, "Internal note — not shown on invoice"),
+            ("▶ Client Name",          GOLD,  "Select from dropdown"),
+            ("▶ Project Name",         GOLD,  "Select from dropdown — filtered by client"),
+            ("invoice_number",         GOLD,  "Required — sequential ID, e.g. 12"),
+            ("date",                   GOLD,  "Required — enter as DD/MM/YYYY"),
+            ("amount",                 GOLD,  "Required — net fee excluding VAT (positive; negative for credit notes)"),
+            ("status",                 GOLD,  "outstanding / paid / partial"),
+            ("type",                   GOLD,  "Invoice or Credit Note"),
+            ("paid_date",              GREEN, "DD/MM/YYYY or leave blank"),
+            ("description",            GREEN, "Invoice description — leave blank to use project default"),
+            ("comment",                GREEN, "Internal note — not shown on invoice"),
+            ("related_invoice_number", GREEN, "Credit Notes only: original Invoice No, e.g. 12/2026"),
         ]
         AUTO_COLS = [
             # (header, hint)
@@ -366,24 +400,26 @@ with tab_upload:
                           if ex_client and a["client_id"] == ex_client.id), "")
         from datetime import date as _today
         ex_vals = {
-            "▶ Client Name":  ex_client.name if ex_client else "",
-            "▶ Project Name": ex_proj.name if ex_proj else "",
-            "invoice_number": "EXAMPLE-001",
-            "date":           "31/01/2025",
-            "amount":         10000.0,
-            "status":         "outstanding",
-            "paid_date":      "",
-            "description":    ex_proj.description if ex_proj else "",
-            "comment":        "",
-            "year":           2025,
-            "client_id":      ex_client.id if ex_client else "",
-            "project_id":     ex_proj.id if ex_proj else "",
-            "vat_pct":        ex_proj.vat_pct if ex_proj else 19.0,
-            "vat_amount":     1900.0,
-            "project_name":   ex_proj.name if ex_proj else "",
-            "template_used":  ex_proj.template if ex_proj else "template1_v4",
-            "address":        ex_addr,
-            "format":         "PDF", "expenses_net": 0, "expenses_vat": 0, "file_path": "",
+            "▶ Client Name":          ex_client.name if ex_client else "",
+            "▶ Project Name":         ex_proj.name if ex_proj else "",
+            "invoice_number":         "EXAMPLE-001",
+            "date":                   "31/01/2025",
+            "amount":                 10000.0,
+            "status":                 "outstanding",
+            "type":                   "Invoice",
+            "paid_date":              "",
+            "description":            ex_proj.description if ex_proj else "",
+            "comment":                "",
+            "related_invoice_number": "",
+            "year":                   2025,
+            "client_id":              ex_client.id if ex_client else "",
+            "project_id":             ex_proj.id if ex_proj else "",
+            "vat_pct":                ex_proj.vat_pct if ex_proj else 19.0,
+            "vat_amount":             1900.0,
+            "project_name":           ex_proj.name if ex_proj else "",
+            "template_used":          ex_proj.template if ex_proj else "template1_v4",
+            "address":                ex_addr,
+            "format":                 "PDF", "expenses_net": 0, "expenses_vat": 0, "file_path": "",
         }
         all_hdrs = [h for h, _, _ in USER_COLS] + [h for h, _ in AUTO_COLS]
         for ci, hdr in enumerate(all_hdrs, 1):
@@ -400,6 +436,13 @@ with tab_upload:
         DATA_START = 5  # first real data row
 
         # ---- Data validations ----
+        # USER_COLS layout (A-K, 11 cols):
+        # A=Client, B=Project, C=invoice_number, D=date, E=amount, F=status,
+        # G=type, H=paid_date, I=description, J=comment, K=related_invoice_number
+        # AUTO_COLS start at L=12:
+        # L=year, M=client_id, N=project_id, O=vat_pct, P=vat_amount,
+        # Q=project_name, R=template_used, S=address, T=format,
+        # U=expenses_net, V=expenses_vat, W=file_path
         n_clients = len(client_list)
         # Client dropdown (col A)
         client_dv = DataValidation(
@@ -431,9 +474,17 @@ with tab_upload:
         ws.add_data_validation(status_dv)
         status_dv.sqref = f"F{DATA_START}:F{DATA_START + NUM_DATA_ROWS - 1}"
 
+        # Type dropdown (col G)
+        type_dv = DataValidation(
+            type="list", formula1='"Invoice,Credit Note"',
+            allow_blank=True, showDropDown=False,
+        )
+        ws.add_data_validation(type_dv)
+        type_dv.sqref = f"G{DATA_START}:G{DATA_START + NUM_DATA_ROWS - 1}"
+
         # ---- Format date columns as DD/MM/YYYY ----
         date_col   = 4   # col D = date
-        pdate_col  = 7   # col G = paid_date
+        pdate_col  = 8   # col H = paid_date (shifted by 2 due to type col at G)
         for r in range(DATA_START, DATA_START + NUM_DATA_ROWS):
             ws.cell(r, date_col).number_format  = DATE_FMT
             ws.cell(r, pdate_col).number_format = DATE_FMT
@@ -444,35 +495,33 @@ with tab_upload:
         AR = "'Address Reference'"
 
         for row in range(DATA_START, DATA_START + NUM_DATA_ROWS):
-            # AUTO col formulas (starting at col J = N_USER+1 = 10)
-            # J=year, K=client_id, L=project_id, M=vat_pct, N=vat_amount,
-            # O=project_name, P=template_used, Q=address, R=format, S=expenses_net,
-            # T=expenses_vat, U=file_path
-            key_match = f'CONCATENATE(B{row},"|",K{row})'
+            # AUTO cols start at L=12 (N_USER+1=12)
+            # key_match uses B (project name) + M (client_id)
+            key_match = f'CONCATENATE(B{row},"|",M{row})'
             auto_vals = [
-                # J: year — YEAR() works natively on Excel date serial; fallback for text
+                # L: year — YEAR() works natively on Excel date serial; fallback for text
                 f'=IF(D{row}="","",IFERROR(YEAR(D{row}),IFERROR(YEAR(DATEVALUE(D{row})),"")))' ,
-                # K: client_id
+                # M: client_id
                 f'=IFERROR(INDEX({CR}!$A:$A,MATCH(A{row},{CR}!$B:$B,0)),"")',
-                # L: project_id
+                # N: project_id
                 f'=IFERROR(INDEX({PR}!$A:$A,MATCH({key_match},{PR}!$I:$I,0)),"")',
-                # M: vat_pct
+                # O: vat_pct
                 f'=IFERROR(INDEX({PR}!$E:$E,MATCH({key_match},{PR}!$I:$I,0)),"")',
-                # N: vat_amount
-                f'=IF(OR(E{row}="",M{row}=""),"",ROUND(E{row}*M{row}/100,2))',
-                # O: project_name
+                # P: vat_amount
+                f'=IF(OR(E{row}="",O{row}=""),"",ROUND(E{row}*O{row}/100,2))',
+                # Q: project_name
                 f'=IF(B{row}="","",B{row})',
-                # P: template_used
+                # R: template_used
                 f'=IFERROR(INDEX({PR}!$F:$F,MATCH({key_match},{PR}!$I:$I,0)),"")',
-                # Q: address
-                f'=IFERROR(INDEX({AR}!$C:$C,MATCH(K{row},{AR}!$A:$A,0)),"")',
-                # R: format
+                # S: address
+                f'=IFERROR(INDEX({AR}!$C:$C,MATCH(M{row},{AR}!$A:$A,0)),"")',
+                # T: format
                 "PDF",
-                # S: expenses_net
+                # U: expenses_net
                 0,
-                # T: expenses_vat
+                # V: expenses_vat
                 0,
-                # U: file_path
+                # W: file_path
                 "",
             ]
             for ci_offset, val in enumerate(auto_vals):
@@ -480,8 +529,8 @@ with tab_upload:
                 cell.fill = FILL_AUTO
                 cell.font = AUTO_FNT
 
-        # Column widths
-        user_widths = [28, 32, 16, 14, 12, 14, 14, 36, 28]
+        # Column widths — 11 user + 12 auto
+        user_widths = [28, 32, 16, 14, 12, 14, 14, 14, 36, 28, 22]
         auto_widths = [6,  10,  10,  7,  10,  26,  18,  40, 7, 8, 8, 8]
         for i, w in enumerate(user_widths + auto_widths, 1):
             ws.column_dimensions[get_column_letter(i)].width = w

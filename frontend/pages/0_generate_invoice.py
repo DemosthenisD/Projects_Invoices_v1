@@ -76,7 +76,7 @@ def _available_templates():
 # Selection mode
 # ------------------------------------------------------------------
 
-col_mode, col_comp = st.columns([3, 2])
+col_mode, col_comp, col_type = st.columns([3, 2, 2])
 selection_mode = col_mode.radio(
     "Start from:",
     ["Client → Project", "Project → Client"],
@@ -87,6 +87,25 @@ include_completed = col_comp.checkbox(
     value=False,
     help="Show Active, On Hold, and Completed projects (not just Active).",
 )
+doc_type = col_type.radio(
+    "Document type",
+    ["Invoice", "Credit Note"],
+    horizontal=True,
+    help="Credit Notes are stored with negative amounts and negate a previously issued invoice.",
+)
+
+if doc_type == "Credit Note":
+    st.info(
+        "**Credit Note mode** — enter the amount to be credited (positive). "
+        "It will be stored as a negative amount. Assign the same project as the original invoice."
+    )
+    related_invoice_number = st.text_input(
+        "Original Invoice No (optional)",
+        placeholder="e.g. 12/2026",
+        help="Reference to the invoice being credited. For record-keeping only.",
+    )
+else:
+    related_invoice_number = ""
 
 all_clients = _clients()
 if not all_clients:
@@ -294,8 +313,14 @@ if generate_clicked:
         st.error("Amount must be greater than zero.")
         st.stop()
 
-    total_net   = round(amount + expenses_net, 2)
-    total_vat   = round(vat_amount + expenses_vat, 2)
+    # Credit notes: flip sign so stored amounts are negative
+    signed_amount     = -round(amount, 2)     if doc_type == "Credit Note" else round(amount, 2)
+    signed_vat        = -round(vat_amount, 2) if doc_type == "Credit Note" else round(vat_amount, 2)
+    signed_exp_net    = -round(expenses_net, 2)  if doc_type == "Credit Note" else round(expenses_net, 2)
+    signed_exp_vat    = -round(expenses_vat, 2)  if doc_type == "Credit Note" else round(expenses_vat, 2)
+
+    total_net     = round(signed_amount + signed_exp_net, 2)
+    total_vat     = round(signed_vat + signed_exp_vat, 2)
     invoice_total = round(total_net + total_vat, 2)
 
     # Template placeholder mapping (all templates use {{placeholderN}} keys):
@@ -311,10 +336,10 @@ if generate_clicked:
         "placeholder5":    invoice_ref,
         "placeholder6":    str(year),
         "placeholder7":    description or selected_project_name,
-        "placeholder8":    f"{amount:,.2f}",
-        "placeholder9":    f"{vat_amount:,.2f}",
-        "placeholder8_Exp": f"{expenses_net:,.2f}",
-        "placeholder9_Exp": f"{expenses_vat:,.2f}",
+        "placeholder8":    f"{signed_amount:,.2f}",
+        "placeholder9":    f"{signed_vat:,.2f}",
+        "placeholder8_Exp": f"{signed_exp_net:,.2f}",
+        "placeholder9_Exp": f"{signed_exp_vat:,.2f}",
         "placeholder8_Tot": f"{total_net:,.2f}",
         "placeholder9_Tot": f"{total_vat:,.2f}",
         "placeholder10":   f"{invoice_total:,.2f}",
@@ -345,8 +370,8 @@ if generate_clicked:
         invoice_number=invoice_number,
         year=year,
         date=invoice_date.isoformat(),
-        amount=amount,
-        vat_amount=vat_amount,
+        amount=signed_amount,
+        vat_amount=signed_vat,
         vat_pct=vat_pct,
         project_id=project_id,
         address=address,
@@ -355,10 +380,12 @@ if generate_clicked:
         template_used=template_name,
         fmt=fmt,
         file_path=output_path,
-        expenses_net=expenses_net,
-        expenses_vat=expenses_vat,
+        expenses_net=signed_exp_net,
+        expenses_vat=signed_exp_vat,
         allocations=st.session_state.get("_inv_allocations") or None,
         comment=comment,
+        doc_type=doc_type,
+        related_invoice_number=related_invoice_number,
     )
     st.session_state.pop("_inv_allocations", None)
 
@@ -371,7 +398,7 @@ if generate_clicked:
     file_ext = "pdf" if fmt == "PDF" else "docx"
     download_name = f"{year}_{invoice_number}_{client.client_code or client.name}_Invoice.{file_ext}"
 
-    st.success(f"Invoice generated and saved. Invoice No {invoice_ref} (ID: {invoice_number}) — {client.name}")
+    st.success(f"{doc_type} generated and saved. Invoice No {invoice_ref} (ID: {invoice_number}) — {client.name}")
     st.download_button(
         label=f"Download {fmt}",
         data=file_bytes,

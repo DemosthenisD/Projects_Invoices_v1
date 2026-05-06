@@ -297,8 +297,14 @@ def init_db() -> None:
             except Exception:
                 pass
 
-        # --- Migration: invoices.status, paid_date, comment columns ---
-        for col, defval in [("status", "'outstanding'"), ("paid_date", "''"), ("comment", "''")]:
+        # --- Migration: invoices.status, paid_date, comment, type, related_invoice_number columns ---
+        for col, defval in [
+            ("status", "'outstanding'"),
+            ("paid_date", "''"),
+            ("comment", "''"),
+            ("type", "'Invoice'"),
+            ("related_invoice_number", "''"),
+        ]:
             try:
                 conn.execute(f"ALTER TABLE invoices ADD COLUMN {col} TEXT NOT NULL DEFAULT {defval}")
             except Exception:
@@ -584,7 +590,8 @@ def get_invoices(
     query = (
         "SELECT id, client_id, project_id, invoice_number, year, date, amount, "
         "vat_amount, vat_pct, address, project_name, description, template_used, format, "
-        "file_path, expenses_net, expenses_vat, status, paid_date, comment, created_at FROM invoices"
+        "file_path, expenses_net, expenses_vat, status, paid_date, comment, "
+        "type, related_invoice_number, created_at FROM invoices"
     )
     params: list = []
     filters = []
@@ -630,6 +637,8 @@ def add_invoice(
     expenses_vat: float = 0.0,
     allocations: list[dict] | None = None,
     comment: str = "",
+    doc_type: str = "Invoice",
+    related_invoice_number: str = "",
 ) -> int:
     """Insert invoice and write allocation rows.
 
@@ -641,11 +650,11 @@ def add_invoice(
             "INSERT INTO invoices "
             "(client_id, project_id, invoice_number, year, date, amount, vat_amount, "
             "vat_pct, address, project_name, description, template_used, format, file_path, "
-            "expenses_net, expenses_vat, comment) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "expenses_net, expenses_vat, comment, type, related_invoice_number) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (client_id, project_id or None, invoice_number, year, date, amount,
              vat_amount, vat_pct, address, project_name, description, template_used,
-             fmt, file_path, expenses_net, expenses_vat, comment)
+             fmt, file_path, expenses_net, expenses_vat, comment, doc_type, related_invoice_number)
         )
         invoice_id = cur.lastrowid
 
@@ -752,8 +761,9 @@ def bulk_import_invoices(records: list[dict]) -> dict:
                     "INSERT INTO invoices "
                     "(client_id, project_id, invoice_number, year, date, amount, vat_amount, "
                     "vat_pct, address, project_name, description, template_used, format, "
-                    "file_path, expenses_net, expenses_vat, status, paid_date, comment) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "file_path, expenses_net, expenses_vat, status, paid_date, comment, "
+                    "type, related_invoice_number) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         int(float(rec.get("client_id", 0) or 0)),
                         int(float(rec.get("project_id", 0) or 0)) or None,
@@ -773,6 +783,8 @@ def bulk_import_invoices(records: list[dict]) -> dict:
                         str(rec.get("status", "outstanding") or "outstanding"),
                         _parse_date_str(rec.get("paid_date", "")),
                         str(rec.get("comment", "") or ""),
+                        str(rec.get("type", "Invoice") or "Invoice"),
+                        str(rec.get("related_invoice_number", "") or ""),
                     )
                 )
                 inserted += 1
