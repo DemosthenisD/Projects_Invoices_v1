@@ -79,6 +79,32 @@ def _derive(row: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
+def _export_billing_basis_excel(rows: list, year: int) -> bytes:
+    import io
+    records = []
+    for b in rows:
+        derived = _derive({
+            "billed": b.billed, "capped_paid_prebill": b.capped_paid_prebill,
+            "capped_unpaid_prebill": b.capped_unpaid_prebill, "charged_off": b.charged_off,
+            "paid": b.paid, "unbilled": b.unbilled, "hourly_rate": b.hourly_rate,
+        })
+        records.append({
+            "Year": year, "Emp #": b.emp_nbr, "Source": b.source,
+            "Billed": b.billed, "Capped Paid Prebill": b.capped_paid_prebill,
+            "Capped Unpaid Prebill": b.capped_unpaid_prebill,
+            "Charged Off": b.charged_off, "Paid": b.paid, "Unbilled": b.unbilled,
+            "Hourly Rate": b.hourly_rate,
+            "Grand Total": derived["Grand Total €"],
+            "Basis for Bonus": derived["Basis for Bonus €"],
+            "Equiv Hrs": derived["Equiv Hrs"],
+            "Productivity Bonus %": derived["Productivity Bonus"],
+        })
+    buf = io.BytesIO()
+    pd.DataFrame(records).to_excel(buf, index=False, sheet_name=f"Billing Basis {year}")
+    buf.seek(0)
+    return buf.read()
+
+
 tab_auto, tab_manual, tab_saved = st.tabs(["Auto (from Time Tracking)", "Manual Entry", "Saved Basis"])
 
 # ── Auto tab ────────────────────────────────────────────────────────────────
@@ -314,29 +340,3 @@ with tab_saved:
             file_name=f"billing_basis_{year}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-
-
-def _export_billing_basis_excel(rows: list, year: int) -> bytes:
-    import io
-    records = []
-    for b in rows:
-        derived = _derive({
-            "billed": b.billed, "capped_paid_prebill": b.capped_paid_prebill,
-            "capped_unpaid_prebill": b.capped_unpaid_prebill, "charged_off": b.charged_off,
-            "paid": b.paid, "unbilled": b.unbilled, "hourly_rate": b.hourly_rate,
-        })
-        records.append({
-            "Year": year, "Emp #": b.emp_nbr, "Source": b.source,
-            "Billed": b.billed, "Capped Paid Prebill": b.capped_paid_prebill,
-            "Capped Unpaid Prebill": b.capped_unpaid_prebill,
-            "Charged Off": b.charged_off, "Paid": b.paid, "Unbilled": b.unbilled,
-            "Hourly Rate": b.hourly_rate,
-            "Grand Total": derived["Grand Total €"],
-            "Basis for Bonus": derived["Basis for Bonus €"],
-            "Equiv Hrs": derived["Equiv Hrs"],
-            "Productivity Bonus %": derived["Productivity Bonus"],
-        })
-    buf = io.BytesIO()
-    pd.DataFrame(records).to_excel(buf, index=False, sheet_name=f"Billing Basis {year}")
-    buf.seek(0)
-    return buf.read()

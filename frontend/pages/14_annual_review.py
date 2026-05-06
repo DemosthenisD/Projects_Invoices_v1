@@ -67,7 +67,7 @@ billing     = get_billing_basis(emp_nbr, int(review_year))
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Helper: compute bonus basis from a BillingBasis row
+# Helpers — defined before expanders/buttons that call them
 # ---------------------------------------------------------------------------
 def _productivity_bonus(bb) -> tuple[float, float, float]:
     """Returns (equiv_hrs, prod_bonus_pct, basis_for_bonus) from a BillingBasis object."""
@@ -80,6 +80,54 @@ def _productivity_bonus(bb) -> tuple[float, float, float]:
     return round(equiv_hrs, 1), round(prod_pct, 6), round(basis, 2)
 
 
+def _build_review_excel(
+    name, emp_nbr, year, assessor, assess_date,
+    profile, salary_rec, billing, scores, prod_pct, equiv_hrs, basis
+) -> bytes:
+    import io as _io
+    buf = _io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        exam_raise_v  = (salary_rec.exams_passed * salary_rec.exam_raise_per_exam) if salary_rec else 0
+        total_raise_v = exam_raise_v + (salary_rec.other_raise if salary_rec else 0)
+        updated_sal_v = (salary_rec.starting_salary if salary_rec else 0) + total_raise_v
+        obj_pct_v     = salary_rec.objective_bonus_pct if salary_rec else 0
+        total_bonus_v = prod_pct + obj_pct_v
+        bonus_v       = updated_sal_v * total_bonus_v
+        summary_data = {
+            "Field": [
+                "Consultant", "Emp #", "Year", "Assessor", "Date of Assessment",
+                "Milliman Status", "External Level", "Current Role",
+                "", "Starting Salary €", "Exams Passed", "Raise per Exam €",
+                "Exam Raise €", "Other Raise €", "Total Raise €", "Updated Salary €", "Effective Date",
+                "", "Billing Basis €", "Equiv Hours", "Hourly Rate €/hr",
+                "Productivity Bonus %", "Objective Bonus %", "Total Bonus %", "Bonus Amount €", "Proposed Rate €/hr",
+            ],
+            "Value": [
+                name, emp_nbr, year, assessor, assess_date,
+                profile.milliman_status if profile else "", profile.external_level if profile else "",
+                profile.current_role if profile else "", "",
+                salary_rec.starting_salary if salary_rec else 0,
+                salary_rec.exams_passed if salary_rec else 0,
+                salary_rec.exam_raise_per_exam if salary_rec else 1000,
+                exam_raise_v, total_raise_v - exam_raise_v, total_raise_v, updated_sal_v,
+                salary_rec.effective_date if salary_rec else "", "",
+                basis, equiv_hrs, billing.hourly_rate if billing else 0,
+                f"{prod_pct:.2%}", f"{obj_pct_v:.2%}",
+                f"{total_bonus_v:.2%}", round(bonus_v, 2),
+                salary_rec.proposed_rate if salary_rec else 0,
+            ],
+        }
+        pd.DataFrame(summary_data).to_excel(writer, index=False, sheet_name="Summary")
+        score_rows = []
+        for group, items in SCORE_GROUPS.items():
+            for item in items:
+                score_rows.append({"Group": group, "Item": item,
+                                   f"{year} Score": scores.get(group, {}).get(item, 0.0)})
+        pd.DataFrame(score_rows).to_excel(writer, index=False, sheet_name="Performance Scores")
+    buf.seek(0)
+    return buf.read()
+
+
 # ---------------------------------------------------------------------------
 # Section 1 — Compensation & Bonus
 # ---------------------------------------------------------------------------
@@ -88,10 +136,17 @@ with st.expander("1 — Compensation & Bonus", expanded=True):
     equiv_hrs, prod_pct, basis = _productivity_bonus(billing)
 
     if billing is None:
+        _hint = ""
+        if salary_rec and salary_rec.proposed_rate:
+            _hint = (
+                f" Note: a **Proposed Billing Rate of €{salary_rec.proposed_rate:,.0f}/hr** exists "
+                "in Salary History — that is a different field. "
+                "Page 12 needs the actual annual billing amounts (Billed, Charged Off, etc.) "
+                "to compute Equivalent Hours and Productivity Bonus."
+            )
         st.warning(
-            f"No billing basis found for {selected_name} / {review_year}. "
-            "Go to **Page 12 — Billing Basis** to enter or import billing data first. "
-            "Productivity bonus will be 0% until billing basis is saved."
+            f"No billing basis found for **{selected_name} / {review_year}**. "
+            f"Go to **Page 12 — Billing Basis** to enter or auto-import billing amounts first.{_hint}"
         )
     else:
         col_a, col_b, col_c = st.columns(3)
@@ -355,65 +410,3 @@ with st.expander("3 — Summary & Export", expanded=False):
             file_name=f"review_{selected_name.replace(' ', '_')}_{review_year}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-
-
-# ---------------------------------------------------------------------------
-# Excel export builder
-# ---------------------------------------------------------------------------
-def _build_review_excel(
-    name, emp_nbr, year, assessor, assess_date,
-    profile, salary_rec, billing, scores, prod_pct, equiv_hrs, basis
-) -> bytes:
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        # Sheet 1 — Summary
-        exam_raise_v  = (salary_rec.exams_passed * salary_rec.exam_raise_per_exam) if salary_rec else 0
-        total_raise_v = exam_raise_v + (salary_rec.other_raise if salary_rec else 0)
-        updated_sal_v = (salary_rec.starting_salary if salary_rec else 0) + total_raise_v
-        obj_pct_v     = salary_rec.objective_bonus_pct if salary_rec else 0
-        total_bonus_v = prod_pct + obj_pct_v
-        bonus_v       = updated_sal_v * total_bonus_v
-
-        summary_data = {
-            "Field": [
-                "Consultant", "Emp #", "Year", "Assessor", "Date of Assessment",
-                "Milliman Status", "External Level", "Current Role",
-                "", "Starting Salary €", "Exams Passed", "Raise per Exam €",
-                "Exam Raise €", "Other Raise €", "Total Raise €", "Updated Salary €",
-                "Effective Date",
-                "", "Billing Basis €", "Equiv Hours", "Hourly Rate €/hr",
-                "Productivity Bonus %", "Objective Bonus %",
-                "Total Bonus %", "Bonus Amount €", "Proposed Rate €/hr",
-            ],
-            "Value": [
-                name, emp_nbr, year, assessor, assess_date,
-                profile.milliman_status if profile else "", profile.external_level if profile else "",
-                profile.current_role if profile else "",
-                "",
-                salary_rec.starting_salary if salary_rec else 0,
-                salary_rec.exams_passed if salary_rec else 0,
-                salary_rec.exam_raise_per_exam if salary_rec else 1000,
-                exam_raise_v, total_raise_v - exam_raise_v, total_raise_v, updated_sal_v,
-                salary_rec.effective_date if salary_rec else "",
-                "",
-                basis, equiv_hrs, billing.hourly_rate if billing else 0,
-                f"{prod_pct:.2%}", f"{obj_pct_v:.2%}",
-                f"{total_bonus_v:.2%}", round(bonus_v, 2),
-                salary_rec.proposed_rate if salary_rec else 0,
-            ],
-        }
-        pd.DataFrame(summary_data).to_excel(writer, index=False, sheet_name="Summary")
-
-        # Sheet 2 — Performance Scores
-        score_rows = []
-        for group, items in SCORE_GROUPS.items():
-            for item in items:
-                score_rows.append({
-                    "Group": group,
-                    "Item":  item,
-                    f"{year} Score": scores.get(group, {}).get(item, 0.0),
-                })
-        pd.DataFrame(score_rows).to_excel(writer, index=False, sheet_name="Performance Scores")
-
-    buf.seek(0)
-    return buf.read()

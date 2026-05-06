@@ -66,6 +66,14 @@ if not emp_nbr:
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
+def _export_salary_history_excel(name: str, rows: list[dict]) -> bytes:
+    import io
+    buf = io.BytesIO()
+    pd.DataFrame(rows).to_excel(buf, index=False, sheet_name="Salary History")
+    buf.seek(0)
+    return buf.read()
+
+
 tab_profile, tab_salary, tab_rates = st.tabs(["Profile", "Salary History", "Rates by Year"])
 
 # ── Profile tab ──────────────────────────────────────────────────────────────
@@ -212,10 +220,9 @@ with tab_salary:
         )
 
         # Export
-        buf = _export_salary_history_excel(selected_name, rows)
         st.download_button(
             "Export Salary History to Excel",
-            data=buf,
+            data=_export_salary_history_excel(selected_name, rows),
             file_name=f"salary_history_{selected_name.replace(' ', '_')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
@@ -337,11 +344,3 @@ with tab_rates:
                 "Source":                bb.source if bb else "—",
             })
         st.dataframe(pd.DataFrame(rate_rows), use_container_width=True, hide_index=True)
-
-
-def _export_salary_history_excel(name: str, rows: list[dict]) -> bytes:
-    import io
-    buf = io.BytesIO()
-    pd.DataFrame(rows).to_excel(buf, index=False, sheet_name="Salary History")
-    buf.seek(0)
-    return buf.read()

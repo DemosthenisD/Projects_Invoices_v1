@@ -596,6 +596,7 @@ def delete_project(project_id: int) -> None:
 def get_invoices(
     client_id: int | None = None,
     year: int | None = None,
+    project_id: int | None = None,
     project_name: str | None = None,
     search: str | None = None,
     status: str | None = None,
@@ -618,6 +619,9 @@ def get_invoices(
     if year is not None:
         filters.append("i.year = ?")
         params.append(year)
+    if project_id is not None:
+        filters.append("i.project_id = ?")
+        params.append(project_id)
     if project_name:
         filters.append("i.project_name = ?")
         params.append(project_name)
