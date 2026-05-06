@@ -173,7 +173,8 @@ else:
     default_vat_pct = 0.0
     default_template = "template1_v3"
 
-description = st.text_area("Description", value=default_description, height=80)
+description = st.text_area("Description (shown on invoice)", value=default_description, height=80)
+comment = st.text_input("Internal comment (not shown on invoice)", placeholder="e.g. PO reference, notes for accounting…")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -195,7 +196,8 @@ with col2:
 col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
 
 with col1:
-    invoice_date = st.date_input("Invoice Date", value=date_type.today())
+    invoice_date = st.date_input("Invoice Date", value=date_type.today(),
+                                  help="Date will appear on the invoice as DD/MM/YYYY.")
     year = invoice_date.year
 
 with col2:
@@ -356,6 +358,7 @@ if generate_clicked:
         expenses_net=expenses_net,
         expenses_vat=expenses_vat,
         allocations=st.session_state.get("_inv_allocations") or None,
+        comment=comment,
     )
     st.session_state.pop("_inv_allocations", None)
 

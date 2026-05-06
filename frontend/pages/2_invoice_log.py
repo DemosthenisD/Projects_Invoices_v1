@@ -137,12 +137,20 @@ with tab_log:
             ):
                 col.markdown(f"**{label}**")
 
+            def _fmt_date(d: str) -> str:
+                """Format YYYY-MM-DD (or datetime string) to DD/MM/YYYY for display."""
+                try:
+                    from datetime import datetime
+                    return datetime.strptime(str(d)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+                except Exception:
+                    return str(d)
+
             for inv in filtered:
                 (col_date, col_id, col_ref, col_client, col_proj,
                  col_net, col_vat, col_st, col_dl, col_act) = st.columns(_cols)
 
                 inv_ref = f"{inv.invoice_number}/{inv.year}"
-                col_date.write(inv.date)
+                col_date.write(_fmt_date(inv.date))
                 col_id.write(f"**{inv.invoice_number}**")
                 col_ref.write(f"**{inv_ref}**")
                 col_client.write(client_map.get(inv.client_id, "—"))
@@ -178,6 +186,9 @@ with tab_log:
                         st.cache_data.clear()
                         st.rerun()
 
+                if inv.comment:
+                    st.caption(f"💬 {inv.comment}")
+
             st.divider()
 
             # ---- Export to Excel ----
@@ -200,6 +211,7 @@ with tab_log:
                         "Expenses VAT":  i.expenses_vat,
                         "Status":        i.status,
                         "Paid Date":     i.paid_date,
+                        "Comment":       i.comment,
                         "Format":        i.format,
                         "File":          i.file_path,
                     }
@@ -229,7 +241,6 @@ with tab_upload:
 
     # ---- Build template ----
     def _build_template() -> bytes:
-        import re
         from openpyxl import Workbook
         from openpyxl.styles import PatternFill, Font, Alignment
         from openpyxl.utils import get_column_letter
@@ -251,10 +262,9 @@ with tab_upload:
                     "vat_pct": p.vat_pct, "template_used": p.template,
                     "description": p.description or "",
                     "project_status": p.status,
-                    "_key": f"{p.name}|{c.id}",  # lookup key (col I)
+                    "_key": f"{p.name}|{c.id}",
                 })
 
-        # Build address rows (first address per client used for auto-fill)
         addr_rows = []
         for c in client_list:
             for a in db.get_addresses(c.id):
@@ -262,72 +272,71 @@ with tab_upload:
                                   "address": a.address})
 
         # ---- Styles ----
-        GOLD  = PatternFill("solid", fgColor="FFD966")  # user must fill
-        GREEN = PatternFill("solid", fgColor="E2EFDA")  # user optional
-        FILL_AUTO = PatternFill("solid", fgColor="DDEEFF")  # auto-computed
-        FILL_EX   = PatternFill("solid", fgColor="F2F2F2")  # example row
-        DARK  = PatternFill("solid", fgColor="404040")
-        BOLD_W   = Font(bold=True, color="FFFFFF")
-        BOLD_BLK = Font(bold=True)
-        HINT     = Font(italic=True, color="888888", size=8)
-        AUTO_FNT = Font(color="0070C0", italic=True, size=9)
+        GOLD      = PatternFill("solid", fgColor="FFD966")   # required user fill
+        GREEN     = PatternFill("solid", fgColor="E2EFDA")   # optional user fill
+        FILL_AUTO = PatternFill("solid", fgColor="DDEEFF")   # formula-driven
+        FILL_EX   = PatternFill("solid", fgColor="F2F2F2")   # example row
+        DARK      = PatternFill("solid", fgColor="404040")
+        BOLD_W    = Font(bold=True, color="FFFFFF")
+        BOLD_BLK  = Font(bold=True)
+        HINT      = Font(italic=True, color="888888", size=8)
+        AUTO_FNT  = Font(color="0070C0", italic=True, size=9)
+        DATE_FMT  = "DD/MM/YYYY"
 
-        NUM_DATA_ROWS = 100   # rows pre-filled with formulas
-        DATA_START    = 4     # row index where data begins (1=hdr, 2=hint, 3=ex)
+        NUM_DATA_ROWS = 100
+        DATA_START    = 4   # bumped to 5 after legend row
 
         # ---- Column layout ----
-        # USER columns (A–G): orange/green = fill these
-        # AUTO columns (H–T): blue italic = formula-driven, do not edit
+        # USER cols A–I: fill these (gold=required, green=optional)
+        # AUTO cols J–U: formula-driven, do not edit (blue)
         USER_COLS = [
             # (header, fill, hint)
-            ("▶ Client Name",    GOLD,  "Select from dropdown — drives all other fields"),
-            ("▶ Project Name",   GOLD,  "Select from dropdown — filtered by client above"),
-            ("invoice_number",   GOLD,  "Required — unique per year, e.g. 2025-001"),
-            ("date",             GOLD,  "Required — YYYY-MM-DD"),
-            ("amount",           GOLD,  "Required — net fee excluding VAT"),
-            ("status",           GOLD,  "outstanding / paid / partial"),
-            ("paid_date",        GREEN, "YYYY-MM-DD or leave blank"),
+            ("▶ Client Name",  GOLD,  "Select from dropdown"),
+            ("▶ Project Name", GOLD,  "Select from dropdown — filtered by client"),
+            ("invoice_number", GOLD,  "Required — sequential ID, e.g. 12"),
+            ("date",           GOLD,  "Required — enter as DD/MM/YYYY"),
+            ("amount",         GOLD,  "Required — net fee excluding VAT"),
+            ("status",         GOLD,  "outstanding / paid / partial"),
+            ("paid_date",      GREEN, "DD/MM/YYYY or leave blank"),
+            ("description",    GREEN, "Invoice description — leave blank to use project default"),
+            ("comment",        GREEN, "Internal note — not shown on invoice"),
         ]
         AUTO_COLS = [
             # (header, hint)
-            ("year",          "=YEAR(date)"),
-            ("client_id",     "=MATCH(Client Name → Client Reference)"),
-            ("project_id",    "=MATCH(Project Name + client_id → Project Reference)"),
-            ("vat_pct",       "=from Project Reference"),
-            ("vat_amount",    "=amount × vat_pct ÷ 100"),
-            ("project_name",  "=Project Name"),
-            ("description",   "=from Project Reference"),
-            ("template_used", "=from Project Reference"),
-            ("address",       "=first address for client"),
-            ("format",        '="PDF"'),
-            ("expenses_net",  "=0"),
-            ("expenses_vat",  "=0"),
-            ("file_path",     '=""'),
+            ("year",          "auto: year from date"),
+            ("client_id",     "auto: from Client Reference"),
+            ("project_id",    "auto: from Project Reference"),
+            ("vat_pct",       "auto: from Project Reference"),
+            ("vat_amount",    "auto: amount x vat_pct / 100"),
+            ("project_name",  "auto: from Project Name"),
+            ("template_used", "auto: from Project Reference"),
+            ("address",       "auto: first address for client"),
+            ("format",        "auto: PDF"),
+            ("expenses_net",  "auto: 0"),
+            ("expenses_vat",  "auto: 0"),
+            ("file_path",     "auto: blank"),
         ]
-        TOTAL_COLS = len(USER_COLS) + len(AUTO_COLS)  # 20
+        N_USER     = len(USER_COLS)   # 9
+        N_AUTO     = len(AUTO_COLS)   # 12
+        TOTAL_COLS = N_USER + N_AUTO  # 21
 
         wb = Workbook()
 
-        # ==== Hidden helper sheet: one column per client = their project names ====
-        # Named ranges Proj_<client_id> point here → used by cascading dropdown
+        # ==== Hidden helper: one column per client listing their project names ====
         wh = wb.create_sheet("_ProjectsHelper")
         wh.sheet_state = "hidden"
         for ci, c in enumerate(client_list, 1):
-            wh.cell(1, ci, c.name)  # header (not used in named range)
+            wh.cell(1, ci, c.name)
             projs_for_client = client_projects.get(c.id, [])
             for ri, p in enumerate(projs_for_client, 2):
                 wh.cell(ri, ci, p.name)
-            # Create named range Proj_<id> → column of project names
             end_row = max(2, len(projs_for_client) + 1)
             col_ltr = get_column_letter(ci)
             ref = f"'_ProjectsHelper'!${col_ltr}$2:${col_ltr}${end_row}"
             rn = f"Proj_{c.id}"
             wb.defined_names[rn] = DefinedName(name=rn, attr_text=ref)
-        # Fallback named range for when no client is selected
         wb.defined_names["Proj_none"] = DefinedName(
-            name="Proj_none",
-            attr_text=f"'_ProjectsHelper'!$A$1:$A$1"
-        )
+            name="Proj_none", attr_text="'_ProjectsHelper'!$A$1:$A$1")
 
         # ==== Sheet 1 — Invoices ====
         ws = wb.active
@@ -339,65 +348,60 @@ with tab_upload:
             c = ws.cell(1, ci, hdr)
             c.fill = fill; c.font = BOLD_BLK
             c.alignment = Alignment(horizontal="center", wrap_text=True)
-        for ci, (hdr, _) in enumerate(AUTO_COLS, len(USER_COLS) + 1):
+        for ci, (hdr, _) in enumerate(AUTO_COLS, N_USER + 1):
             c = ws.cell(1, ci, hdr)
             c.fill = FILL_AUTO; c.font = Font(bold=True, color="0070C0")
             c.alignment = Alignment(horizontal="center", wrap_text=True)
 
         # Row 2 — hints
         for ci, (_, _, hint) in enumerate(USER_COLS, 1):
-            c = ws.cell(2, ci, hint); c.font = HINT
-        for ci, (_, hint) in enumerate(AUTO_COLS, len(USER_COLS) + 1):
-            c = ws.cell(2, ci, hint); c.font = HINT
+            ws.cell(2, ci, hint).font = HINT
+        for ci, (_, hint) in enumerate(AUTO_COLS, N_USER + 1):
+            ws.cell(2, ci, hint).font = HINT
 
-        # Row 3 — example row (pre-filled, skipped on import)
+        # Row 3 — example (skipped on import)
         ex_client = client_list[0] if client_list else None
         ex_proj   = (client_projects.get(ex_client.id) or [None])[0] if ex_client else None
         ex_addr   = next((a["address"] for a in addr_rows
                           if ex_client and a["client_id"] == ex_client.id), "")
+        from datetime import date as _today
         ex_vals = {
-            "▶ Client Name": ex_client.name if ex_client else "",
+            "▶ Client Name":  ex_client.name if ex_client else "",
             "▶ Project Name": ex_proj.name if ex_proj else "",
             "invoice_number": "EXAMPLE-001",
-            "date": "2025-01-31",
-            "amount": 10000.0,
-            "status": "outstanding",
-            "paid_date": "",
-            # auto cols
-            "year": 2025,
-            "client_id": ex_client.id if ex_client else "",
-            "project_id": ex_proj.id if ex_proj else "",
-            "vat_pct": ex_proj.vat_pct if ex_proj else 19.0,
-            "vat_amount": 1900.0,
-            "project_name": ex_proj.name if ex_proj else "",
-            "description": ex_proj.description if ex_proj else "",
-            "template_used": ex_proj.template if ex_proj else "template1_v3",
-            "address": ex_addr,
-            "format": "PDF", "expenses_net": 0, "expenses_vat": 0, "file_path": "",
+            "date":           "31/01/2025",
+            "amount":         10000.0,
+            "status":         "outstanding",
+            "paid_date":      "",
+            "description":    ex_proj.description if ex_proj else "",
+            "comment":        "",
+            "year":           2025,
+            "client_id":      ex_client.id if ex_client else "",
+            "project_id":     ex_proj.id if ex_proj else "",
+            "vat_pct":        ex_proj.vat_pct if ex_proj else 19.0,
+            "vat_amount":     1900.0,
+            "project_name":   ex_proj.name if ex_proj else "",
+            "template_used":  ex_proj.template if ex_proj else "template1_v4",
+            "address":        ex_addr,
+            "format":         "PDF", "expenses_net": 0, "expenses_vat": 0, "file_path": "",
         }
         all_hdrs = [h for h, _, _ in USER_COLS] + [h for h, _ in AUTO_COLS]
         for ci, hdr in enumerate(all_hdrs, 1):
             c = ws.cell(3, ci, ex_vals.get(hdr, ""))
             c.fill = FILL_EX
 
-        # Legend row
-        leg = ws.cell(DATA_START - 1 + 1, 1,   # reuse row 4 slot (DATA_START=4)
-            "🟡 Fill these columns   🔵 Auto-calculated — do not edit   "
-            "Row 3 is an example and is skipped on import.")
-        # Actually DATA_START=4 means row 4 is the first data row; insert legend at row 4?
-        # No — shift: rows 1=hdr, 2=hint, 3=example, 4=legend, 5+ = data
-        # Let's put the legend at row 4 and data starts at 5
+        # Row 4 — legend (spans all cols, data starts row 5)
         ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=TOTAL_COLS)
         ws.cell(4, 1,
-            "🟡 Fill columns A–G   🔵 Columns H–T are auto-calculated — do not edit   "
-            "Row 3 is a pre-filled example and is skipped on import."
+            "🟡 Required   🟢 Optional   🔵 Auto-calculated — do not edit   "
+            "Dates: DD/MM/YYYY format   Row 3 is an example and is skipped on import."
         ).font = Font(italic=True, size=9, color="444444")
 
-        DATA_START = 5  # actual first data row
+        DATA_START = 5  # first real data row
 
-        # ---- Data validation ----
-        # Client dropdown (column A) — list from Client Reference
+        # ---- Data validations ----
         n_clients = len(client_list)
+        # Client dropdown (col A)
         client_dv = DataValidation(
             type="list",
             formula1=f"='Client Reference'!$B$2:$B${n_clients + 1}",
@@ -406,21 +410,20 @@ with tab_upload:
         ws.add_data_validation(client_dv)
         client_dv.sqref = f"A{DATA_START}:A{DATA_START + NUM_DATA_ROWS - 1}"
 
-        # Project dropdown (column B) — cascading via INDIRECT + named range Proj_<client_id>
+        # Project dropdown (col B) — CONCATENATE used instead of & to avoid XML escaping issues
         proj_dv = DataValidation(
             type="list",
             formula1=(
-                f'=INDIRECT("Proj_"&IFERROR('
-                f"INDEX('Client Reference'!$A:$A,"
-                f"MATCH(A{DATA_START},'Client Reference'!$B:$B,0))"
-                f',"none"))'
+                "=INDIRECT(CONCATENATE(\"Proj_\","
+                f"IFERROR(INDEX('Client Reference'!$A:$A,"
+                f"MATCH(A{DATA_START},'Client Reference'!$B:$B,0)),\"none\")))"
             ),
             allow_blank=True, showDropDown=False,
         )
         ws.add_data_validation(proj_dv)
         proj_dv.sqref = f"B{DATA_START}:B{DATA_START + NUM_DATA_ROWS - 1}"
 
-        # Status dropdown (column F)
+        # Status dropdown (col F)
         status_dv = DataValidation(
             type="list", formula1='"outstanding,paid,partial"',
             allow_blank=True, showDropDown=False,
@@ -428,70 +431,58 @@ with tab_upload:
         ws.add_data_validation(status_dv)
         status_dv.sqref = f"F{DATA_START}:F{DATA_START + NUM_DATA_ROWS - 1}"
 
-        # ---- Pre-fill formula rows ----
-        for row in range(DATA_START, DATA_START + NUM_DATA_ROWS):
-            A, B, E, H, I, J, K = (
-                f"A{row}", f"B{row}", f"E{row}",
-                f"H{row}", f"I{row}", f"J{row}", f"K{row}",
-            )
-            PR = "'Project Reference'"
-            CR = "'Client Reference'"
-            AR = "'Address Reference'"
+        # ---- Format date columns as DD/MM/YYYY ----
+        date_col   = 4   # col D = date
+        pdate_col  = 7   # col G = paid_date
+        for r in range(DATA_START, DATA_START + NUM_DATA_ROWS):
+            ws.cell(r, date_col).number_format  = DATE_FMT
+            ws.cell(r, pdate_col).number_format = DATE_FMT
 
-            formulas = [
-                # H: year
-                f'=IF({A}="","",IFERROR(YEAR(DATEVALUE({A[0]}4)),IFERROR(INT(LEFT(D{row},4)),"")))',
-                # H: year (correct reference)
-                None,  # placeholder, will set below
-                # I: client_id
-                f'=IFERROR(INDEX({CR}!$A:$A,MATCH({A},{CR}!$B:$B,0)),"")',
-                # J: project_id
-                f'=IFERROR(INDEX({PR}!$A:$A,MATCH({B}&"|"&{I},{PR}!$I:$I,0)),"")',
-                # K: vat_pct
-                f'=IFERROR(INDEX({PR}!$E:$E,MATCH({B}&"|"&{I},{PR}!$I:$I,0)),"")',
-                # L: vat_amount
-                f'=IF(OR({E}="",{K}=""),"",ROUND({E}*{K}/100,2))',
-                # M: project_name
-                f'=IF({B}="","",{B})',
-                # N: description
-                f'=IFERROR(INDEX({PR}!$G:$G,MATCH({B}&"|"&{I},{PR}!$I:$I,0)),"")',
-                # O: template_used
-                f'=IFERROR(INDEX({PR}!$F:$F,MATCH({B}&"|"&{I},{PR}!$I:$I,0)),"")',
-                # P: address
-                f'=IFERROR(INDEX({AR}!$C:$C,MATCH({I},{AR}!$A:$A,0)),"")',
-                # Q: format
+        # ---- Pre-fill AUTO formula rows ----
+        PR = "'Project Reference'"
+        CR = "'Client Reference'"
+        AR = "'Address Reference'"
+
+        for row in range(DATA_START, DATA_START + NUM_DATA_ROWS):
+            # AUTO col formulas (starting at col J = N_USER+1 = 10)
+            # J=year, K=client_id, L=project_id, M=vat_pct, N=vat_amount,
+            # O=project_name, P=template_used, Q=address, R=format, S=expenses_net,
+            # T=expenses_vat, U=file_path
+            key_match = f'CONCATENATE(B{row},"|",K{row})'
+            auto_vals = [
+                # J: year — YEAR() works natively on Excel date serial; fallback for text
+                f'=IF(D{row}="","",IFERROR(YEAR(D{row}),IFERROR(YEAR(DATEVALUE(D{row})),"")))' ,
+                # K: client_id
+                f'=IFERROR(INDEX({CR}!$A:$A,MATCH(A{row},{CR}!$B:$B,0)),"")',
+                # L: project_id
+                f'=IFERROR(INDEX({PR}!$A:$A,MATCH({key_match},{PR}!$I:$I,0)),"")',
+                # M: vat_pct
+                f'=IFERROR(INDEX({PR}!$E:$E,MATCH({key_match},{PR}!$I:$I,0)),"")',
+                # N: vat_amount
+                f'=IF(OR(E{row}="",M{row}=""),"",ROUND(E{row}*M{row}/100,2))',
+                # O: project_name
+                f'=IF(B{row}="","",B{row})',
+                # P: template_used
+                f'=IFERROR(INDEX({PR}!$F:$F,MATCH({key_match},{PR}!$I:$I,0)),"")',
+                # Q: address
+                f'=IFERROR(INDEX({AR}!$C:$C,MATCH(K{row},{AR}!$A:$A,0)),"")',
+                # R: format
                 "PDF",
-                # R: expenses_net
+                # S: expenses_net
                 0,
-                # S: expenses_vat
+                # T: expenses_vat
                 0,
-                # T: file_path
+                # U: file_path
                 "",
             ]
-            # H: year — correct formula
-            year_f = (f'=IF(D{row}="","",IFERROR(YEAR(DATEVALUE(D{row})),'
-                      f'IFERROR(INT(LEFT(D{row},4)),"")))')
-            ci_id  = f'=IFERROR(INDEX({CR}!$A:$A,MATCH(A{row},{CR}!$B:$B,0)),"")'
-            ci_pid = f'=IFERROR(INDEX({PR}!$A:$A,MATCH(B{row}&"|"&I{row},{PR}!$I:$I,0)),"")'
-            ci_vat = f'=IFERROR(INDEX({PR}!$E:$E,MATCH(B{row}&"|"&I{row},{PR}!$I:$I,0)),"")'
-            ci_vam = f'=IF(OR(E{row}="",K{row}=""),"",ROUND(E{row}*K{row}/100,2))'
-            ci_pnm = f'=IF(B{row}="","",B{row})'
-            ci_dsc = f'=IFERROR(INDEX({PR}!$G:$G,MATCH(B{row}&"|"&I{row},{PR}!$I:$I,0)),"")'
-            ci_tpl = f'=IFERROR(INDEX({PR}!$F:$F,MATCH(B{row}&"|"&I{row},{PR}!$I:$I,0)),"")'
-            ci_adr = f'=IFERROR(INDEX({AR}!$C:$C,MATCH(I{row},{AR}!$A:$A,0)),"")'
-
-            auto_vals = [year_f, ci_id, ci_pid, ci_vat, ci_vam,
-                         ci_pnm, ci_dsc, ci_tpl, ci_adr,
-                         "PDF", 0, 0, ""]
             for ci_offset, val in enumerate(auto_vals):
-                col = len(USER_COLS) + 1 + ci_offset
-                cell = ws.cell(row, col, val)
+                cell = ws.cell(row, N_USER + 1 + ci_offset, val)
                 cell.fill = FILL_AUTO
                 cell.font = AUTO_FNT
 
         # Column widths
-        user_widths = [28, 32, 18, 14, 12, 14, 14]
-        auto_widths = [6, 10, 10, 7, 10, 26, 32, 18, 40, 7, 10, 10, 10]
+        user_widths = [28, 32, 16, 14, 12, 14, 14, 36, 28]
+        auto_widths = [6,  10,  10,  7,  10,  26,  18,  40, 7, 8, 8, 8]
         for i, w in enumerate(user_widths + auto_widths, 1):
             ws.column_dimensions[get_column_letter(i)].width = w
         ws.row_dimensions[1].height = 30
@@ -514,7 +505,7 @@ with tab_upload:
             wc.column_dimensions[get_column_letter(i)].width = w
         wc.freeze_panes = "A2"
 
-        # ==== Sheet 3 — Project Reference (with lookup key in col I) ====
+        # ==== Sheet 3 — Project Reference ====
         wp = wb.create_sheet("Project Reference")
         p_hdrs = ["project_id", "project_name", "client_id", "client_name",
                   "vat_pct", "template_used", "description", "project_status", "_key"]
@@ -524,7 +515,7 @@ with tab_upload:
                 wp.cell(ri, ci, p[k])
         for i, w in enumerate([10, 32, 10, 26, 7, 18, 40, 14, 0], 1):
             wp.column_dimensions[get_column_letter(i)].width = max(w, 4)
-        wp.column_dimensions["I"].width = 0  # hide key column
+        wp.column_dimensions["I"].width = 0
         wp.freeze_panes = "A2"
 
         # ==== Sheet 4 — Address Reference ====
@@ -548,48 +539,32 @@ with tab_upload:
             label = f"{cd['client_code']}-{cd['client_suffix']}"
             if cd["code_name"]:
                 label += f" | {cd['code_name']}"
-            wpc.cell(ri, 1, cd["id"])
-            wpc.cell(ri, 2, label)
-            wpc.cell(ri, 3, cd["project_id"])
-            wpc.cell(ri, 4, cd["project_name"])
-            wpc.cell(ri, 5, cd["client_id"])
-            wpc.cell(ri, 6, cd["client_name"])
+            wpc.cell(ri, 1, cd["id"]);       wpc.cell(ri, 2, label)
+            wpc.cell(ri, 3, cd["project_id"]); wpc.cell(ri, 4, cd["project_name"])
+            wpc.cell(ri, 5, cd["client_id"]); wpc.cell(ri, 6, cd["client_name"])
             wpc.cell(ri, 7, cd["budget_amount"])
         for i, w in enumerate([10, 30, 10, 32, 10, 26, 14], 1):
             wpc.column_dimensions[get_column_letter(i)].width = w
         wpc.freeze_panes = "A2"
 
-        # Named range for code dropdown
         n_codes = len(all_codes)
         code_range_ref = f"'Project Codes Reference'!$B$2:$B${max(n_codes + 1, 3)}"
         wb.defined_names["All_Codes"] = DefinedName(name="All_Codes", attr_text=code_range_ref)
 
-        # ==== Sheet 6 — Allocations (optional) ====
-        # One row per invoice_number; up to 4 (code, amount) pairs.
-        # Columns: invoice_number | code_1 | amount_1 | code_2 | amount_2 |
-        #          code_3 | amount_3 | code_4 | amount_4 |
-        #          [hidden] code_1_id | code_2_id | code_3_id | code_4_id
+        # ==== Sheet 6 — Allocations ====
         wal = wb.create_sheet("Allocations")
-        AL_HDRS = [
-            "invoice_number",
-            "code_1", "amount_1",
-            "code_2", "amount_2",
-            "code_3", "amount_3",
-            "code_4", "amount_4",
-            "code_1_id", "code_2_id", "code_3_id", "code_4_id",
-        ]
-        AL_HINTS = [
-            "Must match invoice_number in Invoices sheet",
-            "Select code from dropdown", "Net amount for this code",
-            "Select code from dropdown (optional)", "Net amount for this code",
-            "Select code from dropdown (optional)", "Net amount for this code",
-            "Select code from dropdown (optional)", "Net amount for this code",
-            "auto", "auto", "auto", "auto",
-        ]
+        AL_HDRS  = ["invoice_number",
+                    "code_1","amount_1","code_2","amount_2",
+                    "code_3","amount_3","code_4","amount_4",
+                    "code_1_id","code_2_id","code_3_id","code_4_id"]
+        AL_HINTS = ["Must match invoice_number in Invoices sheet",
+                    "Select code","Net amount","Select code (optional)","Net amount",
+                    "Select code (optional)","Net amount","Select code (optional)","Net amount",
+                    "auto","auto","auto","auto"]
         for ci, h in enumerate(AL_HDRS, 1):
             cell = wal.cell(1, ci, h)
-            is_auto = h.startswith("code_") and h.endswith("_id")
-            cell.fill = FILL_AUTO if is_auto else (GOLD if "amount" not in h else GREEN)
+            is_auto = h.endswith("_id") and h.startswith("code_")
+            cell.fill = FILL_AUTO if is_auto else (GREEN if "amount" in h else GOLD)
             cell.font = Font(bold=True, color="0070C0") if is_auto else BOLD_BLK
             cell.alignment = Alignment(horizontal="center", wrap_text=True)
         for ci, hint in enumerate(AL_HINTS, 1):
@@ -598,8 +573,6 @@ with tab_upload:
         AL_DATA_START = 3
         AL_NUM_ROWS   = 100
         PCR = "'Project Codes Reference'"
-
-        # Code dropdowns for columns B, D, F, H
         for code_col_idx in [2, 4, 6, 8]:
             code_dv = DataValidation(
                 type="list", formula1="=All_Codes",
@@ -607,29 +580,21 @@ with tab_upload:
             )
             wal.add_data_validation(code_dv)
             col_ltr = get_column_letter(code_col_idx)
-            code_dv.sqref = (f"{col_ltr}{AL_DATA_START}:"
-                             f"{col_ltr}{AL_DATA_START + AL_NUM_ROWS - 1}")
+            code_dv.sqref = f"{col_ltr}{AL_DATA_START}:{col_ltr}{AL_DATA_START + AL_NUM_ROWS - 1}"
 
-        # Formula rows: code_id = INDEX(code_id col, MATCH(code_label, label col))
         for row in range(AL_DATA_START, AL_DATA_START + AL_NUM_ROWS):
-            for pair_idx, (code_col, id_col) in enumerate(
-                [(2, 10), (4, 11), (6, 12), (8, 13)], 1
-            ):
-                code_ltr = get_column_letter(code_col)
-                id_ltr   = get_column_letter(id_col)
-                formula  = (f'=IFERROR(INDEX({PCR}!$A:$A,'
-                            f'MATCH({code_ltr}{row},{PCR}!$B:$B,0)),"")')
+            for code_col, id_col in [(2,10),(4,11),(6,12),(8,13)]:
+                cl = get_column_letter(code_col)
+                formula = f'=IFERROR(INDEX({PCR}!$A:$A,MATCH({cl}{row},{PCR}!$B:$B,0)),"")'
                 cell = wal.cell(row, id_col, formula)
                 cell.fill = FILL_AUTO; cell.font = AUTO_FNT
 
-        # Widths
         al_widths = [20, 30, 12, 30, 12, 30, 12, 30, 12, 10, 10, 10, 10]
         for i, w in enumerate(al_widths, 1):
             wal.column_dimensions[get_column_letter(i)].width = w
         wal.row_dimensions[1].height = 30
         wal.row_dimensions[2].height = 28
         wal.freeze_panes = f"A{AL_DATA_START}"
-        wal.sheet_state = "visible"
 
         buf = io.BytesIO()
         wb.save(buf)
@@ -643,8 +608,8 @@ with tab_upload:
     )
     st.caption(
         "**How to fill:** Select a client in column A → select the project in column B "
-        "(dropdown filters automatically) → enter invoice number, date, amount, status. "
-        "All other columns (blue) auto-calculate."
+        "(dropdown filters automatically) → enter invoice number, date (DD/MM/YYYY), amount, status. "
+        "All other columns (blue) auto-calculate. Dates in columns D and G must be in DD/MM/YYYY format."
     )
 
     st.divider()

@@ -297,8 +297,8 @@ def init_db() -> None:
             except Exception:
                 pass
 
-        # --- Migration: invoices.status and invoices.paid_date columns ---
-        for col, defval in [("status", "'outstanding'"), ("paid_date", "''")]:
+        # --- Migration: invoices.status, paid_date, comment columns ---
+        for col, defval in [("status", "'outstanding'"), ("paid_date", "''"), ("comment", "''")]:
             try:
                 conn.execute(f"ALTER TABLE invoices ADD COLUMN {col} TEXT NOT NULL DEFAULT {defval}")
             except Exception:
@@ -584,7 +584,7 @@ def get_invoices(
     query = (
         "SELECT id, client_id, project_id, invoice_number, year, date, amount, "
         "vat_amount, vat_pct, address, project_name, description, template_used, format, "
-        "file_path, expenses_net, expenses_vat, status, paid_date, created_at FROM invoices"
+        "file_path, expenses_net, expenses_vat, status, paid_date, comment, created_at FROM invoices"
     )
     params: list = []
     filters = []
@@ -629,6 +629,7 @@ def add_invoice(
     expenses_net: float = 0.0,
     expenses_vat: float = 0.0,
     allocations: list[dict] | None = None,
+    comment: str = "",
 ) -> int:
     """Insert invoice and write allocation rows.
 
@@ -640,11 +641,11 @@ def add_invoice(
             "INSERT INTO invoices "
             "(client_id, project_id, invoice_number, year, date, amount, vat_amount, "
             "vat_pct, address, project_name, description, template_used, format, file_path, "
-            "expenses_net, expenses_vat) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "expenses_net, expenses_vat, comment) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (client_id, project_id or None, invoice_number, year, date, amount,
              vat_amount, vat_pct, address, project_name, description, template_used,
-             fmt, file_path, expenses_net, expenses_vat)
+             fmt, file_path, expenses_net, expenses_vat, comment)
         )
         invoice_id = cur.lastrowid
 
@@ -683,6 +684,35 @@ def update_invoice_status(invoice_id: int, status: str, paid_date: str = "") -> 
         )
 
 
+def _parse_date_str(val) -> str:
+    """Normalise a date value from Excel to YYYY-MM-DD string.
+
+    Handles: Python date/datetime objects, pandas Timestamps, and text strings
+    in DD/MM/YYYY, YYYY-MM-DD, or MM/DD/YYYY formats.
+    """
+    from datetime import date as _date, datetime as _dt
+    import pandas as _pd
+    if val is None:
+        return ""
+    if isinstance(val, (_date, _dt)):
+        return val.strftime("%Y-%m-%d")
+    try:
+        if isinstance(val, _pd.Timestamp):
+            return val.strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    s = str(val).strip().split(".")[0].split(" ")[0]  # strip time part
+    if not s or s.lower() in ("nan", "none", ""):
+        return ""
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+        try:
+            from datetime import datetime as _dtp
+            return _dtp.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    return s  # fall back verbatim
+
+
 def bulk_import_invoices(records: list[dict]) -> dict:
     """Insert invoices from an Excel template upload.
 
@@ -695,7 +725,18 @@ def bulk_import_invoices(records: list[dict]) -> dict:
     for rec in records:
         try:
             inv_num = str(rec.get("invoice_number", "")).strip()
-            year = int(rec.get("year", 0))
+            # year: prefer the auto-computed year column; fall back to parsing the date
+            year_raw = rec.get("year", 0)
+            try:
+                year = int(float(year_raw)) if str(year_raw).strip() not in ("", "nan") else 0
+            except (ValueError, TypeError):
+                year = 0
+            if not year:
+                date_str = _parse_date_str(rec.get("date", ""))
+                try:
+                    year = int(date_str[:4]) if date_str else 0
+                except ValueError:
+                    year = 0
             if not inv_num or not year:
                 errors.append(f"Row missing invoice_number or year: {rec}")
                 continue
@@ -711,26 +752,27 @@ def bulk_import_invoices(records: list[dict]) -> dict:
                     "INSERT INTO invoices "
                     "(client_id, project_id, invoice_number, year, date, amount, vat_amount, "
                     "vat_pct, address, project_name, description, template_used, format, "
-                    "file_path, expenses_net, expenses_vat, status, paid_date) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "file_path, expenses_net, expenses_vat, status, paid_date, comment) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
-                        int(rec.get("client_id", 0)),
-                        int(rec.get("project_id", 0)) or None,
+                        int(float(rec.get("client_id", 0) or 0)),
+                        int(float(rec.get("project_id", 0) or 0)) or None,
                         inv_num, year,
-                        str(rec.get("date", "")),
-                        float(rec.get("amount", 0)),
-                        float(rec.get("vat_amount", 0)),
-                        float(rec.get("vat_pct", 19.0)),
-                        str(rec.get("address", "")),
-                        str(rec.get("project_name", "")),
-                        str(rec.get("description", "")),
-                        str(rec.get("template_used", "")),
-                        str(rec.get("format", "PDF")),
-                        str(rec.get("file_path", "")),
-                        float(rec.get("expenses_net", 0)),
-                        float(rec.get("expenses_vat", 0)),
-                        str(rec.get("status", "outstanding")),
-                        str(rec.get("paid_date", "")),
+                        _parse_date_str(rec.get("date", "")),
+                        float(rec.get("amount", 0) or 0),
+                        float(rec.get("vat_amount", 0) or 0),
+                        float(rec.get("vat_pct", 19.0) or 19.0),
+                        str(rec.get("address", "") or ""),
+                        str(rec.get("project_name", "") or ""),
+                        str(rec.get("description", "") or ""),
+                        str(rec.get("template_used", "") or ""),
+                        str(rec.get("format", "PDF") or "PDF"),
+                        str(rec.get("file_path", "") or ""),
+                        float(rec.get("expenses_net", 0) or 0),
+                        float(rec.get("expenses_vat", 0) or 0),
+                        str(rec.get("status", "outstanding") or "outstanding"),
+                        _parse_date_str(rec.get("paid_date", "")),
+                        str(rec.get("comment", "") or ""),
                     )
                 )
                 inserted += 1

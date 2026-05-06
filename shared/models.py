@@ -53,6 +53,7 @@ class Invoice:
     expenses_vat: float = 0.0
     status: str = "outstanding"  # outstanding | paid | partial
     paid_date: str = ""
+    comment: str = ""            # internal note — not shown on invoice document
     created_at: str = ""
 
 
