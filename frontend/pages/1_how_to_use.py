@@ -17,6 +17,51 @@ if not st.session_state.get("authenticated", False):
 st.title("How to Use")
 
 # ------------------------------------------------------------------
+# Documentation links
+# ------------------------------------------------------------------
+
+_docs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "docs")
+
+with st.container():
+    st.caption("Full documentation is available as downloadable files below.")
+    _doc_cols = st.columns(3)
+
+    _manual_path = os.path.join(_docs_dir, "USER_MANUAL.md")
+    if os.path.exists(_manual_path):
+        with open(_manual_path, "rb") as _f:
+            _doc_cols[0].download_button(
+                "📄 User Manual",
+                data=_f.read(),
+                file_name="USER_MANUAL.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )
+
+    _rn_path = os.path.join(_docs_dir, "RELEASE_NOTES.md")
+    if os.path.exists(_rn_path):
+        with open(_rn_path, "rb") as _f:
+            _doc_cols[1].download_button(
+                "📋 Release Notes",
+                data=_f.read(),
+                file_name="RELEASE_NOTES.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )
+
+    _tech_path = os.path.join(_docs_dir, "TECHNICAL.md")
+    if os.path.exists(_tech_path):
+        with open(_tech_path, "rb") as _f:
+            _doc_cols[2].download_button(
+                "⚙️ Technical Reference",
+                data=_f.read(),
+                file_name="TECHNICAL.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )
+
+st.divider()
+
+# ------------------------------------------------------------------
 # Page summaries — grouped to match the sidebar
 # ------------------------------------------------------------------
 
