@@ -15,6 +15,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import io
+import json
 
 from backend.db import (
     get_consultant_groups,
@@ -543,16 +544,33 @@ with st.expander("4 — Feedback Form Export", expanded=False):
             "Import time entries for this year first (Page 9 — Time Tracking)."
         )
     else:
-        st.caption("Auto-filled from time entries. Edit the Colleagues column before generating.")
-        h0, h1, h2, h3 = st.columns([2, 4, 4, 1])
+        st.caption(
+            "Auto-filled from time entries. "
+            "Choose Include / Aggregate / Exclude per project — rows < 2% fees are auto-set to Aggregate. "
+            "Aggregate rows are merged into a single 'Other Projects' line in the exported document."
+        )
+
+        # Load saved project row decisions
+        _pr_fb = saved_fb.get("_project_rows")
+        try:
+            _saved_decisions: dict = json.loads(_pr_fb.comments) if _pr_fb and _pr_fb.comments else {}
+        except (ValueError, TypeError):
+            _saved_decisions = {}
+
+        _TOGGLE_OPTIONS = ["Include", "Aggregate", "Exclude"]
+
+        h0, h1, h2, h3, h4, h5 = st.columns([2, 4, 3, 1, 1, 1])
         h0.markdown("**Client**")
         h1.markdown("**Assignment**")
         h2.markdown("**Colleagues involved**")
         h3.markdown("**Hrs %**")
+        h4.markdown("**Fees %**")
+        h5.markdown("**Action**")
 
         colleague_vals: dict[int, str] = {}
+        row_decisions: dict[int, str] = {}
         for i, proj in enumerate(proj_hours):
-            c0, c1, c2, c3 = st.columns([2, 4, 4, 1])
+            c0, c1, c2, c3, c4, c5 = st.columns([2, 4, 3, 1, 1, 1])
             assign = proj["project_name"]
             if proj["description"]:
                 assign += f" — {proj['description']}"
@@ -566,6 +584,19 @@ with st.expander("4 — Feedback Form Export", expanded=False):
                 placeholder="e.g. Savva K, Petros A",
             )
             c3.markdown(f"**{proj['hours_pct']:.0f}%**")
+            c4.markdown(f"**{proj['fees_pct']:.0f}%**")
+            _proj_key = proj["project_name"]
+            _default_dec = "Aggregate" if proj["fees_pct"] < 2 else "Include"
+            _saved_dec = _saved_decisions.get(_proj_key, _default_dec)
+            if _saved_dec not in _TOGGLE_OPTIONS:
+                _saved_dec = _default_dec
+            row_decisions[i] = c5.selectbox(
+                "Action",
+                _TOGGLE_OPTIONS,
+                index=_TOGGLE_OPTIONS.index(_saved_dec),
+                key=f"fb_action_{i}_{review_year}",
+                label_visibility="collapsed",
+            )
 
     # ── B: Assessment comments ──────────────────────────────────────────────
     st.subheader("B — Assessment Comments & Development Ideas")
@@ -613,10 +644,41 @@ with st.expander("4 — Feedback Form Export", expanded=False):
             upsert_review_feedback(emp_nbr, int(review_year), area, c_v, d_v)
         upsert_review_feedback(emp_nbr, int(review_year), "Other", other_comments_v, "")
 
-        final_proj_rows = [
-            {**proj, "colleagues": colleague_vals.get(i, proj["colleagues"])}
-            for i, proj in enumerate(proj_hours)
-        ] if proj_hours else []
+        # Persist project row decisions
+        if proj_hours:
+            _decisions_to_save = {
+                proj["project_name"]: row_decisions.get(i, "Include")
+                for i, proj in enumerate(proj_hours)
+            }
+            upsert_review_feedback(emp_nbr, int(review_year), "_project_rows",
+                                   json.dumps(_decisions_to_save), "")
+
+        # Build final project rows applying Include/Aggregate/Exclude
+        if proj_hours:
+            _included_rows = []
+            _aggregate_rows = []
+            for i, proj in enumerate(proj_hours):
+                _p = {**proj, "colleagues": colleague_vals.get(i, proj["colleagues"])}
+                _dec = row_decisions.get(i, "Include")
+                if _dec == "Include":
+                    _included_rows.append(_p)
+                elif _dec == "Aggregate":
+                    _aggregate_rows.append(_p)
+            final_proj_rows = _included_rows
+            if _aggregate_rows:
+                _agg_colleagues = ", ".join(
+                    c for c in {r["colleagues"] for r in _aggregate_rows} if c
+                )
+                final_proj_rows.append({
+                    "client":        "",
+                    "project_name":  "Other Projects",
+                    "description":   "",
+                    "colleagues":    _agg_colleagues,
+                    "hours_pct":     sum(r["hours_pct"] for r in _aggregate_rows),
+                    "fees_pct":      sum(r["fees_pct"] for r in _aggregate_rows),
+                })
+        else:
+            final_proj_rows = []
 
         area_scores_map = {a: _group_avg_fb(a) for a in ["Professionalism", "Management", "Social Skills"]}
 

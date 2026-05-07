@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import streamlit as st
 import pandas as pd
 import backend.db as db
+from shared.ui import dataframe_with_total
 
 if not st.session_state.get("authenticated", False):
     st.warning("Please sign in from the Home page.")
@@ -139,11 +140,10 @@ if view == "Summary":
         "status":           "Status",
     })
 
-    display = _totals_row(display, "Client", "TOTAL", _NUM_COLS)
-    st.dataframe(
-        _style_money(display, _NUM_COLS),
-        use_container_width=True, hide_index=True,
-    )
+    _num_fmt = {c: "{:,.0f}" for c in _NUM_COLS}
+    _tot = {c: display[c].sum() if c in _NUM_COLS else ("TOTAL" if c == "Client" else "")
+            for c in display.columns}
+    dataframe_with_total(display, _tot, _num_fmt)
 
 else:
     if f"invoiced_{years[0]}" not in filtered.columns:
@@ -167,9 +167,10 @@ else:
             **yr_cols,
         })
         num_cols = ["Total"] + [str(yr) for yr in years]
-        tbl = _totals_row(tbl, "Client", "TOTAL", num_cols)
+        _tot = {c: tbl[c].sum() if c in num_cols else ("TOTAL" if c == "Client" else "")
+                for c in tbl.columns}
         st.subheader(label)
-        st.dataframe(_style_money(tbl, num_cols), use_container_width=True, hide_index=True)
+        dataframe_with_total(tbl, _tot, {c: "{:,.0f}" for c in num_cols})
         st.divider()
 
 # ------------------------------------------------------------------

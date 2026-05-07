@@ -19,6 +19,7 @@ import pandas as pd
 import backend.db as db
 from shared.gap_report import build_gap_excel
 from shared.config import load_office_codes
+from shared.ui import dataframe_with_total
 
 _OFFICE_CODES = load_office_codes()
 
@@ -409,11 +410,7 @@ with tab_rollup:
             ru_df = pd.DataFrame(ru_rows)
             _tot = {c: ru_df[c].sum() if c in _ru_num else ("TOTAL" if c == "Code" else "")
                     for c in ru_df.columns}
-            ru_df = pd.concat([ru_df, pd.DataFrame([_tot])], ignore_index=True)
-            st.dataframe(
-                ru_df.style.format({c: "{:,.0f}" for c in _ru_num}),
-                use_container_width=True, hide_index=True,
-            )
+            dataframe_with_total(ru_df, _tot, {c: "{:,.0f}" for c in _ru_num})
         else:
             yr_data = db.get_time_summary_by_year(project_obj.id)
             if not yr_data:
@@ -433,13 +430,9 @@ with tab_rollup:
                 _tot_yby = {"Code": "TOTAL"}
                 for c in hr_cols + chg_cols:
                     _tot_yby[c] = pivot[c].sum()
-                pivot = pd.concat([pivot, pd.DataFrame([_tot_yby])], ignore_index=True)
-                st.dataframe(
-                    pivot.style
-                    .format({c: "{:,.1f}" for c in hr_cols})
-                    .format({c: "{:,.0f}" for c in chg_cols}),
-                    use_container_width=True, hide_index=True,
-                )
+                _yby_fmt = {c: "{:,.1f}" for c in hr_cols}
+                _yby_fmt.update({c: "{:,.0f}" for c in chg_cols})
+                dataframe_with_total(pivot, _tot_yby, _yby_fmt)
 
         # Period-filtered sections
         entries_all = db.get_time_entries(
@@ -482,11 +475,7 @@ with tab_rollup:
                 _grp_df = pd.DataFrame(grp_rows)
                 _tot_grp = {"Group": "TOTAL", "Bill Hrs": _grp_df["Bill Hrs"].sum(),
                             "Bill €": _grp_df["Bill €"].sum()}
-                _grp_df = pd.concat([_grp_df, pd.DataFrame([_tot_grp])], ignore_index=True)
-                st.dataframe(
-                    _grp_df.style.format({"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"}),
-                    use_container_width=True, hide_index=True,
-                )
+                dataframe_with_total(_grp_df, _tot_grp, {"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"})
 
             # Breakdown by Consultant with optional Group filter
             con_rows = [
@@ -510,11 +499,7 @@ with tab_rollup:
                     _tot_con = {"Consultant": "TOTAL", "Group": "",
                                 "Bill Hrs": _con_df["Bill Hrs"].sum(),
                                 "Bill €": _con_df["Bill €"].sum()}
-                    _con_df = pd.concat([_con_df, pd.DataFrame([_tot_con])], ignore_index=True)
-                    st.dataframe(
-                        _con_df.style.format({"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"}),
-                        use_container_width=True, hide_index=True,
-                    )
+                    dataframe_with_total(_con_df, _tot_con, {"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"})
                     st.caption("Groups assigned on the Consultant Groups tab; unassigned → 'Other'.")
 
 # ==================================================================
@@ -580,24 +565,21 @@ with tab_summary:
             ).round(1)
             _t = cons_df[["Bill_Hrs", "Bill_EUR", "Int_Hrs", "Tot_Hrs"]].sum()
             _tot_pct = _t["Bill_Hrs"] / _t["Tot_Hrs"] * 100 if _t["Tot_Hrs"] > 0 else 0.0
-            cons_df = pd.concat([cons_df, pd.DataFrame([{
-                "consultant": "TOTAL", "group_name": "",
-                "Bill_Hrs": _t["Bill_Hrs"], "Bill_EUR": _t["Bill_EUR"],
-                "Int_Hrs": _t["Int_Hrs"], "Tot_Hrs": _t["Tot_Hrs"],
-                "Bill_pct": round(_tot_pct, 1),
-            }])], ignore_index=True)
-            _ts_num = ["Bill Hrs", "Bill €", "Int Hrs", "Tot Hrs"]
             _cons_display = cons_df.rename(columns={
                 "consultant": "Consultant", "group_name": "Group",
                 "Bill_Hrs": "Bill Hrs", "Bill_EUR": "Bill €",
                 "Int_Hrs": "Int Hrs", "Tot_Hrs": "Tot Hrs", "Bill_pct": "Bill %",
             })
-            st.dataframe(
-                _cons_display.style
-                .format({c: "{:,.1f}" for c in ["Bill Hrs", "Int Hrs", "Tot Hrs"]})
-                .format({"Bill €": "{:,.0f}", "Bill %": "{:.1f}"}),
-                use_container_width=True, hide_index=True,
-            )
+            _tot_cons = {
+                "Consultant": "TOTAL", "Group": "",
+                "Bill Hrs": _t["Bill_Hrs"], "Bill €": _t["Bill_EUR"],
+                "Int Hrs": _t["Int_Hrs"], "Tot Hrs": _t["Tot_Hrs"],
+                "Bill %": round(_tot_pct, 1),
+            }
+            _cons_fmt = {c: "{:,.1f}" for c in ["Bill Hrs", "Int Hrs", "Tot Hrs"]}
+            _cons_fmt["Bill €"] = "{:,.0f}"
+            _cons_fmt["Bill %"] = "{:.1f}"
+            dataframe_with_total(_cons_display, _tot_cons, _cons_fmt)
 
             # By Consultant & Project
             st.divider()
@@ -612,18 +594,16 @@ with tab_summary:
                 if ts_consultants:
                     proj_df = proj_df[proj_df["consultant"].isin(ts_consultants)]
                 if not proj_df.empty:
-                    _tot_proj = {"consultant": "TOTAL", "group_name": "", "project": "", "client": "",
-                                 "billable_hrs": proj_df["billable_hrs"].sum(),
-                                 "billable_charges": proj_df["billable_charges"].sum()}
-                    proj_df = pd.concat([proj_df, pd.DataFrame([_tot_proj])], ignore_index=True)
-                    st.dataframe(
-                        proj_df.rename(columns={
-                            "consultant": "Consultant", "group_name": "Group",
-                            "project": "Project", "client": "Client",
-                            "billable_hrs": "Bill Hrs", "billable_charges": "Bill €",
-                        }).style.format({"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"}),
-                        use_container_width=True, hide_index=True,
-                    )
+                    _tot_proj_hrs = proj_df["billable_hrs"].sum()
+                    _tot_proj_chg = proj_df["billable_charges"].sum()
+                    proj_display = proj_df.rename(columns={
+                        "consultant": "Consultant", "group_name": "Group",
+                        "project": "Project", "client": "Client",
+                        "billable_hrs": "Bill Hrs", "billable_charges": "Bill €",
+                    })
+                    _tot_proj_d = {"Consultant": "TOTAL", "Group": "", "Project": "", "Client": "",
+                                   "Bill Hrs": _tot_proj_hrs, "Bill €": _tot_proj_chg}
+                    dataframe_with_total(proj_display, _tot_proj_d, {"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"})
 
             # Period breakdown pivot
             st.divider()
@@ -650,16 +630,12 @@ with tab_summary:
             piv_wide = piv_wide.reindex(sorted(piv_wide.columns), axis=1)
             piv_wide["TOTAL"] = piv_wide.sum(axis=1)
             # Totals row
-            _piv_tot = {c: piv_wide[c].sum() if c != "consultant" else "TOTAL"
-                        for c in piv_wide.reset_index().columns}
-            piv_wide = pd.concat([piv_wide.reset_index(), pd.DataFrame([_piv_tot])], ignore_index=True)
             _piv_fmt = "{:,.0f}" if ts_metric == "Bill €" else "{:,.1f}"
-            _piv_num_cols = [c for c in piv_wide.columns if c != "consultant"]
-            st.dataframe(
-                piv_wide.rename(columns={"consultant": "Consultant"})
-                .style.format({c: _piv_fmt for c in _piv_num_cols}),
-                use_container_width=True, hide_index=True,
-            )
+            piv_wide_display = piv_wide.reset_index().rename(columns={"consultant": "Consultant"})
+            _piv_num_cols = [c for c in piv_wide_display.columns if c != "Consultant"]
+            _piv_tot = {c: piv_wide_display[c].sum() if c in _piv_num_cols else "TOTAL"
+                        for c in piv_wide_display.columns}
+            dataframe_with_total(piv_wide_display, _piv_tot, {c: _piv_fmt for c in _piv_num_cols})
 
 # ==================================================================
 # TAB 5 — CONSULTANT GROUPS

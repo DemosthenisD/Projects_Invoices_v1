@@ -2186,10 +2186,12 @@ def upsert_review_feedback(
 
 def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
     """
-    Per-project hours breakdown for a consultant in a given year.
+    Per-project billable breakdown for a consultant in a given year.
 
-    Returns list of dicts (ordered by hours desc):
-        client, project_name, description, hours, hours_pct, colleagues
+    Excludes internal clients (client_type='internal' or client_code LIKE '0009%').
+    Returns list of dicts ordered by fees (charges) descending:
+        client, project_name, description, hours, fees,
+        hours_pct, fees_pct, colleagues
     Colleagues = comma-separated names of other consultants who also billed
     to the same project in the same year.
     """
@@ -2197,31 +2199,41 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
         rows = conn.execute(
             """
             SELECT
-                c.name          AS client,
-                p.name          AS project_name,
-                p.description   AS description,
-                SUM(te.non_z_hours) AS hours
+                c.name               AS client,
+                p.name               AS project_name,
+                p.description        AS description,
+                SUM(te.non_z_hours)  AS hours,
+                SUM(te.non_z_charges) AS fees
             FROM time_entries te
             JOIN projects p ON p.id = te.project_id
             JOIN clients  c ON c.id = p.client_id
             WHERE te.consultant = ?
               AND SUBSTR(te.period, 1, 4) = ?
+              AND c.client_type != 'internal'
+              AND c.client_code NOT LIKE '0009%'
             GROUP BY te.project_id
-            ORDER BY hours DESC
+            ORDER BY fees DESC
             """,
             (consultant, str(year)),
         ).fetchall()
 
-        # Total hours for this consultant that year (for % calculation)
-        total_row = conn.execute(
+        # Totals for this consultant that year (billable only, excl. internal)
+        totals_row = conn.execute(
             """
-            SELECT COALESCE(SUM(non_z_hours), 0) AS total
-            FROM time_entries
-            WHERE consultant = ? AND SUBSTR(period, 1, 4) = ?
+            SELECT COALESCE(SUM(te.non_z_hours), 0)   AS total_hrs,
+                   COALESCE(SUM(te.non_z_charges), 0) AS total_fees
+            FROM time_entries te
+            JOIN projects p ON p.id = te.project_id
+            JOIN clients  c ON c.id = p.client_id
+            WHERE te.consultant = ?
+              AND SUBSTR(te.period, 1, 4) = ?
+              AND c.client_type != 'internal'
+              AND c.client_code NOT LIKE '0009%'
             """,
             (consultant, str(year)),
         ).fetchone()
-        total_hrs = total_row["total"] if total_row else 0.0
+        total_hrs  = totals_row["total_hrs"]  if totals_row else 0.0
+        total_fees = totals_row["total_fees"] if totals_row else 0.0
 
         # Colleagues per project
         project_colleagues: dict[str, str] = {}
@@ -2231,12 +2243,15 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
                    GROUP_CONCAT(DISTINCT te2.consultant) AS others
             FROM time_entries te
             JOIN projects p ON p.id = te.project_id
+            JOIN clients  c ON c.id = p.client_id
             JOIN time_entries te2
                  ON te2.project_id = te.project_id
                 AND SUBSTR(te2.period, 1, 4) = ?
                 AND te2.consultant != te.consultant
             WHERE te.consultant = ?
               AND SUBSTR(te.period, 1, 4) = ?
+              AND c.client_type != 'internal'
+              AND c.client_code NOT LIKE '0009%'
             GROUP BY te.project_id
             """,
             (str(year), consultant, str(year)),
@@ -2246,13 +2261,16 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
 
     result = []
     for r in rows:
-        pct = (r["hours"] / total_hrs * 100) if total_hrs > 0 else 0.0
+        hrs_pct  = (r["hours"] / total_hrs  * 100) if total_hrs  > 0 else 0.0
+        fees_pct = (r["fees"]  / total_fees * 100) if total_fees > 0 else 0.0
         result.append({
             "client":       r["client"],
             "project_name": r["project_name"],
             "description":  r["description"] or "",
             "hours":        round(r["hours"], 1),
-            "hours_pct":    round(pct, 1),
+            "fees":         round(r["fees"], 2),
+            "hours_pct":    round(hrs_pct, 1),
+            "fees_pct":     round(fees_pct, 1),
             "colleagues":   project_colleagues.get(r["project_name"], ""),
         })
     return result

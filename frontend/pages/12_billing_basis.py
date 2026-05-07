@@ -24,6 +24,7 @@ from backend.db import (
     upsert_billing_basis,
     get_billing_basis_summary,
 )
+from shared.ui import dataframe_with_total
 
 if not st.session_state.get("authenticated"):
     st.warning("Please log in.")
@@ -324,20 +325,15 @@ with tab_saved:
                        "Grand Total €", "Basis for Bonus €"]
         _HR_COL = "Equiv Hrs"
 
-        def _sv_fmt(df_in: pd.DataFrame) -> "pd.io.formats.style.Styler":
+        def _sv_fmt_dict(df_in: pd.DataFrame) -> dict:
             mc = [c for c in _MONEY_COLS if c in df_in.columns]
             hc = [c for c in [_HR_COL] if c in df_in.columns]
-            return (
-                df_in.style
-                .format({c: "{:,.0f}" for c in mc})
-                .format({c: "{:,.1f}" for c in hc})
-            )
+            return {**{c: "{:,.0f}" for c in mc}, **{c: "{:,.1f}" for c in hc}}
 
-        def _totals_sv(df_in: pd.DataFrame, label_col: str, label: str = "TOTAL") -> pd.DataFrame:
+        def _sv_total_dict(df_in: pd.DataFrame, label_col: str, label: str = "TOTAL") -> dict:
             mc = [c for c in _MONEY_COLS + [_HR_COL] if c in df_in.columns]
-            row = {c: df_in[c].sum() if c in mc else ("" if c != label_col else label)
-                   for c in df_in.columns}
-            return pd.concat([df_in, pd.DataFrame([row])], ignore_index=True)
+            return {c: df_in[c].sum() if c in mc else (label if c == label_col else "")
+                    for c in df_in.columns}
 
         if sv_view in ("By Consultant", "By Group", "By Consultant → Project",
                        "By Project", "By Project → Group",
@@ -362,16 +358,14 @@ with tab_saved:
                                   .rename(columns={"consultant": "Consultant", "group_name": "Group",
                                                    "project_name": "Project", "client_name": "Client",
                                                    "billable_charges": "Paid €", "billable_hrs": "Equiv Hrs"}))
-                        pj_agg = _totals_sv(pj_agg, "Consultant")
-                        st.dataframe(_sv_fmt(pj_agg), use_container_width=True, hide_index=True)
+                        dataframe_with_total(pj_agg, _sv_total_dict(pj_agg, "Consultant"), _sv_fmt_dict(pj_agg))
 
                     elif sv_view == "By Project":
                         pj_agg = (pj_df.groupby(["project_name", "client_name"], as_index=False)
                                   .agg({"billable_charges": "sum", "billable_hrs": "sum"})
                                   .rename(columns={"project_name": "Project", "client_name": "Client",
                                                    "billable_charges": "Paid €", "billable_hrs": "Equiv Hrs"}))
-                        pj_agg = _totals_sv(pj_agg, "Project")
-                        st.dataframe(_sv_fmt(pj_agg), use_container_width=True, hide_index=True)
+                        dataframe_with_total(pj_agg, _sv_total_dict(pj_agg, "Project"), _sv_fmt_dict(pj_agg))
 
                     elif sv_view == "By Project → Group":
                         pj_agg = (pj_df.groupby(["project_name", "client_name", "group_name"], as_index=False)
@@ -379,8 +373,7 @@ with tab_saved:
                                   .rename(columns={"project_name": "Project", "client_name": "Client",
                                                    "group_name": "Group",
                                                    "billable_charges": "Paid €", "billable_hrs": "Equiv Hrs"}))
-                        pj_agg = _totals_sv(pj_agg, "Project")
-                        st.dataframe(_sv_fmt(pj_agg), use_container_width=True, hide_index=True)
+                        dataframe_with_total(pj_agg, _sv_total_dict(pj_agg, "Project"), _sv_fmt_dict(pj_agg))
 
                     elif sv_view == "By Project → Consultant":
                         pj_agg = (pj_df.groupby(["project_name", "client_name", "consultant"], as_index=False)
@@ -388,8 +381,7 @@ with tab_saved:
                                   .rename(columns={"project_name": "Project", "client_name": "Client",
                                                    "consultant": "Consultant",
                                                    "billable_charges": "Paid €", "billable_hrs": "Equiv Hrs"}))
-                        pj_agg = _totals_sv(pj_agg, "Project")
-                        st.dataframe(_sv_fmt(pj_agg), use_container_width=True, hide_index=True)
+                        dataframe_with_total(pj_agg, _sv_total_dict(pj_agg, "Project"), _sv_fmt_dict(pj_agg))
 
                     elif sv_view == "By Project → Group → Consultant":
                         pj_agg = (pj_df.groupby(
@@ -398,8 +390,7 @@ with tab_saved:
                                   .rename(columns={"project_name": "Project", "client_name": "Client",
                                                    "group_name": "Group", "consultant": "Consultant",
                                                    "billable_charges": "Paid €", "billable_hrs": "Equiv Hrs"}))
-                        pj_agg = _totals_sv(pj_agg, "Project")
-                        st.dataframe(_sv_fmt(pj_agg), use_container_width=True, hide_index=True)
+                        dataframe_with_total(pj_agg, _sv_total_dict(pj_agg, "Project"), _sv_fmt_dict(pj_agg))
 
             else:
                 # Consultant-level views from saved billing_basis table
@@ -437,12 +428,10 @@ with tab_saved:
                     if sv_view == "By Group":
                         grp_agg = (df_saved.groupby("Group", as_index=False)
                                    [_MONEY_COLS + [_HR_COL]].sum())
-                        grp_agg = _totals_sv(grp_agg, "Group")
-                        st.dataframe(_sv_fmt(grp_agg), use_container_width=True, hide_index=True)
+                        dataframe_with_total(grp_agg, _sv_total_dict(grp_agg, "Group"), _sv_fmt_dict(grp_agg))
                     else:
                         # By Consultant (default)
-                        df_saved = _totals_sv(df_saved, "Consultant")
-                        st.dataframe(_sv_fmt(df_saved), use_container_width=True, hide_index=True)
+                        dataframe_with_total(df_saved, _sv_total_dict(df_saved, "Consultant"), _sv_fmt_dict(df_saved))
 
         buf = _export_billing_basis_excel(saved_rows, year)
         st.download_button(
