@@ -334,14 +334,28 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 1. **Compensation:** Auto-pulls productivity bonus % from the saved Billing Basis. Salary chain computed live (starting salary → exam raise → other raise → updated salary → bonus amount). Proposed billing rate compared to the Billing Basis hourly rate.
 
-2. **Performance Scores:** Three groups with a configurable number of scored items:
-   - *Professionalism* (7 items)
+2. **Performance Scores:** Three groups scored on a **1–4 scale** (1 = Significant underperformance · 2 = Does not meet expectations · 3 = Meets expectations · 4 = Exceeds expectations):
+   - *Professionalism* (7 items: Deliverance assignments, Modelling skills, Problem solving, Reporting skills, Presentations skills, Project management, Innovation)
    - *Management* (6 items — shown for all consultants; set to 0 for non-managers)
-   - *Social Skills* (5 items)
+   - *Social Skills* (5 items: Managing expectations, Client satisfaction, Teamwork, Developing people, Communication)
 
-   Historical comparison against 3 prior years is shown alongside the current year's scores.
+   Historical comparison against 3 prior years is shown alongside the current year's scores. Group averages are computed automatically.
 
 3. **Summary:** Formatted review card showing the consultant's full compensation and performance summary. **Export to Excel** downloads a workbook with a Summary sheet and a Performance Scores sheet.
+
+4. **Feedback Form Export:** Generates the ICEE Feedback Form Word document (`.docx`) for the selected consultant and year, saved to `exports/feedback_<Name>_<Year>.docx`.
+
+   **Sub-section A — Project Breakdown:** Auto-filled from time entries — shows each project the consultant billed in the review year with client name, project name + description, hours %, and colleagues (all other consultants who billed to the same project that year). The Colleagues column is editable before generating.
+
+   **Sub-section B — Assessment Comments & Development Ideas:** One block per performance area showing the computed average score. Two editable text fields per area:
+   - *Comments from Feedback Provider* — narrative on performance during the year
+   - *Development ideas* — suggested areas for growth
+
+   These are saved to the database and pre-loaded on subsequent visits.
+
+   **Sub-section C — Other Comments:** Free-text narrative for the "Other comments" section of the template (general year summary and expectations for the following year).
+
+   Click **Save & Generate Feedback Form** to persist all comments and produce the Word document. A download button appears immediately after generation.
 
 ---
 
@@ -392,3 +406,12 @@ Yes. Amount columns are stored as numbers internally and displayed with comma th
 
 **Where do the Billing Basis "By Project" view amounts come from?**
 The `billing_basis` table stores amounts at the consultant level, not per project. For all project-centric view modes (By Project and below), the app uses time-entry charges aggregated per project. This is noted in the UI. The consultant-level modes (By Consultant, By Group) use the saved Billing Basis amounts.
+
+**How does the Feedback Form Export work, and where is the file saved?**
+Section 4 on Page 13 (Annual Review) fills the ICEE Feedback Form Word template with data from the app: profile details, time entries for the year (for the project breakdown), saved performance scores (group averages), and the comments/development ideas you enter. The file is saved permanently to `exports/feedback_<Name>_<Year>.docx` and a download button is offered immediately. Comments and development ideas are also persisted in the database so they reload on the next visit.
+
+**The Colleagues column in the Feedback Form shows too many names — can I edit it?**
+Yes. Section 4A shows all other consultants who billed to the same project in the same year, as a comma-separated list. The field is editable before you click Save & Generate — trim or rewrite it as needed. Your edits are not saved to the database; only the final document reflects what you typed.
+
+**The performance score scale changed — what happened to existing scores above 4.0?**
+Section 2 inputs are now capped at 4.0 (matching the 1–4 scale on the Feedback Form template). Any previously saved scores above 4.0 will display at 4.0 in the input field. If you have historical scores entered on the old 1–5 scale, review and re-enter them on the 1–4 scale for consistency.

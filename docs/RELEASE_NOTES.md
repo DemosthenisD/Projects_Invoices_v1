@@ -2,6 +2,30 @@
 
 ---
 
+## Sprint 15 — Feedback Form Export (May 2026)
+
+> **Updates on 7 May 2026** — New Section 4 added to Page 13 (Annual Review): generates a filled ICEE Feedback Form Word document per consultant per year. (1) **Project Breakdown (Table 2):** auto-filled from time entries — one row per project billed in the review year showing client, project name + description, colleagues (all other consultants who billed to the same project that year, editable before generating), and hours %. Row count is dynamic — one row per project worked on, not a fixed six. (2) **Assessment Comments (Table 3):** per-performance-area editable text fields for "Comments from Feedback Provider" and "Development ideas"; the computed group-average score (from Section 2) fills the Score column automatically. Comments are persisted in a new `review_feedback` DB table and reload on subsequent visits. (3) **Other Comments (Table 4):** free-text narrative persisted in the same table. (4) **Save & Generate button:** saves all comments to DB, fills the Word template (background info from Consultant Profiles, dynamic project table, assessment scores + comments, other narrative), writes to `exports/feedback_<Name>_<Year>.docx`, and offers a download button. (5) **Score scale:** Section 2 performance score inputs changed from 1–5 → 1–4 to match the template's legend (1=Significant underperformance … 4=Exceeds expectations). (6) **Docs:** USER_MANUAL.md updated with full Section 4 workflow documentation and four new FAQ entries.
+
+### DB Schema Changes (non-breaking, migrated automatically on startup)
+
+- **`review_feedback`** — new table: `id`, `emp_nbr`, `year`, `area` (Professionalism / Management / Social Skills / Other), `comments`, `development_ideas`, `created_at`. `UNIQUE(emp_nbr, year, area)`.
+
+### New DB Functions
+
+- `get_review_feedback(emp_nbr, year)` — returns a dict keyed by area with `ReviewFeedback` objects.
+- `upsert_review_feedback(emp_nbr, year, area, comments, development_ideas)` — insert or overwrite a feedback record for one area.
+- `get_consultant_project_hours(consultant, year)` — returns a list of dicts (one per project billed by the consultant in that year): `client`, `project_name`, `description`, `hours`, `hours_pct`, `colleagues` (comma-separated names of other consultants on the same project).
+
+### New Model
+
+- **`ReviewFeedback`** dataclass added to `shared/models.py`.
+
+### Page Changes
+
+- **Page 13 — Annual Review:** Section 4 added (Feedback Form Export). Score inputs in Section 2 capped at 4.0. Three new imports: `get_review_feedback`, `upsert_review_feedback`, `get_consultant_project_hours`. Helper `_generate_feedback_docx()` added — opens `template_other/Feedback Form_2025 DRAFT Example.docx`, fills all five tables, returns bytes + filename.
+
+---
+
 ## Sprint 14 — Filters, Year-by-Year Views, Billing Basis View Modes & UX Polish (May 2026)
 
 > **Updates on 7 May 2026** — Major analysis and reporting improvements across five pages. (1) **Page 8 — Project Overview:** six filter controls (Client, Status, Source, Type, Consultant Group, Consultant); sorting on amount columns fixed (values kept numeric, displayed with comma thousands separator via pandas Styler); TOTAL row on all tables; Year-by-Year sub-table includes TOTAL column and TOTAL row. (2) **Page 9 — Time Tracking:** Rollup gains Client Type and Country filters; Year-by-Year toggle pivots codes × years with subtotals; Breakdown by Consultant section with Group radio filter; Team Summary adds "By Consultant & Project" drill-down table; Consultant Groups tab gains Group radio so only the selected group's consultants are shown. (3) **Page 11 — Billing Basis:** Saved Basis tab gains Group filter radio and a "Re-arrange to Show By" selector with 7 view modes (By Consultant, By Group, By Consultant → Project, By Project, By Project → Group, By Project → Consultant, By Project → Group → Consultant). (4) **Page 12 — Consultant Profiles:** Delete a Year Record section added to Salary History tab. (5) **Page 13 — Annual Review:** Group radio added before the consultant selector (defaults to Local). (6) **General:** comma thousands separator applied consistently across all amount columns in all tables; TOTAL subtotal rows on all amount tables. (7) **CSV Import:** encoding fallback chain (UTF-8-BOM → UTF-8 → Windows-1252 → Latin-1) fixes import failures for Excel-exported files containing special characters (e.g. en-dashes). (8) **Bug fix:** Team Summary "By Consultant" was incorrectly placing consultants with multiple historical employee numbers under "Other" — fixed by joining `consultant_groups` on consultant name instead of employee number. (9) **Docs:** USER_MANUAL.md fully rewritten with correct sidebar page numbers 1–14 and all new features documented.
