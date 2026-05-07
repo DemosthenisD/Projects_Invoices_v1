@@ -61,10 +61,19 @@ with tab_import:
     uploaded = st.file_uploader("Choose CSV file", type=["csv"])
 
     if uploaded:
-        try:
-            df = pd.read_csv(uploaded, dtype={"client_suffix": str})
-        except Exception as e:
-            st.error(f"Could not read file: {e}")
+        df = None
+        for _enc in ("utf-8-sig", "utf-8", "cp1252", "latin1"):
+            try:
+                uploaded.seek(0)
+                df = pd.read_csv(uploaded, dtype={"client_suffix": str}, encoding=_enc)
+                break
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                st.error(f"Could not read file: {e}")
+                st.stop()
+        if df is None:
+            st.error("Could not decode file — unexpected encoding. Try re-saving the CSV as UTF-8.")
             st.stop()
 
         # Validate required columns
