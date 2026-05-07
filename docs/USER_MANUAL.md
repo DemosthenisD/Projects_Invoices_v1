@@ -251,9 +251,12 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 - **By Consultant & Project:** Same as By Consultant but drills one level deeper — each consultant row expands to show the individual projects they billed on, with hours and charges per project. TOTAL row per consultant and overall.
 - **Period pivot:** Consultant × period matrix showing billable hours and charges broken down by month.
 
-**Consultant Groups tab:** Assign each consultant to Local, ICEE, or Other.
+**Consultant Groups tab:** Assign each consultant to Local, ICEE, or Other. Manage Active / Inactive status for Local consultants.
 - **Group radio** at the top selects which group to view (defaults to Local).
-- Only the consultants in the selected group are shown, in alphabetically sorted expanders.
+- Only the consultants in the selected group are shown, in alphabetically sorted expanders. The expander title shows the consultant's current status for Local consultants (e.g. `Savva, Konstantinos (Active)`).
+- Each expander has three fields: **Group**, **emp_nbr**, and (for Local consultants) **Status** (Active / Inactive).
+- Setting a Local consultant to **Inactive** hides them from the Annual Review consultant dropdown. They remain in all other pages and their historical data is unaffected.
+- ICEE and Other consultants have no status concept — the Status column is not shown for them.
 - Pre-populated from the ICEE Plan CY Excel on first seed.
 
 ---
@@ -279,7 +282,7 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 **Tabs:**
 
-- **Auto (from Time Tracking):** Aggregates `non_z_charges` per consultant from imported time entries for the selected year. Write-offs are mapped to the Charged Off column. Click **Load from Time Tracking** to preview, then enter hourly rates and click **Save Auto Basis**.
+- **Auto (from Time Tracking):** Aggregates `non_z_charges` per consultant from imported time entries for the selected year. Write-offs are mapped to the Charged Off column. The **Group filter** at the top of the page applies here — only consultants in the selected group are shown in the preview table and the rate entry inputs; Save only writes those consultants' rows. Click **Load from Time Tracking** to preview, then enter hourly rates and click **Save Auto Basis**.
 - **Manual Entry:** Spreadsheet-style table matching the bonus template's Sheet5 layout (Billed / Capped Paid Prebill / Capped Unpaid Prebill / Charged Off / Paid / Unbilled). A computed summary below shows Grand Total, Basis for Bonus, Equivalent Hours, and Productivity Bonus % live as you type. Click **Save Manual Basis** to persist.
 - **Saved Basis:** Read-only view of all saved rows for the year.
 
@@ -320,7 +323,9 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
   **Delete a Year Record:** A separate section below the Add/Edit form lets you select a year from a dropdown and permanently delete that salary record. A warning is shown before deletion.
 
-- **Rates by Year:** Side-by-side view of Proposed Rate (from Salary History) and Billing Basis Rate (from Billing Basis) per year.
+- **Rates by Year:** Side-by-side view of two rates per year:
+  - **Proposed Rate for following year (€/hr)** — the rate entered in Salary History, intended as the proposed billing rate for the *next* year.
+  - **Billing Basis Rate (€/hr)** — the hourly rate saved on the Billing Basis record for that year (used to convert billing amounts into Equivalent Hours). This is populated when you save a billing basis entry on Page 11.
 
 ---
 
@@ -328,11 +333,13 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 **What it does:** Per-consultant annual assessment form combining compensation, performance scores, and a formatted review summary.
 
-**Selector:** Group radio (Local / ICEE / Other / All — defaults to Local), then individual consultant selectbox filtered to the chosen group.
+**Scope:** This page is restricted to **Local + Active** consultants only. To make a consultant visible here, ensure they are in the Local group and have Status = Active in the Consultant Groups tab (Page 9). Inactive Local consultants and all non-Local consultants are excluded.
+
+**Selector:** Consultant selectbox showing all active Local employees.
 
 **Sections:**
 
-1. **Compensation:** Auto-pulls productivity bonus % from the saved Billing Basis. Salary chain computed live (starting salary → exam raise → other raise → updated salary → bonus amount). Proposed billing rate compared to the Billing Basis hourly rate.
+1. **Compensation:** Auto-pulls productivity bonus % from the saved Billing Basis. Salary chain computed live (starting salary → exam raise → other raise → updated salary). **Bonus Amount = Starting Salary × Total Bonus %** (the bonus is applied to the pre-raise base salary, not the updated salary after the raise). Proposed billing rate compared to the Billing Basis hourly rate.
 
 2. **Performance Scores:** Three groups scored on a **1–4 scale** (1 = Significant underperformance · 2 = Does not meet expectations · 3 = Meets expectations · 4 = Exceeds expectations):
    - *Professionalism* (7 items: Deliverance assignments, Modelling skills, Problem solving, Reporting skills, Presentations skills, Project management, Innovation)
@@ -345,7 +352,18 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 4. **Feedback Form Export:** Generates the ICEE Feedback Form Word document (`.docx`) for the selected consultant and year, saved to `exports/feedback_<Name>_<Year>.docx`.
 
-   **Sub-section A — Project Breakdown:** Auto-filled from time entries — shows each project the consultant billed in the review year with client name, project name + description, hours %, and colleagues (all other consultants who billed to the same project that year). The Colleagues column is editable before generating.
+   **Sub-section A — Project Breakdown:** Auto-filled from time entries for the review year. Internal projects (`0009*` codes and internal client type) are excluded automatically. Each row shows: Client, Project name + description, editable Colleagues field, Hours %, Fees %, and an **Action** selector.
+
+   *Action selector per row:*
+   | Action | Effect in the generated document |
+   |--------|----------------------------------|
+   | **Include** | Row appears as-is |
+   | **Exclude** | Row is dropped entirely (use for non-billable or erroneous entries) |
+   | **Aggregate** | Row is merged with all other Aggregate rows into a single **Other Projects** line showing the combined hours % and fees % |
+
+   The default action is **Aggregate** for any project representing less than 2 % of the consultant's total fees for the year, and **Include** for all others. You can override any row manually.
+
+   Decisions are saved to the database and reloaded on subsequent visits. The Colleagues field is editable before generating — the app automatically deduplicates names and removes the reviewed consultant's own name from all lists (including the Other Projects aggregate row).
 
    **Sub-section B — Assessment Comments & Development Ideas:** One block per performance area showing the computed average score. Two editable text fields per area:
    - *Comments from Feedback Provider* — narrative on performance during the year
@@ -355,7 +373,7 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
    **Sub-section C — Other Comments:** Free-text narrative for the "Other comments" section of the template (general year summary and expectations for the following year).
 
-   Click **Save & Generate Feedback Form** to persist all comments and produce the Word document. A download button appears immediately after generation.
+   Click **Save & Generate Feedback Form** to persist all comments and decisions and produce the Word document. A download button appears immediately after generation.
 
 ---
 
@@ -398,6 +416,12 @@ On Page 1 — Generate Invoice, toggle **Document type** to Credit Note. Enter t
 **Why can't I see a consultant in the Billing Basis or Consultant Profiles page?**
 These pages default to the Local group filter. Use the Group radio at the top to switch to ICEE, Other, or All.
 
+**Why is a consultant missing from the Annual Review page?**
+The Annual Review only shows **Local + Active** consultants. Check two things: (1) the consultant is in the **Local** group, and (2) their **Status** is **Active**. Both are set in Page 9 — Time Tracking → Consultant Groups tab. Open the consultant's expander and confirm Group = Local and Status = Active, then Save.
+
+**How do I mark a consultant as inactive without losing their data?**
+In Page 9 — Time Tracking → Consultant Groups tab, select the Local view, open the consultant's expander, change Status to **Inactive**, and click Save. Their data, time entries, billing history, and scores are fully preserved — they simply no longer appear in the Annual Review consultant dropdown.
+
 **Time-charge CSV import fails with a Unicode error — what do I do?**
 The importer automatically tries UTF-8, UTF-8-BOM, Windows-1252, and Latin-1 encodings in sequence. If your file was exported from Excel on Windows (common for files containing special characters such as en-dashes), it is likely Windows-1252 and will be handled automatically. If the import still fails, open the file in Excel and re-save it as CSV UTF-8.
 
@@ -411,7 +435,13 @@ The `billing_basis` table stores amounts at the consultant level, not per projec
 Section 4 on Page 13 (Annual Review) fills the ICEE Feedback Form Word template with data from the app: profile details, time entries for the year (for the project breakdown), saved performance scores (group averages), and the comments/development ideas you enter. The file is saved permanently to `exports/feedback_<Name>_<Year>.docx` and a download button is offered immediately. Comments and development ideas are also persisted in the database so they reload on the next visit.
 
 **The Colleagues column in the Feedback Form shows too many names — can I edit it?**
-Yes. Section 4A shows all other consultants who billed to the same project in the same year, as a comma-separated list. The field is editable before you click Save & Generate — trim or rewrite it as needed. Your edits are not saved to the database; only the final document reflects what you typed.
+Yes. Section 4A shows all other consultants who billed to the same project in the same year, as a comma-separated list. The app automatically deduplicates names and removes the reviewed consultant's own name. The field is still editable before you click Save & Generate — trim or rewrite it as needed. Your edits are not saved to the database; only the final document reflects what you typed.
+
+**What is the difference between "Include", "Aggregate", and "Exclude" in Section 4A?**
+These control how each project row appears in the generated Feedback Form document. **Include** keeps the row as-is. **Exclude** drops it entirely (use for internal overhead or data errors). **Aggregate** merges the row with all other Aggregate rows into a single "Other Projects" line, which is useful for grouping small-contribution projects into one summary entry. The default is Aggregate for projects under 2 % of total fees, and Include for the rest. Decisions are saved and reload on future visits.
+
+**How is the Bonus Amount calculated?**
+Bonus Amount = **Starting Salary × Total Bonus %**, where Total Bonus % = Productivity Bonus % + Objective Bonus %. The bonus is applied to the consultant's salary *before* the year's raise, not to the post-raise updated salary.
 
 **The performance score scale changed — what happened to existing scores above 4.0?**
 Section 2 inputs are now capped at 4.0 (matching the 1–4 scale on the Feedback Form template). Any previously saved scores above 4.0 will display at 4.0 in the input field. If you have historical scores entered on the old 1–5 scale, review and re-enter them on the 1–4 scale for consistency.

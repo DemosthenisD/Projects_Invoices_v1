@@ -2,6 +2,47 @@
 
 ---
 
+## Sprint 16 — TOTAL row pinning, Section 4A project toggles, employee status & UX fixes (May 2026)
+
+> **Updates on 7–8 May 2026** — Six improvements across five pages.
+>
+> **(1) Pinned TOTAL rows (all tables):** All sortable data tables now show the TOTAL row permanently fixed at the bottom regardless of which column you sort by. Previously the TOTAL row would re-sort along with the data rows. Implemented via a shared `dataframe_with_total()` helper in `shared/ui.py` — renders data in one sortable `st.dataframe` and the TOTAL in a second fixed `st.dataframe` immediately below with blank column headers so it reads as a footer. Applied to every table in Pages 8 (Project Overview), 9 (Time Tracking — all five sub-tables), and 11 (Billing Basis — all seven view modes).
+>
+> **(2) Section 4A — Include / Aggregate / Exclude project toggles:** Each project row in the Feedback Form Export project breakdown now has a three-way action selector. *Include* — row appears as-is in the final document. *Exclude* — row is dropped entirely (e.g. non-billable or erroneous entries). *Aggregate* — row is merged with all other Aggregate rows into a single **Other Projects** line showing summed hours % and fees %. Default is Aggregate when the project represents < 2 % of the consultant's total fees for the year, Include otherwise. The row now also shows **Fees %** alongside Hours %. Decisions are persisted as JSON in the `review_feedback` table (area `_project_rows`) and reload on subsequent visits. The colleagues list on the Other Projects aggregate row is automatically deduplicated across all merged rows.
+>
+> **(3) Local consultant Active / Inactive status:** A new `status` column (Active / Inactive, default Active) is added to the `consultant_groups` table. Existing records migrate to Active automatically on startup. In the Consultant Groups tab (Page 9), Local consultants now show a Status selector in their expander; the expander title displays the current status for quick scanning. ICEE and Other consultants are unaffected. The Annual Review page now only shows Local + Active consultants in the consultant dropdown — Local/Inactive and all non-Local groups are excluded, replacing the previous Group radio.
+>
+> **(4) Bonus amount base corrected:** Bonus Amount is now calculated as **Starting Salary × Total Bonus %** (not Updated Salary, which incorrectly double-counted the raise). Fixed in the live preview, Section 3 summary card, and Excel export.
+>
+> **(5) Proposed Rate column renamed:** "Proposed Rate €/hr" → "Proposed Rate for following year €/hr" in both the Salary History table and the Billing Rates by Year table on the Consultant Profiles page, making clear that this rate applies to the next year not the current one.
+>
+> **(6) Billing Basis Auto tab group filter:** The Group radio at the top of the Billing Basis page (Page 11) now correctly filters the Auto tab — the time-tracking summary table, the rate entry inputs, and the Save operation all operate on the selected group only. Previously the filter was ignored by the Auto tab.
+>
+> **(7) Colleagues deduplication and self-exclusion:** The colleagues list in Section 4A is now deduplicated at the individual-name level before writing to the Word document. The reviewed consultant's own name is also removed from the list automatically. Both fixes apply to individual project rows and to the aggregated Other Projects row.
+
+### DB Schema Changes (non-breaking, migrated automatically on startup)
+
+- **`consultant_groups`** — added `status TEXT NOT NULL DEFAULT 'Active'`. Existing rows migrated to Active.
+
+### New Shared Module
+
+- **`shared/ui.py`** — new module. Contains `dataframe_with_total(df, total_dict, fmt, na_rep)`: renders a sortable data table followed by a pinned TOTAL footer row. Used by Pages 8, 9, and 11.
+
+### DB Function Changes
+
+- `get_consultant_groups()` — now includes `status` in the SELECT result.
+- `upsert_consultant_group(consultant, group_name, emp_nbr, status)` — new `status` parameter (None = leave unchanged for existing rows).
+- `get_consultant_project_hours(consultant, year)` — extended to return `fees` (total billable charges), `fees_pct` (share of total fees), and `hours_pct`. Now filters out internal clients (`client_type = 'internal'` and `client_code LIKE '0009%'`). Result ordered by fees descending (previously hours descending).
+
+### Page Changes
+
+- **Page 9 — Time Tracking (Consultant Groups tab):** Local consultants now show a Status (Active / Inactive) selector inside their expander, alongside Group and emp_nbr. Expander title shows current status in brackets.
+- **Page 11 — Billing Basis (Auto tab):** Group filter now works correctly — filters display, rate inputs, and Save.
+- **Page 12 — Consultant Profiles:** "Proposed Rate €/hr" renamed to "Proposed Rate for following year €/hr" in Salary History and Billing Rates by Year tables.
+- **Page 13 — Annual Review:** Group radio removed. Consultant dropdown shows only Local + Active employees. Bonus Amount calculation corrected to use Starting Salary. Section 4A: Fees % column added; Include / Aggregate / Exclude toggle per row; decisions persisted; Other Projects aggregate row with deduplicated colleagues; reviewed consultant excluded from colleagues lists.
+
+---
+
 ## Sprint 15 — Feedback Form Export (May 2026)
 
 > **Updates on 7 May 2026** — New Section 4 added to Page 13 (Annual Review): generates a filled ICEE Feedback Form Word document per consultant per year. (1) **Project Breakdown (Table 2):** auto-filled from time entries — one row per project billed in the review year showing client, project name + description, colleagues (all other consultants who billed to the same project that year, editable before generating), and hours %. Row count is dynamic — one row per project worked on, not a fixed six. (2) **Assessment Comments (Table 3):** per-performance-area editable text fields for "Comments from Feedback Provider" and "Development ideas"; the computed group-average score (from Section 2) fills the Score column automatically. Comments are persisted in a new `review_feedback` DB table and reload on subsequent visits. (3) **Other Comments (Table 4):** free-text narrative persisted in the same table. (4) **Save & Generate button:** saves all comments to DB, fills the Word template (background info from Consultant Profiles, dynamic project table, assessment scores + comments, other narrative), writes to `exports/feedback_<Name>_<Year>.docx`, and offers a download button. (5) **Score scale:** Section 2 performance score inputs changed from 1–5 → 1–4 to match the template's legend (1=Significant underperformance … 4=Exceeds expectations). (6) **Docs:** USER_MANUAL.md updated with full Section 4 workflow documentation and four new FAQ entries.
