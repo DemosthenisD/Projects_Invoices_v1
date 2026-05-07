@@ -250,3 +250,14 @@ class ReviewScore:
     score_group: str   # 'Professionalism' / 'Management' / 'Social Skills'
     item_name: str
     score: float = 0.0
+
+
+@dataclass
+class ReviewFeedback:
+    id: int
+    emp_nbr: str
+    year: int
+    area: str          # 'Professionalism' / 'Management' / 'Social Skills' / 'Other'
+    comments: str = ""
+    development_ideas: str = ""
+    created_at: str = ""

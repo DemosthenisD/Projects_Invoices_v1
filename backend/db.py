@@ -240,6 +240,16 @@ def init_db() -> None:
                 score       REAL    DEFAULT 0.0,
                 UNIQUE(emp_nbr, year, score_group, item_name)
             );
+            CREATE TABLE IF NOT EXISTS review_feedback (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_nbr           TEXT    NOT NULL,
+                year              INTEGER NOT NULL,
+                area              TEXT    NOT NULL,
+                comments          TEXT    DEFAULT '',
+                development_ideas TEXT    DEFAULT '',
+                created_at        TEXT,
+                UNIQUE(emp_nbr, year, area)
+            );
         """)
         # --- Migration: pipeline budget columns ---
         for col, defval in [
@@ -2132,6 +2142,120 @@ def upsert_review_scores(emp_nbr: str, year: int, scores: dict[str, dict[str, fl
                     "ON CONFLICT(emp_nbr, year, score_group, item_name) DO UPDATE SET score=excluded.score",
                     (emp_nbr, year, group, item, score)
                 )
+
+
+# ---------------------------------------------------------------------------
+# Review Feedback
+# ---------------------------------------------------------------------------
+
+def get_review_feedback(emp_nbr: str, year: int) -> dict[str, "ReviewFeedback"]:
+    """Return saved feedback keyed by area for a consultant/year."""
+    from shared.models import ReviewFeedback
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, emp_nbr, year, area, comments, development_ideas, created_at "
+            "FROM review_feedback WHERE emp_nbr = ? AND year = ?",
+            (emp_nbr, year),
+        ).fetchall()
+    return {
+        r["area"]: ReviewFeedback(
+            id=r["id"], emp_nbr=r["emp_nbr"], year=r["year"], area=r["area"],
+            comments=r["comments"] or "", development_ideas=r["development_ideas"] or "",
+            created_at=r["created_at"] or "",
+        )
+        for r in rows
+    }
+
+
+def upsert_review_feedback(
+    emp_nbr: str, year: int, area: str,
+    comments: str = "", development_ideas: str = "",
+) -> None:
+    """Insert or update a feedback record for one area."""
+    from datetime import datetime
+    now = datetime.now().isoformat(timespec="seconds")
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO review_feedback (emp_nbr, year, area, comments, development_ideas, created_at) "
+            "VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(emp_nbr, year, area) DO UPDATE SET "
+            "comments=excluded.comments, development_ideas=excluded.development_ideas",
+            (emp_nbr, year, area, comments, development_ideas, now),
+        )
+
+
+def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
+    """
+    Per-project hours breakdown for a consultant in a given year.
+
+    Returns list of dicts (ordered by hours desc):
+        client, project_name, description, hours, hours_pct, colleagues
+    Colleagues = comma-separated names of other consultants who also billed
+    to the same project in the same year.
+    """
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                c.name          AS client,
+                p.name          AS project_name,
+                p.description   AS description,
+                SUM(te.non_z_hours) AS hours
+            FROM time_entries te
+            JOIN projects p ON p.id = te.project_id
+            JOIN clients  c ON c.id = p.client_id
+            WHERE te.consultant = ?
+              AND SUBSTR(te.period, 1, 4) = ?
+            GROUP BY te.project_id
+            ORDER BY hours DESC
+            """,
+            (consultant, str(year)),
+        ).fetchall()
+
+        # Total hours for this consultant that year (for % calculation)
+        total_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(non_z_hours), 0) AS total
+            FROM time_entries
+            WHERE consultant = ? AND SUBSTR(period, 1, 4) = ?
+            """,
+            (consultant, str(year)),
+        ).fetchone()
+        total_hrs = total_row["total"] if total_row else 0.0
+
+        # Colleagues per project
+        project_colleagues: dict[str, str] = {}
+        coll_rows = conn.execute(
+            """
+            SELECT p.name AS project_name,
+                   GROUP_CONCAT(DISTINCT te2.consultant) AS others
+            FROM time_entries te
+            JOIN projects p ON p.id = te.project_id
+            JOIN time_entries te2
+                 ON te2.project_id = te.project_id
+                AND SUBSTR(te2.period, 1, 4) = ?
+                AND te2.consultant != te.consultant
+            WHERE te.consultant = ?
+              AND SUBSTR(te.period, 1, 4) = ?
+            GROUP BY te.project_id
+            """,
+            (str(year), consultant, str(year)),
+        ).fetchall()
+        for cr in coll_rows:
+            project_colleagues[cr["project_name"]] = cr["others"] or ""
+
+    result = []
+    for r in rows:
+        pct = (r["hours"] / total_hrs * 100) if total_hrs > 0 else 0.0
+        result.append({
+            "client":       r["client"],
+            "project_name": r["project_name"],
+            "description":  r["description"] or "",
+            "hours":        round(r["hours"], 1),
+            "hours_pct":    round(pct, 1),
+            "colleagues":   project_colleagues.get(r["project_name"], ""),
+        })
+    return result
 
 
 if __name__ == "__main__":
