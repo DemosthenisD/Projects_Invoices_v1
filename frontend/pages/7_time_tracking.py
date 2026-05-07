@@ -660,10 +660,14 @@ with tab_groups:
         _cg_view = st.radio("Show group", _cg_group_names, horizontal=True, key="cg_view_group")
         _cg_visible = [g for g in groups if g["group_name"] == _cg_view]
 
+        STATUS_OPTIONS = ["Active", "Inactive"]
         for g in sorted(_cg_visible, key=lambda x: x["consultant"]):
-            with st.expander(f"{g['consultant']}", expanded=False):
+            _is_local = g["group_name"] == "Local"
+            _status = g.get("status", "Active")
+            _label = g["consultant"] if not _is_local else f"{g['consultant']} ({_status})"
+            with st.expander(_label, expanded=False):
                 with st.form(f"cg_{g['id']}"):
-                    col_grp, col_emp = st.columns(2)
+                    col_grp, col_emp, col_status = st.columns(3)
                     new_group = col_grp.selectbox(
                         "Group", GROUP_OPTIONS,
                         index=GROUP_OPTIONS.index(g["group_name"]) if g["group_name"] in GROUP_OPTIONS else 2,
@@ -671,11 +675,21 @@ with tab_groups:
                     )
                     new_emp = col_emp.text_input("emp_nbr", value=g.get("emp_nbr") or "",
                                                  key=f"cg_emp_{g['id']}")
+                    if _is_local:
+                        new_status = col_status.selectbox(
+                            "Status", STATUS_OPTIONS,
+                            index=STATUS_OPTIONS.index(_status) if _status in STATUS_OPTIONS else 0,
+                            key=f"cg_status_{g['id']}",
+                        )
+                    else:
+                        col_status.markdown("&nbsp;")
+                        new_status = None
                     if st.form_submit_button("Save"):
                         db.upsert_consultant_group(
                             consultant=g["consultant"],
                             group_name=new_group,
                             emp_nbr=new_emp or None,
+                            status=new_status,
                         )
                         st.success("Saved.")
                         st.rerun()

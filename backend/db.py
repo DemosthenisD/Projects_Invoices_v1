@@ -165,7 +165,8 @@ def init_db() -> None:
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 emp_nbr    TEXT,
                 consultant TEXT NOT NULL,
-                group_name TEXT NOT NULL DEFAULT 'Other'
+                group_name TEXT NOT NULL DEFAULT 'Other',
+                status     TEXT NOT NULL DEFAULT 'Active'
             );
 
             CREATE TABLE IF NOT EXISTS write_offs (
@@ -372,6 +373,14 @@ def init_db() -> None:
         conn.execute(
             "UPDATE projects SET template = 'template2_v3' WHERE template = 'Template-2'"
         )
+
+        # --- Migration: consultant_groups.status column ---
+        try:
+            conn.execute(
+                "ALTER TABLE consultant_groups ADD COLUMN status TEXT NOT NULL DEFAULT 'Active'"
+            )
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1819,26 +1828,28 @@ def reverse_write_off(write_off_id: int, reason: str) -> None:
 def get_consultant_groups() -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, emp_nbr, consultant, group_name FROM consultant_groups ORDER BY consultant"
+            "SELECT id, emp_nbr, consultant, group_name, status FROM consultant_groups ORDER BY consultant"
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 def upsert_consultant_group(consultant: str, group_name: str,
-                            emp_nbr: str | None = None) -> None:
+                            emp_nbr: str | None = None,
+                            status: str | None = None) -> None:
     with get_connection() as conn:
         row = conn.execute(
             "SELECT id FROM consultant_groups WHERE consultant = ?", (consultant,)
         ).fetchone()
         if row:
             conn.execute(
-                "UPDATE consultant_groups SET group_name=?, emp_nbr=COALESCE(?,emp_nbr) WHERE id=?",
-                (group_name, emp_nbr, row["id"])
+                "UPDATE consultant_groups SET group_name=?, emp_nbr=COALESCE(?,emp_nbr), "
+                "status=COALESCE(?,status) WHERE id=?",
+                (group_name, emp_nbr, status, row["id"])
             )
         else:
             conn.execute(
-                "INSERT INTO consultant_groups (consultant, group_name, emp_nbr) VALUES (?,?,?)",
-                (consultant, group_name, emp_nbr)
+                "INSERT INTO consultant_groups (consultant, group_name, emp_nbr, status) VALUES (?,?,?,?)",
+                (consultant, group_name, emp_nbr, status or "Active")
             )
 
 

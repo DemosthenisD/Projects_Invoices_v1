@@ -57,8 +57,13 @@ consultants = (
     all_consultants if ar_group == "All"
     else [cg for cg in all_consultants if cg["group_name"] == ar_group]
 )
+# Hide Local consultants marked Inactive (status managed in Consultant Groups tab)
+consultants = [
+    cg for cg in consultants
+    if not (cg["group_name"] == "Local" and cg.get("status", "Active") == "Inactive")
+]
 if not consultants:
-    st.info(f"No consultants in group '{ar_group}'.")
+    st.info(f"No active consultants in group '{ar_group}'.")
     st.stop()
 
 consultant_options = {cg["consultant"]: cg for cg in consultants}
