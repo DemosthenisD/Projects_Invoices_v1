@@ -1,4 +1,4 @@
-"""Page 12 — Billing Basis
+"""Page 11 — Billing Basis
 
 Annual billing summary per consultant used as the basis for productivity-bonus calculation.
 Supports two input modes:
@@ -22,6 +22,7 @@ from backend.db import (
     get_billing_basis,
     get_billing_basis_from_time_entries,
     upsert_billing_basis,
+    get_billing_basis_summary,
 )
 
 if not st.session_state.get("authenticated"):
@@ -297,44 +298,151 @@ with tab_saved:
     if not saved_rows:
         st.info(f"No billing basis saved for {year} yet.")
     else:
-        _name_map = {cg["emp_nbr"]: cg["consultant"] for cg in get_consultant_groups() if cg.get("emp_nbr")}
-        records = []
-        for b in saved_rows:
-            derived = _derive({
-                "billed": b.billed, "capped_paid_prebill": b.capped_paid_prebill,
-                "capped_unpaid_prebill": b.capped_unpaid_prebill, "charged_off": b.charged_off,
-                "paid": b.paid, "unbilled": b.unbilled, "hourly_rate": b.hourly_rate,
-            })
-            records.append({
-                "Emp #":             b.emp_nbr,
-                "Consultant":        _name_map.get(b.emp_nbr, ""),
-                "Billed €":          b.billed,
-                "Capped Paid €":     b.capped_paid_prebill,
-                "Capped Unpaid €":   b.capped_unpaid_prebill,
-                "Charged Off €":     b.charged_off,
-                "Paid €":            b.paid,
-                "Unbilled €":        b.unbilled,
-                "Hrly Rate":         b.hourly_rate,
-                "Source":            b.source,
-                **derived,
-            })
-        df_saved = pd.DataFrame(records)
-        st.dataframe(
-            df_saved,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Billed €":          st.column_config.NumberColumn(format="€%.2f"),
-                "Capped Paid €":     st.column_config.NumberColumn(format="€%.2f"),
-                "Capped Unpaid €":   st.column_config.NumberColumn(format="€%.2f"),
-                "Charged Off €":     st.column_config.NumberColumn(format="€%.2f"),
-                "Paid €":            st.column_config.NumberColumn(format="€%.2f"),
-                "Unbilled €":        st.column_config.NumberColumn(format="€%.2f"),
-                "Grand Total €":     st.column_config.NumberColumn(format="€%.2f"),
-                "Basis for Bonus €": st.column_config.NumberColumn(format="€%.2f"),
-                "Equiv Hrs":         st.column_config.NumberColumn(format="%.1f hrs"),
-            },
-        )
+        _all_cg_sv = get_consultant_groups()
+        _name_map  = {cg["emp_nbr"]: cg["consultant"] for cg in _all_cg_sv if cg.get("emp_nbr")}
+        _grp_map   = {cg["emp_nbr"]: cg["group_name"]  for cg in _all_cg_sv if cg.get("emp_nbr")}
+
+        # Group filter
+        _sv_groups    = sorted({_grp_map.get(b.emp_nbr, "Other") for b in saved_rows})
+        _sv_grp_opts  = ["All"] + _sv_groups
+        _sv_grp_sel   = st.radio("Filter by Group", _sv_grp_opts, horizontal=True, key="sv_grp")
+
+        # View mode toggle
+        VIEW_MODES = [
+            "By Consultant",
+            "By Group",
+            "By Consultant → Project",
+            "By Project",
+            "By Project → Group",
+            "By Project → Consultant",
+            "By Project → Group → Consultant",
+        ]
+        sv_view = st.selectbox("Re-arrange to Show By", VIEW_MODES, key="sv_view")
+
+        _MONEY_COLS = ["Billed €", "Capped Paid €", "Capped Unpaid €",
+                       "Charged Off €", "Paid €", "Unbilled €",
+                       "Grand Total €", "Basis for Bonus €"]
+        _HR_COL = "Equiv Hrs"
+
+        def _sv_fmt(df_in: pd.DataFrame) -> "pd.io.formats.style.Styler":
+            mc = [c for c in _MONEY_COLS if c in df_in.columns]
+            hc = [c for c in [_HR_COL] if c in df_in.columns]
+            return (
+                df_in.style
+                .format({c: "{:,.0f}" for c in mc})
+                .format({c: "{:,.1f}" for c in hc})
+            )
+
+        def _totals_sv(df_in: pd.DataFrame, label_col: str, label: str = "TOTAL") -> pd.DataFrame:
+            mc = [c for c in _MONEY_COLS + [_HR_COL] if c in df_in.columns]
+            row = {c: df_in[c].sum() if c in mc else ("" if c != label_col else label)
+                   for c in df_in.columns}
+            return pd.concat([df_in, pd.DataFrame([row])], ignore_index=True)
+
+        if sv_view in ("By Consultant", "By Group", "By Consultant → Project",
+                       "By Project", "By Project → Group",
+                       "By Project → Consultant", "By Project → Group → Consultant"):
+
+            if sv_view in ("By Project", "By Project → Group",
+                           "By Project → Consultant", "By Project → Group → Consultant",
+                           "By Consultant → Project"):
+                # Use time_entry data to get project breakdown
+                proj_data = get_billing_basis_summary(year)
+                if _sv_grp_sel != "All":
+                    proj_data = [r for r in proj_data if r["group_name"] == _sv_grp_sel]
+                if not proj_data:
+                    st.info("No time entry data for the selected year / group.")
+                else:
+                    pj_df = pd.DataFrame(proj_data)
+
+                    if sv_view == "By Consultant → Project":
+                        pj_agg = (pj_df.groupby(["consultant", "group_name", "project_name", "client_name"],
+                                                  as_index=False)
+                                  .agg({"billable_charges": "sum", "billable_hrs": "sum"})
+                                  .rename(columns={"consultant": "Consultant", "group_name": "Group",
+                                                   "project_name": "Project", "client_name": "Client",
+                                                   "billable_charges": "Paid €", "billable_hrs": "Equiv Hrs"}))
+                        pj_agg = _totals_sv(pj_agg, "Consultant")
+                        st.dataframe(_sv_fmt(pj_agg), use_container_width=True, hide_index=True)
+
+                    elif sv_view == "By Project":
+                        pj_agg = (pj_df.groupby(["project_name", "client_name"], as_index=False)
+                                  .agg({"billable_charges": "sum", "billable_hrs": "sum"})
+                                  .rename(columns={"project_name": "Project", "client_name": "Client",
+                                                   "billable_charges": "Paid €", "billable_hrs": "Equiv Hrs"}))
+                        pj_agg = _totals_sv(pj_agg, "Project")
+                        st.dataframe(_sv_fmt(pj_agg), use_container_width=True, hide_index=True)
+
+                    elif sv_view == "By Project → Group":
+                        pj_agg = (pj_df.groupby(["project_name", "client_name", "group_name"], as_index=False)
+                                  .agg({"billable_charges": "sum", "billable_hrs": "sum"})
+                                  .rename(columns={"project_name": "Project", "client_name": "Client",
+                                                   "group_name": "Group",
+                                                   "billable_charges": "Paid €", "billable_hrs": "Equiv Hrs"}))
+                        pj_agg = _totals_sv(pj_agg, "Project")
+                        st.dataframe(_sv_fmt(pj_agg), use_container_width=True, hide_index=True)
+
+                    elif sv_view == "By Project → Consultant":
+                        pj_agg = (pj_df.groupby(["project_name", "client_name", "consultant"], as_index=False)
+                                  .agg({"billable_charges": "sum", "billable_hrs": "sum"})
+                                  .rename(columns={"project_name": "Project", "client_name": "Client",
+                                                   "consultant": "Consultant",
+                                                   "billable_charges": "Paid €", "billable_hrs": "Equiv Hrs"}))
+                        pj_agg = _totals_sv(pj_agg, "Project")
+                        st.dataframe(_sv_fmt(pj_agg), use_container_width=True, hide_index=True)
+
+                    elif sv_view == "By Project → Group → Consultant":
+                        pj_agg = (pj_df.groupby(
+                            ["project_name", "client_name", "group_name", "consultant"], as_index=False)
+                                  .agg({"billable_charges": "sum", "billable_hrs": "sum"})
+                                  .rename(columns={"project_name": "Project", "client_name": "Client",
+                                                   "group_name": "Group", "consultant": "Consultant",
+                                                   "billable_charges": "Paid €", "billable_hrs": "Equiv Hrs"}))
+                        pj_agg = _totals_sv(pj_agg, "Project")
+                        st.dataframe(_sv_fmt(pj_agg), use_container_width=True, hide_index=True)
+
+            else:
+                # Consultant-level views from saved billing_basis table
+                records = []
+                for b in saved_rows:
+                    grp = _grp_map.get(b.emp_nbr, "Other")
+                    if _sv_grp_sel != "All" and grp != _sv_grp_sel:
+                        continue
+                    derived = _derive({
+                        "billed": b.billed, "capped_paid_prebill": b.capped_paid_prebill,
+                        "capped_unpaid_prebill": b.capped_unpaid_prebill, "charged_off": b.charged_off,
+                        "paid": b.paid, "unbilled": b.unbilled, "hourly_rate": b.hourly_rate,
+                    })
+                    records.append({
+                        "Consultant":        _name_map.get(b.emp_nbr, b.emp_nbr),
+                        "Group":             grp,
+                        "Billed €":          float(b.billed),
+                        "Capped Paid €":     float(b.capped_paid_prebill),
+                        "Capped Unpaid €":   float(b.capped_unpaid_prebill),
+                        "Charged Off €":     float(b.charged_off),
+                        "Paid €":            float(b.paid),
+                        "Unbilled €":        float(b.unbilled),
+                        "Grand Total €":     float(derived["Grand Total €"]),
+                        "Basis for Bonus €": float(derived["Basis for Bonus €"]),
+                        "Equiv Hrs":         float(derived["Equiv Hrs"]),
+                        "Productivity Bonus":derived["Productivity Bonus"],
+                        "Source":            b.source,
+                    })
+
+                if not records:
+                    st.info("No records for the selected group.")
+                else:
+                    df_saved = pd.DataFrame(records)
+
+                    if sv_view == "By Group":
+                        grp_agg = (df_saved.groupby("Group", as_index=False)
+                                   [_MONEY_COLS + [_HR_COL]].sum())
+                        grp_agg = _totals_sv(grp_agg, "Group")
+                        st.dataframe(_sv_fmt(grp_agg), use_container_width=True, hide_index=True)
+                    else:
+                        # By Consultant (default)
+                        df_saved = _totals_sv(df_saved, "Consultant")
+                        st.dataframe(_sv_fmt(df_saved), use_container_width=True, hide_index=True)
 
         buf = _export_billing_basis_excel(saved_rows, year)
         st.download_button(

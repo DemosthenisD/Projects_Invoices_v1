@@ -1484,6 +1484,94 @@ def get_team_time_summary(
     return [dict(r) for r in rows]
 
 
+def get_team_time_summary_by_project(
+    period_from: str | None = None,
+    period_to: str | None = None,
+    group_names: list[str] | None = None,
+) -> list[dict]:
+    """Cross-client billable per consultant per project.
+
+    Returns: consultant, group_name, project, client, billable_hrs, billable_charges.
+    Joined by consultant name (not emp_nbr) to handle multiple historical emp_nbrs.
+    """
+    q = """
+        SELECT
+            te.consultant,
+            COALESCE(cg.group_name, 'Other') AS group_name,
+            COALESCE(p.name, '(unknown project)') AS project,
+            COALESCE(c.name, '(unknown client)')  AS client,
+            SUM(te.non_z_hours)   AS billable_hrs,
+            SUM(te.non_z_charges) AS billable_charges
+        FROM time_entries te
+        LEFT JOIN consultant_groups cg ON cg.consultant = te.consultant
+        LEFT JOIN projects p ON p.id = te.project_id
+        LEFT JOIN clients  c ON c.id = p.client_id
+    """
+    params: list = []
+    filters: list[str] = []
+    if period_from:
+        filters.append("te.period >= ?"); params.append(period_from)
+    if period_to:
+        filters.append("te.period <= ?"); params.append(period_to)
+    if group_names:
+        ph = ",".join("?" * len(group_names))
+        filters.append(f"COALESCE(cg.group_name,'Other') IN ({ph})")
+        params.extend(group_names)
+    if filters:
+        q += " WHERE " + " AND ".join(filters)
+    q += (" GROUP BY te.consultant, cg.group_name, te.project_id"
+          " ORDER BY te.consultant, billable_charges DESC")
+    with get_connection() as conn:
+        rows = conn.execute(q, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_time_summary_by_year(project_id: int) -> list[dict]:
+    """Per-year, per-code billable hours and charges for a project (for Rollup year-by-year view)."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                SUBSTR(te.period, 1, 4) AS year,
+                pc.client_code, pc.client_suffix, pc.name AS code_name,
+                SUM(te.non_z_hours)   AS billable_hrs,
+                SUM(te.non_z_charges) AS billable_charges,
+                SUM(te.z_hours)       AS internal_hrs
+            FROM time_entries te
+            JOIN project_codes pc ON pc.id = te.project_code_id
+            WHERE te.project_id = ?
+            GROUP BY year, te.project_code_id
+            ORDER BY year DESC, pc.client_code
+        """, (project_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_billing_basis_summary(year: int) -> list[dict]:
+    """Billing basis for a year joined with consultant name and group, for view-toggle modes.
+
+    Returns: emp_nbr, consultant, group_name, project_id, project_name, client_name,
+             non_z_charges (from time_entries for that year per project per consultant).
+    Used for project-centric views in Billing Basis page.
+    """
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                te.consultant,
+                COALESCE(cg.group_name, 'Other') AS group_name,
+                COALESCE(p.name, '(no project)') AS project_name,
+                COALESCE(c.name, '(no client)')  AS client_name,
+                SUM(te.non_z_charges) AS billable_charges,
+                SUM(te.non_z_hours)   AS billable_hrs
+            FROM time_entries te
+            LEFT JOIN consultant_groups cg ON cg.consultant = te.consultant
+            LEFT JOIN projects p ON p.id = te.project_id
+            LEFT JOIN clients  c ON c.id = p.client_id
+            WHERE te.period LIKE ?
+            GROUP BY te.consultant, cg.group_name, te.project_id
+            ORDER BY te.consultant, billable_charges DESC
+        """, (f"{year}%",)).fetchall()
+    return [dict(r) for r in rows]
+
+
 def delete_time_batch(batch_ref: str) -> int:
     with get_connection() as conn:
         cur = conn.execute("DELETE FROM time_entries WHERE batch_ref = ?", (batch_ref,))
@@ -1585,6 +1673,8 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
             p.id          AS project_id,
             c.name        AS client,
             c.client_code,
+            c.client_type,
+            c.country,
             p.name        AS project,
             p.status,
             COUNT(DISTINCT pc.id)                       AS code_count,
@@ -1593,6 +1683,8 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
             COALESCE(wo_all.write_offs,       0)        AS write_offs,
             COALESCE(inv_all.invoiced,        0)        AS invoiced
             {sel}
+            , COALESCE(grp_info.groups_with_hours, '')       AS groups_with_hours
+            , COALESCE(grp_info.consultants_with_hours, '')  AS consultants_with_hours
         FROM projects p
         JOIN clients c ON c.id = p.client_id
         LEFT JOIN project_codes pc ON pc.project_id = p.id
@@ -1602,6 +1694,14 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
                    FROM write_offs WHERE reversed=0 GROUP BY project_id) wo_all ON wo_all.project_id = p.id
         LEFT JOIN (SELECT project_id, SUM(amount) AS invoiced
                    FROM invoices GROUP BY project_id) inv_all ON inv_all.project_id = p.id
+        LEFT JOIN (
+            SELECT te.project_id,
+                   GROUP_CONCAT(DISTINCT COALESCE(cg.group_name, 'Other')) AS groups_with_hours,
+                   GROUP_CONCAT(DISTINCT te.consultant) AS consultants_with_hours
+            FROM time_entries te
+            LEFT JOIN consultant_groups cg ON cg.consultant = te.consultant
+            GROUP BY te.project_id
+        ) grp_info ON grp_info.project_id = p.id
         {inv_j} {te_j} {wo_j}
         GROUP BY p.id
         ORDER BY c.name, p.name
@@ -1619,6 +1719,8 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
             d["project_source"] = "NotBillable"
         else:
             d["project_source"] = _OFFICE_CODES.get(prefix, "Ext")
+        d["client_type"] = d.get("client_type") or "external"
+        d["country"]     = d.get("country") or ""
         result.append(d)
     return result
 

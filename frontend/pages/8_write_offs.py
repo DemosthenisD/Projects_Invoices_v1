@@ -1,5 +1,5 @@
 """
-Page 7 — Write-offs.
+Page 10 — Write-offs.
 
 Record and manage write-off decisions at project or code+person level.
 Write-offs reduce net billable charges without altering the underlying time entries.

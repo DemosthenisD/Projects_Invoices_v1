@@ -1,5 +1,5 @@
 """
-Page 9 — Project Overview.
+Page 8 — Project Overview.
 
 Full project-level financial summary across all clients with multi-select filters,
 year-by-year breakdown, and Excel export.
@@ -37,24 +37,34 @@ if not rows:
 
 df = pd.DataFrame(rows)
 cy = date.today().year
-years: list[int] = [cy - i for i in range(4)]   # e.g. [2026, 2025, 2024, 2023]
+years: list[int] = [cy - i for i in range(4)]
 
 # ------------------------------------------------------------------
-# Filters
+# Filters — row 1: Client, Status, Source
 # ------------------------------------------------------------------
-
-col1, col2, col3 = st.columns(3)
 
 all_clients  = sorted(df["client"].unique())
 all_statuses = sorted(df["status"].unique())
 all_sources  = sorted(df["project_source"].unique())
+all_types    = sorted(df["client_type"].unique())
+all_groups   = sorted({g for cell in df["groups_with_hours"] for g in cell.split(",") if g})
+all_consults = sorted({c for cell in df["consultants_with_hours"] for c in cell.split(",") if c})
 
+col1, col2, col3 = st.columns(3)
 with col1:
     client_sel = st.multiselect("Client", all_clients)
 with col2:
     status_sel = st.multiselect("Status", all_statuses, default=["Active"])
 with col3:
-    source_sel = st.multiselect("Source", all_sources)
+    source_sel = st.multiselect("Source / Office", all_sources)
+
+col4, col5, col6 = st.columns(3)
+with col4:
+    type_sel = st.multiselect("Type", all_types)
+with col5:
+    group_sel = st.multiselect("Consultant Group", all_groups)
+with col6:
+    consult_sel = st.multiselect("Consultant", all_consults)
 
 filtered = df.copy()
 if client_sel:
@@ -63,18 +73,44 @@ if status_sel:
     filtered = filtered[filtered["status"].isin(status_sel)]
 if source_sel:
     filtered = filtered[filtered["project_source"].isin(source_sel)]
+if type_sel:
+    filtered = filtered[filtered["client_type"].isin(type_sel)]
+if group_sel:
+    filtered = filtered[filtered["groups_with_hours"].apply(
+        lambda v: any(g in v.split(",") for g in group_sel)
+    )]
+if consult_sel:
+    filtered = filtered[filtered["consultants_with_hours"].apply(
+        lambda v: any(c in v.split(",") for c in consult_sel)
+    )]
 
 # ------------------------------------------------------------------
 # Summary metrics
 # ------------------------------------------------------------------
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Projects",    len(filtered))
-c2.metric("Budget (€)",  f"{filtered['budget'].sum():,.0f}")
-c3.metric("Billable (€)",f"{filtered['billable_charges'].sum():,.0f}")
-c4.metric("Invoiced (€)",f"{filtered['invoiced'].sum():,.0f}")
+c1.metric("Projects",     len(filtered))
+c2.metric("Budget (€)",   f"{filtered['budget'].sum():,.0f}")
+c3.metric("Billable (€)", f"{filtered['billable_charges'].sum():,.0f}")
+c4.metric("Invoiced (€)", f"{filtered['invoiced'].sum():,.0f}")
 
 st.divider()
+
+# ------------------------------------------------------------------
+# Shared helpers
+# ------------------------------------------------------------------
+
+_MONEY_FMT = "{:,.0f}"
+_MONEY2_FMT = "{:,.2f}"
+
+def _style_money(df_in: pd.DataFrame, cols: list[str], dec: int = 0) -> "pd.io.formats.style.Styler":
+    fmt = _MONEY_FMT if dec == 0 else _MONEY2_FMT
+    return df_in.style.format({c: fmt for c in cols if c in df_in.columns}, na_rep="—")
+
+def _totals_row(display: pd.DataFrame, label_col: str, label: str, num_cols: list[str]) -> pd.DataFrame:
+    row = {c: display[c].sum() if c in num_cols else ("" if c != label_col else label)
+           for c in display.columns}
+    return pd.concat([display, pd.DataFrame([row])], ignore_index=True)
 
 # ------------------------------------------------------------------
 # View toggle
@@ -82,18 +118,17 @@ st.divider()
 
 view = st.radio("View", ["Summary", "Year-by-Year"], horizontal=True, label_visibility="collapsed")
 
-def _fmt(x):
-    return f"{x:,.0f}" if x else "—"
+_NUM_COLS = ["Budget (€)", "Billable (€)", "Write-offs (€)", "Net (€)", "Invoiced (€)", "Remaining (€)"]
 
 if view == "Summary":
-    _num_cols = ["budget", "billable_charges", "write_offs", "net_charges", "invoiced", "remaining"]
     display = filtered[[
-        "client", "project", "project_source", "code_count",
-        *_num_cols, "status",
+        "client", "project", "project_source", "client_type", "code_count",
+        "budget", "billable_charges", "write_offs", "net_charges", "invoiced", "remaining", "status",
     ]].rename(columns={
         "client":           "Client",
         "project":          "Project",
         "project_source":   "Source",
+        "client_type":      "Type",
         "code_count":       "Codes",
         "budget":           "Budget (€)",
         "billable_charges": "Billable (€)",
@@ -104,82 +139,49 @@ if view == "Summary":
         "status":           "Status",
     })
 
-    # Totals row (computed before string formatting)
-    _totals = {
-        "Client": "TOTAL", "Project": "", "Source": "",
-        "Codes":        int(display["Codes"].sum()),
-        "Budget (€)":   display["Budget (€)"].sum(),
-        "Billable (€)": display["Billable (€)"].sum(),
-        "Write-offs (€)": display["Write-offs (€)"].sum(),
-        "Net (€)":      display["Net (€)"].sum(),
-        "Invoiced (€)": display["Invoiced (€)"].sum(),
-        "Remaining (€)": display["Remaining (€)"].sum(),
-        "Status": "",
-    }
-    display = pd.concat([display, pd.DataFrame([_totals])], ignore_index=True)
-
-    _money_cols = ["Budget (€)", "Billable (€)", "Write-offs (€)", "Net (€)", "Invoiced (€)", "Remaining (€)"]
-    n_data = len(display) - 1   # index of totals row
-    for col in _money_cols:
-        display[col] = [
-            _fmt(v) if i < n_data else f"{float(v):,.0f}"
-            for i, v in enumerate(display[col])
-        ]
-
-    st.dataframe(display, use_container_width=True, hide_index=True)
+    display = _totals_row(display, "Client", "TOTAL", _NUM_COLS)
+    st.dataframe(
+        _style_money(display, _NUM_COLS),
+        use_container_width=True, hide_index=True,
+    )
 
 else:
     if f"invoiced_{years[0]}" not in filtered.columns:
         st.warning(
-            "Year-by-year columns are not available in the cached data. "
-            "Please **restart the Streamlit server** to reload the updated database module, then revisit this page."
+            "Year-by-year columns not available — restart the Streamlit server and revisit this page."
         )
         st.stop()
 
-    # Year-by-year view: one section per metric group
-    base_cols = ["client", "project", "status"]
+    base_cols   = ["client", "project", "status"]
     base_rename = {"client": "Client", "project": "Project", "status": "Status"}
 
-    for metric, label, prefix in [
-        ("invoiced",    "Invoiced (€)",          "invoiced"),
-        ("charges",     "Time Charges (€)",       "charges"),
-        ("write_offs",  "Write-offs (€)",         "writeoffs"),
+    for prefix, total_col, label in [
+        ("invoiced",  "invoiced",         "Invoiced (€)"),
+        ("charges",   "billable_charges", "Time Charges (€)"),
+        ("writeoffs", "write_offs",       "Write-offs (€)"),
     ]:
-        # Total column + per-year columns
         yr_cols = {f"{prefix}_{yr}": str(yr) for yr in years}
-        cols_needed = base_cols + [metric] + list(yr_cols.keys())
-        # write_offs total key differs from prefix
-        if metric == "write_offs":
-            total_col = "write_offs"
-        elif metric == "invoiced":
-            total_col = "invoiced"
-        else:
-            total_col = "billable_charges"
-
-        cols_needed = base_cols + [total_col] + list(yr_cols.keys())
-        tbl = filtered[cols_needed].copy().rename(columns={
+        tbl = filtered[base_cols + [total_col] + list(yr_cols)].copy().rename(columns={
             **base_rename,
-            total_col: f"Total — {label}",
-            **{k: v for k, v in yr_cols.items()},
+            total_col: f"Total",
+            **yr_cols,
         })
-        for col in [f"Total — {label}"] + list(yr_cols.values()):
-            tbl[col] = tbl[col].map(_fmt)
-
+        num_cols = ["Total"] + [str(yr) for yr in years]
+        tbl = _totals_row(tbl, "Client", "TOTAL", num_cols)
         st.subheader(label)
-        st.dataframe(tbl, use_container_width=True, hide_index=True)
+        st.dataframe(_style_money(tbl, num_cols), use_container_width=True, hide_index=True)
         st.divider()
 
 # ------------------------------------------------------------------
-# Export to Excel  (always exports both views)
+# Export to Excel
 # ------------------------------------------------------------------
 
 def _build_excel(data: pd.DataFrame, yrs: list[int]) -> bytes:
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        # Summary sheet
         summary_cols = {
             "client": "Client", "project": "Project", "project_source": "Source",
-            "code_count": "Codes", "budget": "Budget (€)",
+            "client_type": "Type", "code_count": "Codes", "budget": "Budget (€)",
             "billable_charges": "Billable (€)", "write_offs": "Write-offs (€)",
             "net_charges": "Net (€)", "invoiced": "Invoiced (€)",
             "remaining": "Remaining (€)", "status": "Status",
@@ -187,8 +189,6 @@ def _build_excel(data: pd.DataFrame, yrs: list[int]) -> bytes:
         data[list(summary_cols)].rename(columns=summary_cols).to_excel(
             writer, sheet_name="Summary", index=False
         )
-
-        # Year-by-year sheet
         yby_cols = {"client": "Client", "project": "Project", "status": "Status"}
         for yr in yrs:
             yby_cols[f"invoiced_{yr}"]  = f"Invoiced {yr}"
