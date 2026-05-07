@@ -110,7 +110,8 @@ def _build_review_excel(
         updated_sal_v = (salary_rec.starting_salary if salary_rec else 0) + total_raise_v
         obj_pct_v     = salary_rec.objective_bonus_pct if salary_rec else 0
         total_bonus_v = prod_pct + obj_pct_v
-        bonus_v       = updated_sal_v * total_bonus_v
+        start_sal_v   = salary_rec.starting_salary if salary_rec else 0
+        bonus_v       = start_sal_v * total_bonus_v
         summary_data = {
             "Field": [
                 "Consultant", "Emp #", "Year", "Assessor", "Date of Assessment",
@@ -324,7 +325,7 @@ with st.expander("1 — Compensation & Bonus", expanded=True):
         total_raise   = exam_raise + other_raise
         updated_sal   = start_sal + total_raise
         total_bonus   = prod_pct + obj_bonus_pct
-        bonus_amount  = updated_sal * total_bonus
+        bonus_amount  = start_sal * total_bonus
 
         st.subheader("Computed Results")
         m1, m2, m3, m4, m5 = st.columns(5)
@@ -444,7 +445,7 @@ with st.expander("3 — Summary & Export", expanded=False):
     updated_sal_s  = (salary_rec.starting_salary if salary_rec else 0) + total_raise_s
     obj_pct_s      = salary_rec.objective_bonus_pct if salary_rec else 0
     total_bonus_s  = prod_pct + obj_pct_s
-    bonus_amount_s = updated_sal_s * total_bonus_s
+    bonus_amount_s = (salary_rec.starting_salary if salary_rec else 0) * total_bonus_s
 
     st.subheader(f"Review Summary — {selected_name} — {review_year}")
     col_l, col_r = st.columns(2)

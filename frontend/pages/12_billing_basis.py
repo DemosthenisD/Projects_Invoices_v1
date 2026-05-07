@@ -128,58 +128,67 @@ with tab_auto:
             st.session_state["_bb_auto_rows"] = rows
 
     if "_bb_auto_rows" in st.session_state:
-        rows = st.session_state["_bb_auto_rows"]
-        records = []
-        for r in rows:
-            derived = _derive(r)
-            records.append({
-                "Emp #":            r["emp_nbr"],
-                "Consultant":       r.get("consultant", ""),
-                "Billed €":         r["billed"],
-                "Capped Paid €":    r["capped_paid_prebill"],
-                "Capped Unpaid €":  r["capped_unpaid_prebill"],
-                "Charged Off €":    r["charged_off"],
-                "Paid €":           r["paid"],
-                "Unbilled €":       r["unbilled"],
-                **derived,
-            })
-        df = pd.DataFrame(records)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        _all_auto_rows = st.session_state["_bb_auto_rows"]
+        _grp_lookup = {cg["emp_nbr"]: cg["group_name"] for cg in _all_cg if cg.get("emp_nbr")}
+        rows = (
+            _all_auto_rows if group_filter == "All"
+            else [r for r in _all_auto_rows if _grp_lookup.get(r["emp_nbr"], "Other") == group_filter]
+        )
 
-        with st.form("form_auto_save"):
-            st.caption("Hourly rates below are required to compute equivalent hours. Enter before saving.")
-            rate_rows = []
+        if not rows:
+            st.info(f"No time entries found for group '{group_filter}' in {year}.")
+        else:
+            records = []
             for r in rows:
-                existing = get_billing_basis(r["emp_nbr"], year)
-                default_rate = existing.hourly_rate if existing else 0.0
-                rate_rows.append((r["emp_nbr"], r.get("consultant", r["emp_nbr"]), default_rate))
+                derived = _derive(r)
+                records.append({
+                    "Emp #":            r["emp_nbr"],
+                    "Consultant":       r.get("consultant", ""),
+                    "Billed €":         r["billed"],
+                    "Capped Paid €":    r["capped_paid_prebill"],
+                    "Capped Unpaid €":  r["capped_unpaid_prebill"],
+                    "Charged Off €":    r["charged_off"],
+                    "Paid €":           r["paid"],
+                    "Unbilled €":       r["unbilled"],
+                    **derived,
+                })
+            df = pd.DataFrame(records)
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
-            rate_cols = st.columns(min(len(rate_rows), 4))
-            rates: dict[str, float] = {}
-            for i, (emp, name, default_rate) in enumerate(rate_rows):
-                col = rate_cols[i % len(rate_cols)]
-                rates[emp] = col.number_input(
-                    f"{name} rate (€/hr)", value=float(default_rate),
-                    min_value=0.0, step=5.0, key=f"auto_rate_{emp}"
-                )
-
-            if st.form_submit_button("Save Auto Basis"):
+            with st.form("form_auto_save"):
+                st.caption("Hourly rates below are required to compute equivalent hours. Enter before saving.")
+                rate_rows = []
                 for r in rows:
-                    upsert_billing_basis(
-                        emp_nbr=r["emp_nbr"],
-                        year=year,
-                        source="time_tracking",
-                        billed=r["billed"],
-                        capped_paid_prebill=r["capped_paid_prebill"],
-                        capped_unpaid_prebill=r["capped_unpaid_prebill"],
-                        charged_off=r["charged_off"],
-                        paid=r["paid"],
-                        unbilled=r["unbilled"],
-                        hourly_rate=rates.get(r["emp_nbr"], 0.0),
+                    existing = get_billing_basis(r["emp_nbr"], year)
+                    default_rate = existing.hourly_rate if existing else 0.0
+                    rate_rows.append((r["emp_nbr"], r.get("consultant", r["emp_nbr"]), default_rate))
+
+                rate_cols = st.columns(min(len(rate_rows), 4))
+                rates: dict[str, float] = {}
+                for i, (emp, name, default_rate) in enumerate(rate_rows):
+                    col = rate_cols[i % len(rate_cols)]
+                    rates[emp] = col.number_input(
+                        f"{name} rate (€/hr)", value=float(default_rate),
+                        min_value=0.0, step=5.0, key=f"auto_rate_{emp}"
                     )
-                del st.session_state["_bb_auto_rows"]
-                st.success(f"Saved billing basis for {len(rows)} consultant(s) — {year}.")
-                st.rerun()
+
+                if st.form_submit_button("Save Auto Basis"):
+                    for r in rows:
+                        upsert_billing_basis(
+                            emp_nbr=r["emp_nbr"],
+                            year=year,
+                            source="time_tracking",
+                            billed=r["billed"],
+                            capped_paid_prebill=r["capped_paid_prebill"],
+                            capped_unpaid_prebill=r["capped_unpaid_prebill"],
+                            charged_off=r["charged_off"],
+                            paid=r["paid"],
+                            unbilled=r["unbilled"],
+                            hourly_rate=rates.get(r["emp_nbr"], 0.0),
+                        )
+                    del st.session_state["_bb_auto_rows"]
+                    st.success(f"Saved billing basis for {len(rows)} consultant(s) — {year}.")
+                    st.rerun()
 
 # ── Manual Entry tab ─────────────────────────────────────────────────────────
 with tab_manual:

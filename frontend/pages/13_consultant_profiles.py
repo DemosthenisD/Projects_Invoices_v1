@@ -199,7 +199,7 @@ with tab_salary:
                 "Total Bonus %":      f"{bonus_pct:.2%}",
                 "Bonus Amount €":     bonus_amount,
                 "Bonus Paid €":       h.bonus_paid,
-                "Proposed Rate €/hr": h.proposed_rate,
+                "Proposed Rate for following year €/hr": h.proposed_rate,
             })
 
         df = pd.DataFrame(rows)
@@ -216,7 +216,7 @@ with tab_salary:
                 "Bonus Amount €":     st.column_config.NumberColumn(format="€%.0f"),
                 "Bonus Paid €":       st.column_config.NumberColumn(format="€%.0f"),
                 "Raise/Exam €":       st.column_config.NumberColumn(format="€%.0f"),
-                "Proposed Rate €/hr": st.column_config.NumberColumn(format="€%.0f"),
+                "Proposed Rate for following year €/hr": st.column_config.NumberColumn(format="€%.0f"),
             },
         )
 
@@ -351,7 +351,7 @@ with tab_rates:
             bb = get_billing_basis(emp_nbr, h.year)
             rate_rows.append({
                 "Year":                  h.year,
-                "Proposed Rate €/hr":    h.proposed_rate,
+                "Proposed Rate for following year €/hr":    h.proposed_rate,
                 "Billing Basis Rate €/hr": bb.hourly_rate if bb else "—",
                 "Source":                bb.source if bb else "—",
             })
