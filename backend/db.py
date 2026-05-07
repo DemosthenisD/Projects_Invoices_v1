@@ -1462,7 +1462,7 @@ def get_team_time_summary(
             SUM(te.z_charges)     AS internal_charges,
             SUM(te.total_hours)   AS total_hrs
         FROM time_entries te
-        LEFT JOIN consultant_groups cg ON cg.emp_nbr = te.emp_nbr
+        LEFT JOIN consultant_groups cg ON cg.consultant = te.consultant
     """
     params: list = []
     filters: list[str] = []
@@ -1478,7 +1478,7 @@ def get_team_time_summary(
         params.extend(group_names)
     if filters:
         q += " WHERE " + " AND ".join(filters)
-    q += " GROUP BY te.consultant, te.emp_nbr, cg.group_name, te.period ORDER BY te.consultant, te.period"
+    q += " GROUP BY te.consultant, cg.group_name, te.period ORDER BY te.consultant, te.period"
     with get_connection() as conn:
         rows = conn.execute(q, params).fetchall()
     return [dict(r) for r in rows]
