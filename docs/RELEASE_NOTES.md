@@ -2,6 +2,34 @@
 
 ---
 
+## Sprint 14 — Filters, Year-by-Year Views, Billing Basis View Modes & UX Polish (May 2026)
+
+> **Updates on 7 May 2026** — Major analysis and reporting improvements across five pages. (1) **Page 8 — Project Overview:** six filter controls (Client, Status, Source, Type, Consultant Group, Consultant); sorting on amount columns fixed (values kept numeric, displayed with comma thousands separator via pandas Styler); TOTAL row on all tables; Year-by-Year sub-table includes TOTAL column and TOTAL row. (2) **Page 9 — Time Tracking:** Rollup gains Client Type and Country filters; Year-by-Year toggle pivots codes × years with subtotals; Breakdown by Consultant section with Group radio filter; Team Summary adds "By Consultant & Project" drill-down table; Consultant Groups tab gains Group radio so only the selected group's consultants are shown. (3) **Page 11 — Billing Basis:** Saved Basis tab gains Group filter radio and a "Re-arrange to Show By" selector with 7 view modes (By Consultant, By Group, By Consultant → Project, By Project, By Project → Group, By Project → Consultant, By Project → Group → Consultant). (4) **Page 12 — Consultant Profiles:** Delete a Year Record section added to Salary History tab. (5) **Page 13 — Annual Review:** Group radio added before the consultant selector (defaults to Local). (6) **General:** comma thousands separator applied consistently across all amount columns in all tables; TOTAL subtotal rows on all amount tables. (7) **CSV Import:** encoding fallback chain (UTF-8-BOM → UTF-8 → Windows-1252 → Latin-1) fixes import failures for Excel-exported files containing special characters (e.g. en-dashes). (8) **Bug fix:** Team Summary "By Consultant" was incorrectly placing consultants with multiple historical employee numbers under "Other" — fixed by joining `consultant_groups` on consultant name instead of employee number. (9) **Docs:** USER_MANUAL.md fully rewritten with correct sidebar page numbers 1–14 and all new features documented.
+
+### DB Function Changes
+
+- `get_all_projects_overview()` — extended to return `client_type`, `country`, `groups_with_hours` (comma-separated list of consultant groups with billed hours), and `consultants_with_hours` (comma-separated list of consultant names) per project. Uses `GROUP_CONCAT(DISTINCT ...)` aggregation in a LEFT JOIN subquery.
+- `get_team_time_summary()` — JOIN to `consultant_groups` changed from `cg.emp_nbr = te.emp_nbr` to `cg.consultant = te.consultant`; `te.emp_nbr` removed from GROUP BY. Fixes incorrect group assignment for consultants with multiple historical employee numbers.
+- New `get_team_time_summary_by_project(period_from, period_to, group_names)` — consultant × project breakdown; joins by consultant name; orders by consultant then billable charges descending.
+- New `get_time_summary_by_year(project_id)` — per-code per-year pivot data for the Year-by-Year Rollup view.
+- New `get_billing_basis_summary(year)` — per consultant per project time charges for the project-centric Billing Basis view modes; joins by consultant name.
+
+### Page Changes
+
+- **Page 8 — Project Overview:** Filters expanded from 3 to 6 (added Type, Consultant Group, Consultant multiselects). Amount columns use `pandas Styler.format("{:,.0f}")` so sorting is correct and display uses comma thousands separator. TOTAL row on main table and Year-by-Year sub-tables. "Type" column added to summary view.
+- **Page 9 — Time Tracking:** Rollup — 6-control filter row (Client Type, Country, Client, Project, Period From, Period To); By Code vs Year-by-Year view toggle; Breakdown by Consultant section with Group radio. Team Summary — By Consultant & Project table added; all tables have TOTAL rows and comma-formatted amounts. Consultant Groups — Group radio added at top; consultants shown within selected group only.
+- **Page 11 — Billing Basis:** Saved Basis tab — Group filter radio; "Re-arrange to Show By" selectbox (7 modes); all views have TOTAL rows and comma-formatted amounts; project-centric views use time-entry amounts (noted in UI). Helper `_sv_fmt()` applies consistent Styler formatting; helper `_totals_sv()` builds TOTAL rows.
+- **Page 12 — Consultant Profiles:** "Delete a Year Record" section added below the Add/Edit form in the Salary History tab.
+- **Page 13 — Annual Review:** Group radio added above the consultant selectbox; filters the consultant list to the selected group (defaults to Local).
+- **Page 14 — Data Tables:** No functional change; page number updated in docstring to match sidebar (was referenced as Page 8 in earlier sprints).
+- **All pages:** Page number in module docstrings aligned to sidebar numbering (1–14).
+
+### Docs
+
+- **USER_MANUAL.md** — fully rewritten: corrected page numbers throughout (sidebar 1–14); added Page 13 Annual Review section (was missing); documented all new features for Pages 8, 9, 11, 12, 13; added FAQ entries for CSV encoding, sorting fix, and Billing Basis project-view data source.
+
+---
+
 ## Sprint 13 — Credit Notes, Partial Payments, Sorting & Group Filters (May 2026)
 
 > **Updates on 6 May 2026** — Eight improvements across five pages: (1) Generate Invoice now supports **Credit Notes** — a toggle switches document type; credit notes store a negative amount and share the same sequential counter as invoices; an optional "Credits invoice" reference field links to the original. (2) Invoice Log now has **sortable columns** (Date, Invoice ID, Amount, Client, Status, Type) with ascending/descending toggle. (3) Invoice Log gains a **Balance €** column showing gross minus payments received; legacy paid rows without payment records show `—`. (4) **Partial payments** supported — a `payments` table tracks each receipt; the log shows `✓ Pay` (full), `± Part.` (partial), and `↩ Reset` buttons; payment history shown as captions below each row. (5) Invoice filename fix — `/` in Invoice No (e.g. `1/2026`) was causing a `FileNotFoundError`; replaced with `-` in the generated filename. (6) Budget aggregation bug fixed — `SUM(DISTINCT)` on project codes with equal budgets was undercounting; replaced with a subquery aggregate. (7) **Sync completed project budgets** admin action added to Clients & Projects → Projects tab — auto-distributes total invoiced amount equally across any zero-budget codes for Completed projects. (8) **Add New Project** "Create new client" now includes Client Type and Country fields; project codes are optional for external and internal clients.

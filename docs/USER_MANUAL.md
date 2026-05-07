@@ -19,13 +19,19 @@ InvoiceApp is a personal billing management tool for Milliman Cyprus. It lets yo
 
 ### Home (App.py)
 
-The landing page after sign-in. Use the **left sidebar** to navigate between pages. All pages are listed in the sidebar at all times.
+The landing page after sign-in. Use the **left sidebar** to navigate between pages. All pages are listed in the sidebar at all times, grouped by section.
 
 **Sign in:** Enter your username and password. Your browser's saved-password feature will auto-complete these once you save them the first time.
 
 ---
 
-### Page 0 — Generate Invoice
+### How to Use
+
+A brief in-app orientation page. Always visible at the top of the sidebar (no number assigned).
+
+---
+
+### Page 1 — Generate Invoice
 
 **What it does:** Fills a Word template with invoice details, saves it to the `exports/` folder, and offers a download button. Also supports Credit Notes.
 
@@ -51,7 +57,7 @@ The landing page after sign-in. Use the **left sidebar** to navigate between pag
 
 ---
 
-### Page 1 — Invoice Log
+### Page 2 — Invoice Log
 
 **What it does:** Shows all recorded invoices and credit notes with sorting, filters, payment tracking, and per-row file download. A second tab lets you bulk-upload historical invoices.
 
@@ -96,7 +102,7 @@ Use this when you need to load several historical invoices at once.
 
 ---
 
-### Page 2 — Clients & Projects
+### Page 3 — Clients & Projects
 
 **What it does:** Manages client and project master data.
 
@@ -115,7 +121,37 @@ Use this when you need to load several historical invoices at once.
 
 ---
 
-### Page 3 — Pipeline / CRM
+### Page 4 — Add New Project
+
+**What it does:** A single flat form that creates a client (if new), a project, and any number of project codes in one step.
+
+**Sections:**
+
+1. **Client** — select an existing client or toggle to **Create new client**. If creating new, fill in: name, billing name, client code, VAT number, **Client Type** (managed / external / internal), and Country. If a client with the same name already exists, the existing record is reused and no duplicate is created.
+2. **Project** — name, description, VAT %, invoice template, and status.
+3. **Project Codes** — a row-per-code table. Use **+ Add row** / **− Remove last row** to adjust. For each row: suffix, name, budget, Date Start, Date End, and status. Project codes are **optional for external and internal clients** (overhead / non-billable); at least one code is required for managed clients.
+
+**Click Import to Database** — the app creates only what is missing. It is safe to run multiple times; no duplicates are created.
+
+**When to use instead of Page 5:** Use Page 4 when you are setting up an entirely new engagement. Use Page 5 when you need to add a single code to an existing project or edit an existing code.
+
+---
+
+### Page 5 — Project Codes
+
+**What it does:** Manages billing codes (client suffix) for each project. Each code has its own budget, date range, and status.
+
+The `client_code` portion (e.g. `0478EUR30`) is set automatically from the client record — you only need to enter the suffix (e.g. `07`). Together they form the full billing code (e.g. `0478EUR30-07`) used to match imported time entries.
+
+**To add a code:** Select client → project → fill in suffix, budget, and status.
+
+**Reusing a suffix across projects:** The same suffix can be used on a different project at a later time. Set **Date Start** (YYYY-MM-DD) on the new code to mark when this project takes over. Time entries are routed automatically: entries whose period falls before the Date Start belong to the original project; entries on or after belong to the new one. Leave Date End blank for open-ended codes.
+
+**Per-code metrics shown:** budget, billable charges, write-offs, remaining budget.
+
+---
+
+### Page 6 — Pipeline / CRM
 
 **What it does:** Tracks prospective and in-progress business opportunities with inline editing.
 
@@ -136,7 +172,7 @@ Filters (Stage, Client) apply before the table is rendered. Changes outside the 
 
 ---
 
-### Page 4 — Dashboard
+### Page 7 — Dashboard
 
 **What it does:** High-level financial overview.
 
@@ -144,38 +180,85 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 ---
 
-### Page 5 — Project Codes
+### Page 8 — Project Overview
 
-**What it does:** Manages billing codes (client suffix) for each project. Each code has its own budget, date range, and status.
+**What it does:** Full project-level financial summary across all clients.
 
-The `client_code` portion (e.g. `0478EUR30`) is set automatically from the client record — you only need to enter the suffix (e.g. `07`). Together they form the full billing code (e.g. `0478EUR30-07`) used to match imported time entries.
+**Columns:** Client | Type | Project | Source | Codes | Budget (€) | Billable (€) | Write-offs (€) | Net (€) | Invoiced (€) | Remaining (€) | Status
 
-**To add a code:** Select client → project → fill in suffix, budget, and status.
+**Project Source** is derived from the client code prefix:
+- `0478` → CY (Cyprus)
+- `0009` → NotBillable
+- Other → Other
 
-**Reusing a suffix across projects:** The same suffix can be used on a different project at a later time. Set **Date Start** (YYYY-MM-DD) on the new code to mark when this project takes over. Time entries are routed automatically: entries whose period falls before the Date Start belong to the original project; entries on or after belong to the new one. Leave Date End blank for open-ended codes.
+**Filters (6 multiselects):**
 
-**Per-code metrics shown:** budget, billable charges, write-offs, remaining budget.
+| Filter | Behaviour |
+|--------|-----------|
+| Client | Show only selected clients |
+| Status | Default: Active only; add On Hold / Completed as needed |
+| Source / Office | Filter by derived source (CY / NotBillable / Other) |
+| Type | Filter by client type (managed / external / internal) |
+| Consultant Group | Show only projects where at least one consultant in the selected group has billed hours |
+| Consultant | Show only projects where the selected consultant has billed hours |
+
+**Sorting:** Click any column header. Amount columns sort numerically (not lexicographically) — billable totals sort correctly regardless of magnitude.
+
+**Subtotals:** A **TOTAL** row is appended at the bottom of the main table and each sub-table, aggregating all visible amounts with comma thousands separators.
+
+**Year-by-Year view:** Expands under each project to show per-code, per-year breakdown of billable hours, charges, and internal hours. Each of the three sub-tables (hours, charges, internal) has a TOTAL column and TOTAL row.
+
+**Export to Excel:** Downloads all visible rows.
 
 ---
 
-### Page 6 — Time Tracking
+### Page 9 — Time Tracking
 
 **What it does:** Imports monthly time-charge reports and provides rollup views.
 
 **Import tab:**
-1. Upload a CSV file in the standard format (see `sample_time_sheet.csv`).
+1. Upload a CSV file in the standard format (see `sample_time_sheet.csv`). Files encoded in UTF-8, UTF-8-BOM, or Windows-1252 (common Excel export encoding) are all handled automatically.
 2. Unmatched codes (combinations not in the project codes table) are shown before import.
 3. Click **Confirm Import** to load entries. Duplicate rows (same period/employee/code) are skipped.
 
 **Entries tab:** Browse imported time entries by client, project, and period. Delete an entire import batch if needed.
 
-**Rollup tab:** Project-level and per-code summary of billable hours, charges, write-offs, and net. Also shows a Local / ICEE / Other breakdown by consultant group.
+**Rollup tab:** Project-level and per-code summary of billable hours, charges, write-offs, and net.
 
-**Consultant Groups tab:** Assign each consultant to Local, ICEE, or Other. Pre-populated from the ICEE Plan CY Excel on first seed.
+*Filters (6 controls):*
+
+| Control | Description |
+|---------|-------------|
+| Client Type | Filter by managed / external / internal |
+| Country | Filter by client country |
+| Client | Filter by specific client (multiselect) |
+| Project | Filter by specific project (multiselect) |
+| Period From | Earliest period to include (e.g. `202401`) |
+| Period To | Latest period to include (e.g. `202412`) |
+
+*View toggle:*
+- **By Code (current):** Standard per-code table for the selected project with a TOTAL row.
+- **Year-by-Year:** Pivot showing each code as a row and each calendar year as a column, so you can compare across years at a glance. TOTAL column and TOTAL row included.
+
+*Breakdown sections (below the main table, filtered by the same period):*
+- **Breakdown by Group:** Billable hours and charges per consultant group (Local / ICEE / Other), with TOTAL row.
+- **Breakdown by Consultant:** Group radio at top to filter the list; per-consultant billable hours and charges table with TOTAL row.
+
+**Team Summary tab:** Shows aggregate hours and charges across all projects and periods.
+
+*Three sub-sections:*
+- **By Consultant:** Each consultant's total billable hours and charges, grouped by consultant group, with a TOTAL row. Group radio at top to pre-filter.
+- **By Consultant & Project:** Same as By Consultant but drills one level deeper — each consultant row expands to show the individual projects they billed on, with hours and charges per project. TOTAL row per consultant and overall.
+- **Period pivot:** Consultant × period matrix showing billable hours and charges broken down by month.
+
+**Consultant Groups tab:** Assign each consultant to Local, ICEE, or Other.
+- **Group radio** at the top selects which group to view (defaults to Local).
+- Only the consultants in the selected group are shown, in alphabetically sorted expanders.
+- Pre-populated from the ICEE Plan CY Excel on first seed.
 
 ---
 
-### Page 7 — Write-offs
+### Page 10 — Write-offs
 
 **What it does:** Records write-offs against projects (reductions in billable amount).
 
@@ -188,46 +271,7 @@ The `client_code` portion (e.g. `0478EUR30`) is set automatically from the clien
 
 ---
 
-### Page 8 — Data Tables
-
-**What it does:** Direct view of all underlying database tables for inspection and editing.
-
-Use the tabs to switch between tables. The **"Open DB"** button shows the full path of the database file and opens the containing folder in File Explorer. To edit the DB directly, download [DB Browser for SQLite](https://sqlitebrowser.org/dl/) — it provides a spreadsheet-style interface with no coding required.
-
----
-
-### Page 11 — Add New Project
-
-**What it does:** A single flat form that creates a client (if new), a project, and any number of project codes in one step.
-
-**Sections:**
-
-1. **Client** — select an existing client or toggle to **Create new client**. If creating new, fill in: name, billing name, client code, VAT number, **Client Type** (managed / external / internal), and Country. If a client with the same name already exists, the existing record is reused and no duplicate is created.
-2. **Project** — name, description, VAT %, invoice template, and status.
-3. **Project Codes** — a row-per-code table. Use **+ Add row** / **− Remove last row** to adjust. For each row: suffix, name, budget, Date Start, Date End, and status. Project codes are **optional for external and internal clients** (overhead / non-billable); at least one code is required for managed clients.
-
-**Click Import to Database** — the app creates only what is missing. It is safe to run multiple times; no duplicates are created.
-
-**When to use instead of Page 5:** Use Page 11 when you are setting up an entirely new engagement. Use Page 5 when you need to add a single code to an existing project or edit an existing code.
-
----
-
-### Page 9 — Project Overview
-
-**What it does:** Full project-level financial summary across all clients.
-
-Columns: Client | Project | Source | Codes | Budget (€) | Billable (€) | Write-offs (€) | Net (€) | Invoiced (€) | Remaining (€) | Status
-
-**Project_Source** is derived from the client code prefix:
-- `0478` → CY (Cyprus)
-- `0009` → NotBillable
-- Other → Other
-
-Filters: Client, Status, Source (multi-select). Export to Excel available.
-
----
-
-### Page 12 — Billing Basis
+### Page 11 — Billing Basis
 
 **What it does:** Annual billing summary per consultant, used as the basis for productivity-bonus calculation.
 
@@ -237,7 +281,23 @@ Filters: Client, Status, Source (multi-select). Export to Excel available.
 
 - **Auto (from Time Tracking):** Aggregates `non_z_charges` per consultant from imported time entries for the selected year. Write-offs are mapped to the Charged Off column. Click **Load from Time Tracking** to preview, then enter hourly rates and click **Save Auto Basis**.
 - **Manual Entry:** Spreadsheet-style table matching the bonus template's Sheet5 layout (Billed / Capped Paid Prebill / Capped Unpaid Prebill / Charged Off / Paid / Unbilled). A computed summary below shows Grand Total, Basis for Bonus, Equivalent Hours, and Productivity Bonus % live as you type. Click **Save Manual Basis** to persist.
-- **Saved Basis:** Read-only view of all saved rows for the year. Export to Excel available.
+- **Saved Basis:** Read-only view of all saved rows for the year.
+
+  *Group filter:* Radio above the table restricts the display to the selected group (Local / ICEE / Other / All).
+
+  *Re-arrange to Show By:* A selectbox with 7 view modes:
+
+  | Mode | Description |
+  |------|-------------|
+  | By Consultant | Default view — one row per consultant with all billing columns and derived metrics |
+  | By Group | Aggregated per consultant group (Local / ICEE / Other) |
+  | By Consultant → Project | Per consultant, broken down by project; uses time-entry amounts |
+  | By Project | Aggregated per project across all consultants; uses time-entry amounts |
+  | By Project → Group | Per project, broken down by consultant group |
+  | By Project → Consultant | Per project, broken down by individual consultant |
+  | By Project → Group → Consultant | Full three-level drill-down: project → group → consultant |
+
+  All views include a TOTAL row and comma-separated thousands in all amount columns. Export to Excel available.
 
 **Derived values (computed, not stored):**
 - **Grand Total** = sum of all six billing columns.
@@ -247,7 +307,7 @@ Filters: Client, Status, Source (multi-select). Export to Excel available.
 
 ---
 
-### Page 13 — Consultant Profiles
+### Page 12 — Consultant Profiles
 
 **What it does:** Extended master data and salary history per consultant.
 
@@ -257,7 +317,39 @@ Filters: Client, Status, Source (multi-select). Export to Excel available.
 
 - **Profile:** Employment start date, prior experience (years before Milliman), Milliman professional status, external level, current role, languages, tools, and notes. Years at Milliman and total experience computed and shown automatically.
 - **Salary History:** Year-by-year salary chain. Add or edit year records with: starting salary (auto-carried from prior year's updated salary), exams passed, raise per exam, other/discretionary raise, effective date, objective bonus %, bonus paid (historical), and proposed billing rate. A live preview shows Exam Raise, Total Raise, and Updated Salary as you type. Productivity Bonus % is pulled automatically from the saved Billing Basis for that year.
+
+  **Delete a Year Record:** A separate section below the Add/Edit form lets you select a year from a dropdown and permanently delete that salary record. A warning is shown before deletion.
+
 - **Rates by Year:** Side-by-side view of Proposed Rate (from Salary History) and Billing Basis Rate (from Billing Basis) per year.
+
+---
+
+### Page 13 — Annual Review
+
+**What it does:** Per-consultant annual assessment form combining compensation, performance scores, and a formatted review summary.
+
+**Selector:** Group radio (Local / ICEE / Other / All — defaults to Local), then individual consultant selectbox filtered to the chosen group.
+
+**Sections:**
+
+1. **Compensation:** Auto-pulls productivity bonus % from the saved Billing Basis. Salary chain computed live (starting salary → exam raise → other raise → updated salary → bonus amount). Proposed billing rate compared to the Billing Basis hourly rate.
+
+2. **Performance Scores:** Three groups with a configurable number of scored items:
+   - *Professionalism* (7 items)
+   - *Management* (6 items — shown for all consultants; set to 0 for non-managers)
+   - *Social Skills* (5 items)
+
+   Historical comparison against 3 prior years is shown alongside the current year's scores.
+
+3. **Summary:** Formatted review card showing the consultant's full compensation and performance summary. **Export to Excel** downloads a workbook with a Summary sheet and a Performance Scores sheet.
+
+---
+
+### Page 14 — Data Tables
+
+**What it does:** Direct view of all underlying database tables for inspection and editing.
+
+Use the tabs to switch between tables. The **"Open DB"** button shows the full path of the database file and opens the containing folder in File Explorer. To edit the DB directly, download [DB Browser for SQLite](https://sqlitebrowser.org/dl/) — it provides a spreadsheet-style interface with no coding required.
 
 ---
 
@@ -279,10 +371,10 @@ Copy `data/invoiceapp.db` and the `exports/` folder to a safe location. That is 
 Yes — set a **Date Start** on the new project code (YYYY-MM-DD). Time entries whose period falls on or after that date are automatically routed to the new project; earlier entries stay with the original. Leave Date End blank on both codes unless you want an explicit end date. Only one code per suffix may have a blank Date Start (the original first use).
 
 **How do I record a partial payment on an invoice?**
-In the Invoice Log, click the **± Part.** button on the invoice row to open an inline form. Enter the amount received, the date, and an optional note. Click **Record Payment**. The invoice status changes to Partial, and the Balance € column updates to show the remaining amount. Repeat for subsequent receipts. Click **↩ Reset** to clear all payment records and revert to Outstanding.
+In the Invoice Log (Page 2), click the **± Part.** button on the invoice row to open an inline form. Enter the amount received, the date, and an optional note. Click **Record Payment**. The invoice status changes to Partial, and the Balance € column updates to show the remaining amount. Repeat for subsequent receipts. Click **↩ Reset** to clear all payment records and revert to Outstanding.
 
 **How do I issue a Credit Note?**
-On the Generate Invoice page, toggle **Document type** to Credit Note. Enter the net amount as a positive number (it is stored as negative automatically). Optionally enter the original Invoice No being credited. Click Generate. The credit note appears in the Invoice Log with a 🔄 icon and the referenced invoice number shown as a caption.
+On Page 1 — Generate Invoice, toggle **Document type** to Credit Note. Enter the net amount as a positive number (it is stored as negative automatically). Optionally enter the original Invoice No being credited. Click Generate. The credit note appears in the Invoice Log with a 🔄 icon and the referenced invoice number shown as a caption.
 
 **What do the client types mean?**
 - **managed** — standard consulting clients with full project tracking, budgets, and invoices.
@@ -291,3 +383,12 @@ On the Generate Invoice page, toggle **Document type** to Credit Note. Enter the
 
 **Why can't I see a consultant in the Billing Basis or Consultant Profiles page?**
 These pages default to the Local group filter. Use the Group radio at the top to switch to ICEE, Other, or All.
+
+**Time-charge CSV import fails with a Unicode error — what do I do?**
+The importer automatically tries UTF-8, UTF-8-BOM, Windows-1252, and Latin-1 encodings in sequence. If your file was exported from Excel on Windows (common for files containing special characters such as en-dashes), it is likely Windows-1252 and will be handled automatically. If the import still fails, open the file in Excel and re-save it as CSV UTF-8.
+
+**The Project Overview sort on amount columns doesn't seem to work correctly — is that fixed?**
+Yes. Amount columns are stored as numbers internally and displayed with comma thousands separators. Clicking a column header sorts numerically (e.g. 86,541 → 70,000 → 3,168), not lexicographically.
+
+**Where do the Billing Basis "By Project" view amounts come from?**
+The `billing_basis` table stores amounts at the consultant level, not per project. For all project-centric view modes (By Project and below), the app uses time-entry charges aggregated per project. This is noted in the UI. The consultant-level modes (By Consultant, By Group) use the saved Billing Basis amounts.
