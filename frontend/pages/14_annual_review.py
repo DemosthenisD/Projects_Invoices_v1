@@ -47,23 +47,12 @@ if not all_consultants:
     st.info("No consultants found. Import time entries first.")
     st.stop()
 
-_all_groups_ar = sorted({cg["group_name"] for cg in all_consultants})
-ar_group = st.radio(
-    "Group", ["All"] + _all_groups_ar,
-    index=(["All"] + _all_groups_ar).index("Local") if "Local" in _all_groups_ar else 0,
-    horizontal=True,
-)
-consultants = (
-    all_consultants if ar_group == "All"
-    else [cg for cg in all_consultants if cg["group_name"] == ar_group]
-)
-# Hide Local consultants marked Inactive (status managed in Consultant Groups tab)
 consultants = [
-    cg for cg in consultants
-    if not (cg["group_name"] == "Local" and cg.get("status", "Active") == "Inactive")
+    cg for cg in all_consultants
+    if cg["group_name"] == "Local" and cg.get("status", "Active") == "Active"
 ]
 if not consultants:
-    st.info(f"No active consultants in group '{ar_group}'.")
+    st.info("No active Local consultants found. Check Consultant Groups (Page 9).")
     st.stop()
 
 consultant_options = {cg["consultant"]: cg for cg in consultants}
@@ -152,6 +141,17 @@ def _build_review_excel(
     return buf.read()
 
 
+def _unique_colleagues(raw: str, exclude_name: str) -> str:
+    """Return a deduplicated, self-excluded comma-separated colleagues string."""
+    seen: set[str] = set()
+    unique: list[str] = []
+    for n in (p.strip() for p in raw.split(",") if p.strip()):
+        if n not in seen and n != exclude_name:
+            seen.add(n)
+            unique.append(n)
+    return ", ".join(unique)
+
+
 def _generate_feedback_docx(
     name: str,
     assessor: str,
@@ -219,7 +219,7 @@ def _generate_feedback_docx(
             assign += f" — {proj['description']}"
         row.cells[0].text = proj["client"]
         row.cells[1].text = assign
-        row.cells[2].text = proj["colleagues"]
+        row.cells[2].text = _unique_colleagues(proj["colleagues"], name)
         row.cells[3].text = f"{proj['hours_pct']:.0f}%"
 
     # Table 3 — Assessment: score + comments + development ideas per area
@@ -672,14 +672,14 @@ with st.expander("4 — Feedback Form Export", expanded=False):
                     _aggregate_rows.append(_p)
             final_proj_rows = _included_rows
             if _aggregate_rows:
-                _agg_colleagues = ", ".join(
-                    c for c in {r["colleagues"] for r in _aggregate_rows} if c
+                _all_agg_colleagues = ", ".join(
+                    r["colleagues"] for r in _aggregate_rows if r["colleagues"]
                 )
                 final_proj_rows.append({
                     "client":        "",
                     "project_name":  "Other Projects",
                     "description":   "",
-                    "colleagues":    _agg_colleagues,
+                    "colleagues":    _unique_colleagues(_all_agg_colleagues, selected_name),
                     "hours_pct":     sum(r["hours_pct"] for r in _aggregate_rows),
                     "fees_pct":      sum(r["fees_pct"] for r in _aggregate_rows),
                 })
