@@ -41,17 +41,21 @@ if not all_consultants:
     st.stop()
 
 all_groups = sorted({cg["group_name"] for cg in all_consultants})
-group_filter = st.radio(
-    "Group", ["All"] + all_groups,
-    index=(["All"] + all_groups).index("Local") if "Local" in all_groups else 0,
-    horizontal=True,
+_default_groups = ["Local"] if "Local" in all_groups else all_groups[:1]
+fc1, fc2 = st.columns(2)
+group_filter = fc1.multiselect(
+    "Consultant Team", all_groups, default=_default_groups, key="cp_group_filter"
 )
-consultants = (
-    all_consultants if group_filter == "All"
-    else [cg for cg in all_consultants if cg["group_name"] == group_filter]
+status_filter = fc2.multiselect(
+    "Employment Status", ["Active", "Inactive"], default=["Active"], key="cp_status_filter"
 )
+consultants = [
+    cg for cg in all_consultants
+    if (not group_filter or cg["group_name"] in group_filter)
+    and (not status_filter or cg.get("status", "Active") in status_filter)
+]
 if not consultants:
-    st.info(f"No consultants in group '{group_filter}'.")
+    st.info("No consultants match the selected filters.")
     st.stop()
 
 consultant_options = {cg["consultant"]: cg for cg in consultants}

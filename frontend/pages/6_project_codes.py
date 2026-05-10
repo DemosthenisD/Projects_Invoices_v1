@@ -40,9 +40,20 @@ st.session_state.setdefault("_add_code_v", 0)
 # Client → Project selector
 # ------------------------------------------------------------------
 
-clients = db.get_clients()
-if not clients:
+all_clients = db.get_clients()
+if not all_clients:
     st.info("Add a client first (Clients & Projects page).")
+    st.stop()
+
+# Pre-filters
+CLIENT_TYPES = ["managed", "external", "internal"]
+pf1, pf2 = st.columns([2, 4])
+all_types = sorted({c.client_type for c in all_clients if c.client_type})
+type_prefilter = pf1.multiselect("Client Type", all_types, key="pc_type_filter",
+                                  help="Filter the client list by type")
+clients = [c for c in all_clients if not type_prefilter or c.client_type in type_prefilter]
+if not clients:
+    st.info("No clients match the selected type filter.")
     st.stop()
 
 col_client, col_project = st.columns(2)

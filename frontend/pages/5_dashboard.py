@@ -3,14 +3,17 @@ Page 4 — Revenue Dashboard.
 
 Features:
   - Year selector (current year default)
+  - Global Client / Client Type / Country multiselect filters
+  - YTD metrics: absolute + % change vs same-period prior year
   - Monthly revenue bar chart (net vs gross)
-  - Revenue by client bar chart
-  - VAT summary table (net + VAT + gross)
-  - YTD vs prior year comparison metrics
+  - Revenue by client bar chart with client multiselect
+  - VAT summary table
+  - Pipeline forecast
 """
 import sys
 import os
 from datetime import date as date_type
+from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -19,17 +22,9 @@ import pandas as pd
 
 import backend.db as db
 
-# ------------------------------------------------------------------
-# Auth guard
-# ------------------------------------------------------------------
-
 if not st.session_state.get("authenticated", False):
     st.warning("Please sign in from the Home page.")
     st.stop()
-
-# ------------------------------------------------------------------
-# Page setup
-# ------------------------------------------------------------------
 
 st.title("Revenue Dashboard")
 
@@ -50,51 +45,111 @@ selected_year = st.selectbox("Year", all_years, index=0)
 prior_year = selected_year - 1
 
 # ------------------------------------------------------------------
-# Load analytics data
+# Load detailed invoice data for both years
 # ------------------------------------------------------------------
 
 @st.cache_data(ttl=120)
-def _monthly(year):
-    return db.get_monthly_revenue(year)
+def _detail(year):
+    return db.get_invoices_detailed(year)
 
-@st.cache_data(ttl=120)
-def _by_client(year):
-    return db.get_revenue_by_client(year)
-
-monthly_data   = _monthly(selected_year)
-client_data    = _by_client(selected_year)
-prior_monthly  = _monthly(prior_year)
-prior_client   = _by_client(prior_year)
+cur_rows  = _detail(selected_year)
+prev_rows = _detail(prior_year)
 
 # ------------------------------------------------------------------
-# Helper: totals
+# Global filters: Client Type, Country, Client
 # ------------------------------------------------------------------
 
-def _totals(monthly_rows: list[dict]) -> tuple[float, float, float]:
-    net   = sum(r["net"]   or 0 for r in monthly_rows)
-    vat   = sum(r["vat"]   or 0 for r in monthly_rows)
-    gross = sum(r["gross"] or 0 for r in monthly_rows)
-    return net, vat, gross
+all_types     = sorted({r["client_type"] for r in cur_rows if r.get("client_type")})
+all_countries = sorted({r["country"] for r in cur_rows if r.get("country")})
+all_clients   = sorted({r["client"] for r in cur_rows if r.get("client")})
 
-ytd_net,   ytd_vat,   ytd_gross   = _totals(monthly_data)
-prior_net, prior_vat, prior_gross = _totals(prior_monthly)
+fc1, fc2, fc3 = st.columns(3)
+f_types    = fc1.multiselect("Client Type", all_types,    key="dash_types")
+f_countries= fc2.multiselect("Country",     all_countries, key="dash_countries")
+f_clients  = fc3.multiselect("Client",      all_clients,   key="dash_clients")
+
+def _apply_filters(rows):
+    out = rows
+    if f_types:
+        out = [r for r in out if r.get("client_type") in f_types]
+    if f_countries:
+        out = [r for r in out if r.get("country") in f_countries]
+    if f_clients:
+        out = [r for r in out if r.get("client") in f_clients]
+    return out
+
+cur_f  = _apply_filters(cur_rows)
+prev_f = _apply_filters(prev_rows)
 
 # ------------------------------------------------------------------
-# YTD vs prior year metrics
+# Same-period cutoff: if viewing current year, limit prior year to
+# the same months (Jan → current month).
 # ------------------------------------------------------------------
 
-st.subheader(f"YTD {selected_year} vs {prior_year}")
+cutoff_month = date_type.today().month if selected_year == current_year else 12
+prev_same_period = [
+    r for r in prev_f
+    if r.get("month") and int(r["month"].split("-")[1]) <= cutoff_month
+]
 
-def _delta(current: float, prior: float) -> str:
+# ------------------------------------------------------------------
+# Aggregate helpers
+# ------------------------------------------------------------------
+
+def _sum(rows, field):
+    return sum(r.get(field) or 0 for r in rows)
+
+ytd_net   = _sum(cur_f, "net")
+ytd_vat   = _sum(cur_f, "vat")
+ytd_gross = _sum(cur_f, "gross")
+
+prior_net   = _sum(prev_same_period, "net")
+prior_vat   = _sum(prev_same_period, "vat")
+prior_gross = _sum(prev_same_period, "gross")
+
+# ------------------------------------------------------------------
+# YTD metrics
+# ------------------------------------------------------------------
+
+period_label = (
+    f"Jan–{'JFMAMJJASOND'[cutoff_month-1:cutoff_month]} {selected_year}"
+    if selected_year == current_year
+    else str(selected_year)
+)
+prior_period_label = (
+    f"Jan–{'JFMAMJJASOND'[cutoff_month-1:cutoff_month]} {prior_year}"
+    if selected_year == current_year
+    else str(prior_year)
+)
+
+# Build the abbreviated month name properly
+import calendar
+month_abbr = calendar.month_abbr[cutoff_month]
+period_label       = f"Jan–{month_abbr} {selected_year}" if selected_year == current_year else str(selected_year)
+prior_period_label = f"Jan–{month_abbr} {prior_year}"   if selected_year == current_year else str(prior_year)
+
+st.subheader(f"YTD {period_label} vs {prior_period_label}")
+
+def _pct_change(current: float, prior: float) -> float | None:
     if prior == 0:
         return None
-    pct = (current - prior) / prior * 100
-    return f"{pct:+.1f}%"
+    return (current - prior) / prior * 100
+
+def _metric(label, cur, pri):
+    pct = _pct_change(cur, pri)
+    arrow = ("↑" if pct >= 0 else "↓") if pct is not None else ""
+    pct_str = f" ({pct:+.1f}% {arrow})" if pct is not None else ""
+    main_val = f"€{cur:,.0f}{pct_str}"
+    delta_str = f"vs {prior_period_label}: €{pri:,.0f}" if pri else None
+    st.metric(label, main_val, delta_str)
 
 col1, col2, col3 = st.columns(3)
-col1.metric("Net revenue (€)",   f"{ytd_net:,.0f}",   _delta(ytd_net,   prior_net))
-col2.metric("VAT collected (€)", f"{ytd_vat:,.0f}",   _delta(ytd_vat,   prior_vat))
-col3.metric("Gross (€)",         f"{ytd_gross:,.0f}", _delta(ytd_gross, prior_gross))
+with col1:
+    _metric("Net Revenue (€)", ytd_net, prior_net)
+with col2:
+    _metric("VAT Collected (€)", ytd_vat, prior_vat)
+with col3:
+    _metric("Gross Revenue (€)", ytd_gross, prior_gross)
 
 st.divider()
 
@@ -104,13 +159,19 @@ st.divider()
 
 st.subheader(f"Monthly Revenue — {selected_year}")
 
-if monthly_data:
-    df_monthly = pd.DataFrame(monthly_data)
-    df_monthly = df_monthly.rename(columns={"month": "Month", "net": "Net (€)", "gross": "Gross (€)"})
-    df_monthly = df_monthly.set_index("Month")
+if cur_f:
+    monthly_agg: dict = defaultdict(lambda: {"net": 0.0, "gross": 0.0})
+    for r in cur_f:
+        m = r.get("month") or "Unknown"
+        monthly_agg[m]["net"]   += r.get("net") or 0
+        monthly_agg[m]["gross"] += r.get("gross") or 0
+    df_monthly = pd.DataFrame([
+        {"Month": m, "Net (€)": v["net"], "Gross (€)": v["gross"]}
+        for m, v in sorted(monthly_agg.items())
+    ]).set_index("Month")
     st.bar_chart(df_monthly[["Net (€)", "Gross (€)"]])
 else:
-    st.info(f"No invoice data for {selected_year}.")
+    st.info(f"No invoice data for {selected_year} matching the selected filters.")
 
 st.divider()
 
@@ -120,14 +181,31 @@ st.divider()
 
 st.subheader(f"Revenue by Client — {selected_year}")
 
-if client_data:
-    df_clients = pd.DataFrame(client_data)
-    df_clients = df_clients.rename(columns={"client": "Client", "net": "Net (€)", "vat": "VAT (€)"})
-    df_clients["Gross (€)"] = df_clients["Net (€)"] + df_clients["VAT (€)"]
-    df_clients = df_clients.set_index("Client")
-    st.bar_chart(df_clients[["Net (€)", "Gross (€)"]])
+if cur_f:
+    client_agg: dict = defaultdict(lambda: {"net": 0.0, "vat": 0.0})
+    for r in cur_f:
+        cl = r.get("client") or "Unknown"
+        client_agg[cl]["net"] += r.get("net") or 0
+        client_agg[cl]["vat"] += r.get("vat") or 0
+    df_clients_all = pd.DataFrame([
+        {"Client": cl, "Net (€)": v["net"], "VAT (€)": v["vat"],
+         "Gross (€)": v["net"] + v["vat"]}
+        for cl, v in sorted(client_agg.items(), key=lambda x: -x[1]["net"])
+    ])
+
+    # Client-level multiselect inside Revenue by Client section
+    _chart_client_opts = df_clients_all["Client"].tolist()
+    _chart_clients = st.multiselect(
+        "Filter clients in chart", _chart_client_opts, key="dash_chart_clients",
+        help="Leave empty to show all"
+    )
+    df_chart = (
+        df_clients_all[df_clients_all["Client"].isin(_chart_clients)]
+        if _chart_clients else df_clients_all
+    ).set_index("Client")
+    st.bar_chart(df_chart[["Net (€)", "Gross (€)"]])
 else:
-    st.info(f"No client data for {selected_year}.")
+    st.info(f"No client data for {selected_year} matching the selected filters.")
 
 st.divider()
 
@@ -137,25 +215,29 @@ st.divider()
 
 st.subheader(f"VAT Summary — {selected_year}")
 
-if monthly_data:
-    df_vat = pd.DataFrame(monthly_data)
-    df_vat = df_vat.rename(columns={
-        "month": "Month", "net": "Net (€)", "vat": "VAT (€)", "gross": "Gross (€)"
-    })
-    totals_row = pd.DataFrame([{
+if cur_f:
+    monthly_vat: dict = defaultdict(lambda: {"net": 0.0, "vat": 0.0, "gross": 0.0})
+    for r in cur_f:
+        m = r.get("month") or "Unknown"
+        monthly_vat[m]["net"]   += r.get("net") or 0
+        monthly_vat[m]["vat"]   += r.get("vat") or 0
+        monthly_vat[m]["gross"] += r.get("gross") or 0
+    vat_rows = [
+        {"Month": m, "Net (€)": v["net"], "VAT (€)": v["vat"], "Gross (€)": v["gross"]}
+        for m, v in sorted(monthly_vat.items())
+    ]
+    totals_row = {
         "Month": "TOTAL",
-        "Net (€)":   ytd_net,
-        "VAT (€)":   ytd_vat,
-        "Gross (€)": ytd_gross,
-    }])
-    df_vat = pd.concat([df_vat, totals_row], ignore_index=True)
+        "Net (€)": ytd_net, "VAT (€)": ytd_vat, "Gross (€)": ytd_gross,
+    }
+    df_vat = pd.DataFrame(vat_rows + [totals_row])
     st.dataframe(
         df_vat.style.format({"Net (€)": "{:,.2f}", "VAT (€)": "{:,.2f}", "Gross (€)": "{:,.2f}"}),
         use_container_width=True,
         hide_index=True,
     )
 else:
-    st.info(f"No VAT data for {selected_year}.")
+    st.info(f"No VAT data for {selected_year} matching the selected filters.")
 
 st.divider()
 

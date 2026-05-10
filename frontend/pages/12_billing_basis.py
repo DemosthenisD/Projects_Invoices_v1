@@ -47,7 +47,7 @@ year = col_yr.selectbox(
 _all_cg = get_consultant_groups()
 _all_groups = sorted({cg["group_name"] for cg in _all_cg})
 group_filter = col_grp.radio(
-    "Group",
+    "Consultant Team",
     ["All"] + _all_groups,
     index=(["All"] + _all_groups).index("Local") if "Local" in _all_groups else 0,
     horizontal=True,

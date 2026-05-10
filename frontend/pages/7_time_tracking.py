@@ -38,7 +38,7 @@ if not st.session_state.get("authenticated", False):
 st.title("Time Tracking")
 
 tab_import, tab_entries, tab_rollup, tab_summary, tab_groups = st.tabs(
-    ["Import", "Entries", "Rollup", "Team Summary", "Consultant Groups"]
+    ["Import", "Entries", "Rollup", "Team Summary", "Consultant Teams"]
 )
 
 # Expected CSV columns (fixed format matching sample_time_sheet.csv)
@@ -254,47 +254,75 @@ with tab_import:
 with tab_entries:
     st.subheader("Time Entries")
 
-    clients = db.get_clients()
-    if not clients:
+    _te_all_clients = db.get_clients()
+    if not _te_all_clients:
         st.info("No clients yet.")
         st.stop()
 
-    # Row 1 — client / project / period / billable
-    fcols = st.columns([2, 2, 1, 1, 1])
-    f_client = fcols[0].selectbox("Client", ["All"] + [c.name for c in clients],
-                                  key="te_client_filter")
-    client_obj = next((c for c in clients if c.name == f_client), None)
+    # Row 1 — Client (multi), Type (multi), Country (multi), period, billable
+    _te_all_types     = sorted({c.client_type for c in _te_all_clients if c.client_type})
+    _te_all_countries = sorted({c.country for c in _te_all_clients if c.country})
+    fcols = st.columns([3, 2, 2, 1, 1, 1])
+    f_clients  = fcols[0].multiselect("Client", [c.name for c in _te_all_clients], key="te_client_filter")
+    f_types    = fcols[1].multiselect("Client Type", _te_all_types, key="te_type_filter")
+    f_countries= fcols[2].multiselect("Country", _te_all_countries, key="te_country_filter")
+    f_period_from = fcols[3].text_input("Period from", placeholder="yyyymm", key="te_pf")
+    f_period_to   = fcols[4].text_input("Period to",   placeholder="yyyymm", key="te_pt")
+    f_billable    = fcols[5].checkbox("Billable only", key="te_bill")
 
-    projects = db.get_projects(client_id=client_obj.id) if client_obj else []
-    f_project = fcols[1].selectbox(
-        "Project", ["All"] + [p.name for p in projects], key="te_project_filter"
-    )
-    project_obj = next((p for p in projects if p.name == f_project), None)
+    # Derive filtered client set for project multiselect
+    _te_visible_clients = [
+        c for c in _te_all_clients
+        if (not f_clients or c.name in f_clients)
+        and (not f_types or c.client_type in f_types)
+        and (not f_countries or c.country in f_countries)
+    ]
+    _te_client_ids = {c.id for c in _te_visible_clients}
 
-    f_period_from = fcols[2].text_input("Period from", placeholder="yyyymm", key="te_pf")
-    f_period_to   = fcols[3].text_input("Period to",   placeholder="yyyymm", key="te_pt")
-    f_billable    = fcols[4].checkbox("Billable only", key="te_bill")
-
-    # Row 2 — consultant / group filters (applied in Python after fetch)
+    # Row 2 — Project (multi from visible clients), Consultant Team, Consultant
     _all_cg = db.get_consultant_groups()
     _all_groups = sorted({cg["group_name"] for cg in _all_cg})
-    gcols = st.columns([2, 4])
-    f_group = gcols[0].selectbox("Group", ["All"] + _all_groups, key="te_group_filter")
+    r2cols = st.columns([3, 2, 4])
+    _te_all_projects = db.get_projects() if not f_clients and not f_types and not f_countries else []
+    if _te_visible_clients:
+        _te_proj_list: list = []
+        for _c in _te_visible_clients:
+            _te_proj_list.extend(db.get_projects(client_id=_c.id))
+    else:
+        _te_proj_list = []
+    f_projects = r2cols[0].multiselect("Project", [p.name for p in _te_proj_list], key="te_project_filter")
+    f_group = r2cols[1].selectbox("Consultant Team", ["All"] + _all_groups, key="te_group_filter")
     _consultants_in_group = (
         [cg["consultant"] for cg in _all_cg]
         if f_group == "All"
         else [cg["consultant"] for cg in _all_cg if cg["group_name"] == f_group]
     )
-    f_consultants = gcols[1].multiselect("Consultant(s)", sorted(_consultants_in_group),
-                                          key="te_consultant_filter")
+    f_consultants = r2cols[2].multiselect("Consultant(s)", sorted(_consultants_in_group),
+                                           key="te_consultant_filter")
 
-    entries = db.get_time_entries(
-        project_id=project_obj.id if project_obj else None,
-        period_from=f_period_from or None,
-        period_to=f_period_to or None,
-        consultants=f_consultants if f_consultants else None,
-        include_internal=not f_billable,
-    )
+    # Fetch and filter entries
+    _selected_proj_ids = [p.id for p in _te_proj_list if p.name in f_projects] if f_projects else None
+    if _selected_proj_ids and len(_selected_proj_ids) == 1:
+        entries = db.get_time_entries(
+            project_id=_selected_proj_ids[0],
+            period_from=f_period_from or None,
+            period_to=f_period_to or None,
+            consultants=f_consultants if f_consultants else None,
+            include_internal=not f_billable,
+        )
+    else:
+        entries = db.get_time_entries(
+            period_from=f_period_from or None,
+            period_to=f_period_to or None,
+            consultants=f_consultants if f_consultants else None,
+            include_internal=not f_billable,
+        )
+        # Apply multi-project and client filters in Python
+        if _selected_proj_ids:
+            entries = [e for e in entries if e.project_id in _selected_proj_ids]
+        elif _te_client_ids and (f_clients or f_types or f_countries):
+            _te_proj_ids_from_clients = {p.id for p in _te_proj_list}
+            entries = [e for e in entries if e.project_id in _te_proj_ids_from_clients]
 
     if not entries:
         st.info("No entries match the current filters.")
@@ -465,42 +493,42 @@ with tab_rollup:
                 _con_acc[_e.consultant]["billable_chg"] += _e.non_z_charges
 
             grp_rows = [
-                {"Group": grp, "Bill Hrs": v["billable_hrs"], "Bill €": v["billable_chg"]}
+                {"Consultant Team": grp, "Bill Hrs": v["billable_hrs"], "Bill €": v["billable_chg"]}
                 for grp, v in sorted(_grp_acc.items())
                 if v["billable_hrs"] > 0 or v["billable_chg"] > 0
             ]
             if grp_rows:
                 st.divider()
-                st.subheader(f"Breakdown by Consultant Group{_period_note}")
+                st.subheader(f"Breakdown by Consultant Team{_period_note}")
                 _grp_df = pd.DataFrame(grp_rows)
-                _tot_grp = {"Group": "TOTAL", "Bill Hrs": _grp_df["Bill Hrs"].sum(),
+                _tot_grp = {"Consultant Team": "TOTAL", "Bill Hrs": _grp_df["Bill Hrs"].sum(),
                             "Bill €": _grp_df["Bill €"].sum()}
                 dataframe_with_total(_grp_df, _tot_grp, {"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"})
 
-            # Breakdown by Consultant with optional Group filter
+            # Breakdown by Consultant with optional Consultant Team filter
             con_rows = [
-                {"Consultant": con, "Group": v["group"],
+                {"Consultant": con, "Consultant Team": v["group"],
                  "Bill Hrs": v["billable_hrs"], "Bill €": v["billable_chg"]}
                 for con, v in sorted(_con_acc.items())
                 if v["billable_hrs"] > 0 or v["billable_chg"] > 0
             ]
             if con_rows:
                 st.divider()
-                _con_all_groups = sorted({r["Group"] for r in con_rows})
+                _con_all_groups = sorted({r["Consultant Team"] for r in con_rows})
                 _con_grp_filter = st.radio(
-                    "Consultant Group filter", ["All"] + _con_all_groups,
+                    "Consultant Team filter", ["All"] + _con_all_groups,
                     horizontal=True, key="ru_con_grp",
                 )
                 _filtered_con = [r for r in con_rows
-                                  if _con_grp_filter == "All" or r["Group"] == _con_grp_filter]
+                                  if _con_grp_filter == "All" or r["Consultant Team"] == _con_grp_filter]
                 if _filtered_con:
                     st.subheader(f"Breakdown by Consultant{_period_note}")
                     _con_df = pd.DataFrame(_filtered_con)
-                    _tot_con = {"Consultant": "TOTAL", "Group": "",
+                    _tot_con = {"Consultant": "TOTAL", "Consultant Team": "",
                                 "Bill Hrs": _con_df["Bill Hrs"].sum(),
                                 "Bill €": _con_df["Bill €"].sum()}
                     dataframe_with_total(_con_df, _tot_con, {"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"})
-                    st.caption("Groups assigned on the Consultant Groups tab; unassigned → 'Other'.")
+                    st.caption("Teams assigned on the Consultant Teams tab; unassigned → 'Other'.")
 
 # ==================================================================
 # TAB 4 — TEAM SUMMARY
@@ -521,7 +549,7 @@ with tab_summary:
         "Period to (yyyymm)", placeholder=f"{datetime.now().year}12", key="ts_pt"
     )
     ts_group = ts_fcols[2].radio(
-        "Group", ["All"] + _ts_groups,
+        "Consultant Team", ["All"] + _ts_groups,
         index=(["All"] + _ts_groups).index("Local") if "Local" in _ts_groups else 0,
         horizontal=True, key="ts_group",
     )
@@ -566,12 +594,12 @@ with tab_summary:
             _t = cons_df[["Bill_Hrs", "Bill_EUR", "Int_Hrs", "Tot_Hrs"]].sum()
             _tot_pct = _t["Bill_Hrs"] / _t["Tot_Hrs"] * 100 if _t["Tot_Hrs"] > 0 else 0.0
             _cons_display = cons_df.rename(columns={
-                "consultant": "Consultant", "group_name": "Group",
+                "consultant": "Consultant", "group_name": "Consultant Team",
                 "Bill_Hrs": "Bill Hrs", "Bill_EUR": "Bill €",
                 "Int_Hrs": "Int Hrs", "Tot_Hrs": "Tot Hrs", "Bill_pct": "Bill %",
             })
             _tot_cons = {
-                "Consultant": "TOTAL", "Group": "",
+                "Consultant": "TOTAL", "Consultant Team": "",
                 "Bill Hrs": _t["Bill_Hrs"], "Bill €": _t["Bill_EUR"],
                 "Int Hrs": _t["Int_Hrs"], "Tot Hrs": _t["Tot_Hrs"],
                 "Bill %": round(_tot_pct, 1),
@@ -597,11 +625,11 @@ with tab_summary:
                     _tot_proj_hrs = proj_df["billable_hrs"].sum()
                     _tot_proj_chg = proj_df["billable_charges"].sum()
                     proj_display = proj_df.rename(columns={
-                        "consultant": "Consultant", "group_name": "Group",
+                        "consultant": "Consultant", "group_name": "Consultant Team",
                         "project": "Project", "client": "Client",
                         "billable_hrs": "Bill Hrs", "billable_charges": "Bill €",
                     })
-                    _tot_proj_d = {"Consultant": "TOTAL", "Group": "", "Project": "", "Client": "",
+                    _tot_proj_d = {"Consultant": "TOTAL", "Consultant Team": "", "Project": "", "Client": "",
                                    "Bill Hrs": _tot_proj_hrs, "Bill €": _tot_proj_chg}
                     dataframe_with_total(proj_display, _tot_proj_d, {"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"})
 
@@ -642,22 +670,20 @@ with tab_summary:
 # ==================================================================
 
 with tab_groups:
-    st.subheader("Consultant Groups")
+    st.subheader("Consultant Teams")
     st.caption(
         "Assign each consultant to **Local**, **ICEE**, or **Other**. "
-        "New consultants are added automatically (as 'Other') when time entries are imported. "
-        "Run `scripts/seed_consultant_groups.py` to pre-populate from the ICEE Plan CY Excel."
+        "New consultants are added automatically (as 'Other') when time entries are imported."
     )
 
     groups = db.get_consultant_groups()
 
     if not groups:
-        st.info("No consultant groups yet. Import time entries or run the seed script.")
+        st.info("No consultants yet. Import time entries to populate the list.")
     else:
         GROUP_OPTIONS = ["Local", "ICEE", "Other"]
-        # Select which group to view
         _cg_group_names = sorted({g["group_name"] for g in groups})
-        _cg_view = st.radio("Show group", _cg_group_names, horizontal=True, key="cg_view_group")
+        _cg_view = st.radio("Show team", _cg_group_names, horizontal=True, key="cg_view_group")
         _cg_visible = [g for g in groups if g["group_name"] == _cg_view]
 
         STATUS_OPTIONS = ["Active", "Inactive"]
@@ -669,7 +695,7 @@ with tab_groups:
                 with st.form(f"cg_{g['id']}"):
                     col_grp, col_emp, col_status = st.columns(3)
                     new_group = col_grp.selectbox(
-                        "Group", GROUP_OPTIONS,
+                        "Consultant Team", GROUP_OPTIONS,
                         index=GROUP_OPTIONS.index(g["group_name"]) if g["group_name"] in GROUP_OPTIONS else 2,
                         key=f"cg_grp_{g['id']}",
                     )
@@ -677,7 +703,7 @@ with tab_groups:
                                                  key=f"cg_emp_{g['id']}")
                     if _is_local:
                         new_status = col_status.selectbox(
-                            "Status", STATUS_OPTIONS,
+                            "Employment Status", STATUS_OPTIONS,
                             index=STATUS_OPTIONS.index(_status) if _status in STATUS_OPTIONS else 0,
                             key=f"cg_status_{g['id']}",
                         )
@@ -698,7 +724,7 @@ with tab_groups:
     st.subheader("Add new consultant")
     with st.form("cg_add"):
         na_name  = st.text_input("Consultant name (Last, First)")
-        na_group = st.selectbox("Group", ["Local", "ICEE", "Other"])
+        na_group = st.selectbox("Consultant Team", ["Local", "ICEE", "Other"])
         na_emp   = st.text_input("emp_nbr (optional)")
         if st.form_submit_button("Add"):
             if na_name.strip():

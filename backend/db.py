@@ -382,6 +382,12 @@ def init_db() -> None:
         except Exception:
             pass
 
+        # --- Migration: pipeline.opportunity_country column ---
+        try:
+            conn.execute("ALTER TABLE pipeline ADD COLUMN opportunity_country TEXT DEFAULT ''")
+        except Exception:
+            pass
+
 
 # ---------------------------------------------------------------------------
 # Client CRUD
@@ -1047,6 +1053,7 @@ def get_pipeline() -> list[dict]:
                    pl.budget_min, pl.budget_est, pl.budget_max, pl.probability,
                    pl.notes, pl.updated_at,
                    pl.date_entered_pipeline, pl.date_entered_stage,
+                   pl.opportunity_country,
                    pr.name AS project_name, pr.status AS project_status,
                    c.name AS client_name, c.client_type, c.country
             FROM pipeline pl
@@ -1060,7 +1067,8 @@ def get_pipeline() -> list[dict]:
 def upsert_pipeline(project_id: int, stage: str = "Prospect",
                     value: float = 0.0, notes: str = "",
                     budget_min: float = 0.0, budget_est: float = 0.0,
-                    budget_max: float = 0.0, probability: float = 0.5) -> None:
+                    budget_max: float = 0.0, probability: float = 0.5,
+                    opportunity_country: str = "") -> None:
     now = datetime.now(timezone.utc).isoformat()
     today = datetime.now(timezone.utc).date().isoformat()
     with get_connection() as conn:
@@ -1071,17 +1079,18 @@ def upsert_pipeline(project_id: int, stage: str = "Prospect",
         conn.execute(
             "INSERT INTO pipeline "
             "(project_id, stage, value, budget_min, budget_est, budget_max, probability, notes, "
-            " updated_at, date_entered_pipeline, date_entered_stage) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            " updated_at, date_entered_pipeline, date_entered_stage, opportunity_country) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(project_id) DO UPDATE SET "
             "stage=excluded.stage, value=excluded.value, "
             "budget_min=excluded.budget_min, budget_est=excluded.budget_est, "
             "budget_max=excluded.budget_max, probability=excluded.probability, "
             "notes=excluded.notes, updated_at=excluded.updated_at, "
+            "opportunity_country=excluded.opportunity_country, "
             "date_entered_stage=CASE WHEN stage != excluded.stage THEN excluded.date_entered_stage "
             "                        ELSE pipeline.date_entered_stage END",
             (project_id, stage, value, budget_min, budget_est, budget_max, probability, notes,
-             now, today, today)
+             now, today, today, opportunity_country)
         )
 
 
@@ -1118,6 +1127,27 @@ def get_revenue_by_client(year: int | None = None) -> list[dict]:
         query += " WHERE i.year = ?"
         params.append(year)
     query += " GROUP BY c.name ORDER BY net DESC"
+    with get_connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_invoices_detailed(year: int | None = None) -> list[dict]:
+    """Return one row per invoice with client metadata for dashboard filtering."""
+    query = """
+        SELECT i.id, i.date, i.year,
+               strftime('%Y-%m', i.date) AS month,
+               i.amount AS net, i.vat_amount AS vat,
+               i.amount + i.vat_amount AS gross,
+               c.name AS client, c.client_type, c.country
+        FROM invoices i
+        JOIN clients c ON c.id = i.client_id
+    """
+    params = []
+    if year:
+        query += " WHERE i.year = ?"
+        params.append(year)
+    query += " ORDER BY i.date"
     with get_connection() as conn:
         rows = conn.execute(query, params).fetchall()
     return [dict(r) for r in rows]

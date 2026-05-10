@@ -55,9 +55,9 @@ with tab_clients:
     rows_with_counts = db.get_clients_with_counts(exclude_types=exclude)
 
     fcol1, fcol2, fcol3 = st.columns([3, 2, 2])
-    name_search   = fcol1.text_input("Search name", placeholder="Type to filter…", key="cl_name_search")
+    name_search   = fcol1.text_input("Search Client Name", placeholder="Type to filter…", key="cl_name_search")
     all_types     = sorted({r["client_type"] for r in rows_with_counts if r["client_type"]})
-    type_filter   = fcol2.multiselect("Type", all_types, key="cl_type_filter")
+    type_filter   = fcol2.multiselect("Client Type", all_types, key="cl_type_filter")
     all_countries = sorted({r["country"] for r in rows_with_counts if r["country"]})
     country_filter = fcol3.multiselect("Country", all_countries, key="cl_country_filter")
 
@@ -196,7 +196,7 @@ with tab_projects:
         key="proj_status_filter"
     )
     type_filter_proj = col_tp.multiselect(
-        "Client type", CLIENT_TYPES, key="proj_type_filter",
+        "Client Type", CLIENT_TYPES, key="proj_type_filter",
         help="Filter projects by their client's type (e.g. hide internal).",
     )
 

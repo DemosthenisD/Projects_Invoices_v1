@@ -57,13 +57,13 @@ with col1:
 with col2:
     status_sel = st.multiselect("Status", all_statuses, default=["Active"])
 with col3:
-    source_sel = st.multiselect("Source / Office", all_sources)
+    source_sel = st.multiselect("Milliman Office", all_sources)
 
 col4, col5, col6 = st.columns(3)
 with col4:
-    type_sel = st.multiselect("Type", all_types)
+    type_sel = st.multiselect("Client Type", all_types)
 with col5:
-    group_sel = st.multiselect("Consultant Group", all_groups)
+    group_sel = st.multiselect("Consultant Team", all_groups)
 with col6:
     consult_sel = st.multiselect("Consultant", all_consults)
 
@@ -128,7 +128,7 @@ if view == "Summary":
     ]].rename(columns={
         "client":           "Client",
         "project":          "Project",
-        "project_source":   "Source",
+        "project_source":   "Office",
         "client_type":      "Type",
         "code_count":       "Codes",
         "budget":           "Budget (€)",
