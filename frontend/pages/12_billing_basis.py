@@ -40,7 +40,7 @@ current_year = datetime.now().year
 col_yr, col_grp = st.columns([2, 3])
 year = col_yr.selectbox(
     "Financial Year",
-    options=list(range(current_year - 1, current_year - 6, -1)),
+    options=list(range(current_year, current_year - 6, -1)),
     index=0,
 )
 

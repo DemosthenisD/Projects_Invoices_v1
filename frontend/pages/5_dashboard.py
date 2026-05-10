@@ -135,21 +135,20 @@ def _pct_change(current: float, prior: float) -> float | None:
         return None
     return (current - prior) / prior * 100
 
-def _metric(label, cur, pri):
+def _metric(col, label, cur, pri):
+    """Render a metric with signed delta so Streamlit colors it correctly."""
     pct = _pct_change(cur, pri)
-    arrow = ("↑" if pct >= 0 else "↓") if pct is not None else ""
-    pct_str = f" ({pct:+.1f}% {arrow})" if pct is not None else ""
-    main_val = f"€{cur:,.0f}{pct_str}"
-    delta_str = f"vs {prior_period_label}: €{pri:,.0f}" if pri else None
-    st.metric(label, main_val, delta_str)
+    if pct is not None:
+        sign = "+" if pct >= 0 else ""
+        delta_str = f"{sign}{pct:.1f}% vs {prior_period_label} (€{pri:,.0f})"
+    else:
+        delta_str = f"vs {prior_period_label}: €{pri:,.0f}" if pri else None
+    col.metric(label, f"€{cur:,.0f}", delta_str)
 
 col1, col2, col3 = st.columns(3)
-with col1:
-    _metric("Net Revenue (€)", ytd_net, prior_net)
-with col2:
-    _metric("VAT Collected (€)", ytd_vat, prior_vat)
-with col3:
-    _metric("Gross Revenue (€)", ytd_gross, prior_gross)
+_metric(col1, "Net Revenue (€)",   ytd_net,   prior_net)
+_metric(col2, "VAT Collected (€)", ytd_vat,   prior_vat)
+_metric(col3, "Gross Revenue (€)", ytd_gross, prior_gross)
 
 st.divider()
 

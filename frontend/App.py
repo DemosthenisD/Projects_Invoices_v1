@@ -84,6 +84,7 @@ pg = st.navigation(
         ],
         "Admin": [
             st.Page("pages/9_data_tables.py",          title="14. Data Tables",        icon="🗄️"),
+            st.Page("pages/15_data_field_definitions.py", title="15. Field Definitions", icon="📚"),
         ],
     }
 )
