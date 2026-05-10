@@ -254,12 +254,12 @@ with st.expander("1 — Compensation & Bonus", expanded=True):
             _hint = (
                 f" Note: a **Proposed Billing Rate of €{salary_rec.proposed_rate:,.0f}/hr** exists "
                 "in Salary History — that is a different field. "
-                "Page 12 needs the actual annual billing amounts (Billed, Charged Off, etc.) "
+                "Page 11 needs the actual annual billing amounts (Billed, Charged Off, etc.) "
                 "to compute Equivalent Hours and Productivity Bonus."
             )
         st.warning(
             f"No billing basis found for **{selected_name} / {review_year}**. "
-            f"Go to **Page 12 — Billing Basis** to enter or auto-import billing amounts first.{_hint}"
+            f"Go to **Page 11 — Billing Basis** to enter or auto-import billing amounts first.{_hint}"
         )
     else:
         col_a, col_b, col_c = st.columns(3)
