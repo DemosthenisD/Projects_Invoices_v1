@@ -19,7 +19,9 @@ from datetime import datetime
 from backend.db import (
     get_consultant_groups,
     get_billing_basis_year,
+    get_billing_basis_year_by_source,
     get_billing_basis,
+    get_billing_basis_by_source,
     get_billing_basis_from_time_entries,
     upsert_billing_basis,
     get_billing_basis_summary,
@@ -117,7 +119,8 @@ with tab_auto:
         "**non_z_charges** (billable charges) → *Paid* column; "
         "write-offs for the same year → *Charged Off* column. "
         "Other billing categories (Billed, Capped Pre-bill, Unbilled) are not tracked in time entries — "
-        "set them via Manual Entry if needed."
+        "set them via Manual Entry if needed.  \n"
+        "**Saving here only writes to the Auto source and never touches Manual entries.**"
     )
 
     if st.button("Load from Time Tracking", key="btn_auto_load"):
@@ -138,6 +141,19 @@ with tab_auto:
         if not rows:
             st.info(f"No time entries found for group '{group_filter}' in {year}.")
         else:
+            # Check which consultants have existing manual entries — show a warning
+            _manual_saved = {b.emp_nbr for b in get_billing_basis_year_by_source(year, "manual")}
+            if _manual_saved:
+                _names_with_manual = [r.get("consultant", r["emp_nbr"]) for r in rows
+                                       if r["emp_nbr"] in _manual_saved]
+                if _names_with_manual:
+                    st.warning(
+                        f"The following consultant(s) already have **Manual entries** saved for {year}: "
+                        f"{', '.join(_names_with_manual)}. "
+                        "Saving Auto data stores it separately — Manual entries are preserved. "
+                        "Annual Review uses Manual entries when available."
+                    )
+
             records = []
             for r in rows:
                 derived = _derive(r)
@@ -156,11 +172,15 @@ with tab_auto:
             st.dataframe(df, use_container_width=True, hide_index=True)
 
             with st.form("form_auto_save"):
-                st.caption("Hourly rates below are required to compute equivalent hours. Enter before saving.")
+                st.caption(
+                    "Hourly rates below are pre-filled from any previously saved Auto rate. "
+                    "Enter or update before saving."
+                )
                 rate_rows = []
                 for r in rows:
-                    existing = get_billing_basis(r["emp_nbr"], year)
-                    default_rate = existing.hourly_rate if existing else 0.0
+                    # Use the existing AUTO rate, not the manual one
+                    existing_auto = get_billing_basis_by_source(r["emp_nbr"], year, "time_tracking")
+                    default_rate = existing_auto.hourly_rate if existing_auto else 0.0
                     rate_rows.append((r["emp_nbr"], r.get("consultant", r["emp_nbr"]), default_rate))
 
                 rate_cols = st.columns(min(len(rate_rows), 4))
@@ -187,15 +207,18 @@ with tab_auto:
                             hourly_rate=rates.get(r["emp_nbr"], 0.0),
                         )
                     del st.session_state["_bb_auto_rows"]
-                    st.success(f"Saved billing basis for {len(rows)} consultant(s) — {year}.")
+                    st.success(f"Saved Auto billing basis for {len(rows)} consultant(s) — {year}.")
                     st.rerun()
 
 # ── Manual Entry tab ─────────────────────────────────────────────────────────
 with tab_manual:
     st.subheader(f"Manual Entry — {year}")
-    st.caption(
-        "Enter billing amounts directly (e.g. from a billing system pivot). "
-        "Grand Total and all derived columns are computed automatically."
+    st.info(
+        "Enter billing amounts directly (e.g. from a billing system export). "
+        "Grand Total and all derived columns are computed automatically.  \n"
+        "**Manual entries are stored separately from Auto entries and are never overwritten by Auto imports.** "
+        "Rows pre-fill from any previously saved manual entries for this year (all zeros if none saved yet). "
+        "Annual Review uses Manual entries when available, falling back to Auto."
     )
 
     consultants = (
@@ -205,8 +228,8 @@ with tab_manual:
     if not consultants:
         st.info(f"No consultants in group '{group_filter}'.")
     else:
-        # Pre-populate table from DB if data exists for this year
-        existing_rows = {b.emp_nbr: b for b in get_billing_basis_year(year)}
+        # Pre-populate from manual-source records only (0s if no manual entry saved yet)
+        existing_rows = {b.emp_nbr: b for b in get_billing_basis_year_by_source(year, "manual")}
 
         manual_data = []
         for cg in consultants:
@@ -304,7 +327,10 @@ with tab_manual:
 # ── Saved Basis tab ──────────────────────────────────────────────────────────
 with tab_saved:
     st.subheader(f"Saved Billing Basis — {year}")
-    saved_rows = get_billing_basis_year(year)
+    _manual_saved = get_billing_basis_year_by_source(year, "manual")
+    _auto_saved   = get_billing_basis_year_by_source(year, "time_tracking")
+    saved_rows    = _manual_saved + _auto_saved
+    _emps_with_manual = {b.emp_nbr for b in _manual_saved}
     if not saved_rows:
         st.info(f"No billing basis saved for {year} yet.")
     else:
@@ -413,9 +439,14 @@ with tab_saved:
                         "capped_unpaid_prebill": b.capped_unpaid_prebill, "charged_off": b.charged_off,
                         "paid": b.paid, "unbilled": b.unbilled, "hourly_rate": b.hourly_rate,
                     })
+                    # Active = the record Annual Review will use:
+                    # manual always wins; time_tracking is active only if no manual exists
+                    is_active = (b.source == "manual") or (b.emp_nbr not in _emps_with_manual)
                     records.append({
                         "Consultant":        _name_map.get(b.emp_nbr, b.emp_nbr),
                         "Group":             grp,
+                        "Source":            b.source,
+                        "Active":            "Yes" if is_active else "No",
                         "Billed €":          float(b.billed),
                         "Capped Paid €":     float(b.capped_paid_prebill),
                         "Capped Unpaid €":   float(b.capped_unpaid_prebill),
@@ -426,21 +457,27 @@ with tab_saved:
                         "Basis for Bonus €": float(derived["Basis for Bonus €"]),
                         "Equiv Hrs":         float(derived["Equiv Hrs"]),
                         "Productivity Bonus":derived["Productivity Bonus"],
-                        "Source":            b.source,
                     })
 
                 if not records:
                     st.info("No records for the selected group.")
                 else:
                     df_saved = pd.DataFrame(records)
+                    df_active = df_saved[df_saved["Active"] == "Yes"]
 
                     if sv_view == "By Group":
-                        grp_agg = (df_saved.groupby("Group", as_index=False)
+                        # Aggregate only Active records to avoid double-counting
+                        grp_agg = (df_active.groupby("Group", as_index=False)
                                    [_MONEY_COLS + [_HR_COL]].sum())
                         dataframe_with_total(grp_agg, _sv_total_dict(grp_agg, "Group"), _sv_fmt_dict(grp_agg))
                     else:
-                        # By Consultant (default)
-                        dataframe_with_total(df_saved, _sv_total_dict(df_saved, "Consultant"), _sv_fmt_dict(df_saved))
+                        # By Consultant — shows all records (manual + auto) with Source / Active columns
+                        st.caption(
+                            "Both manual and auto records shown. "
+                            "'Active = Yes' is the record used by Annual Review "
+                            "(manual takes priority when both exist)."
+                        )
+                        st.dataframe(df_saved, use_container_width=True, hide_index=True)
 
         buf = _export_billing_basis_excel(saved_rows, year)
         st.download_button(

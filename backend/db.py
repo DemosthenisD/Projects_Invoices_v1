@@ -229,7 +229,7 @@ def init_db() -> None:
                 hourly_rate          REAL    DEFAULT 0.0,
                 notes                TEXT    DEFAULT '',
                 created_at           TEXT    DEFAULT (datetime('now')),
-                UNIQUE(emp_nbr, year)
+                UNIQUE(emp_nbr, year, source)
             );
 
             CREATE TABLE IF NOT EXISTS review_scores (
@@ -387,6 +387,51 @@ def init_db() -> None:
             conn.execute("ALTER TABLE pipeline ADD COLUMN opportunity_country TEXT DEFAULT ''")
         except Exception:
             pass
+
+        # --- Migration: billing_basis UNIQUE(emp_nbr,year) → UNIQUE(emp_nbr,year,source) ---
+        # SQLite requires a table recreation to change a UNIQUE constraint.
+        # We do this outside the main connection (executescript issues its own COMMITs).
+        _bb_schema = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='billing_basis'"
+        ).fetchone()
+        if _bb_schema and "UNIQUE(emp_nbr, year, source)" not in (_bb_schema["sql"] or ""):
+            _need_bb_migration = True
+        else:
+            _need_bb_migration = False
+
+    if _need_bb_migration:
+        _mig_conn = sqlite3.connect(DB_PATH)
+        _mig_conn.row_factory = sqlite3.Row
+        try:
+            _mig_conn.executescript("""
+                PRAGMA foreign_keys=OFF;
+                CREATE TABLE IF NOT EXISTS billing_basis_new (
+                    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                    emp_nbr               TEXT    NOT NULL,
+                    year                  INTEGER NOT NULL,
+                    source                TEXT    DEFAULT 'manual',
+                    billed                REAL    DEFAULT 0.0,
+                    capped_paid_prebill   REAL    DEFAULT 0.0,
+                    capped_unpaid_prebill REAL    DEFAULT 0.0,
+                    charged_off           REAL    DEFAULT 0.0,
+                    paid                  REAL    DEFAULT 0.0,
+                    unbilled              REAL    DEFAULT 0.0,
+                    hourly_rate           REAL    DEFAULT 0.0,
+                    notes                 TEXT    DEFAULT '',
+                    created_at            TEXT    DEFAULT (datetime('now')),
+                    UNIQUE(emp_nbr, year, source)
+                );
+                INSERT OR IGNORE INTO billing_basis_new
+                    SELECT id, emp_nbr, year, source, billed, capped_paid_prebill,
+                           capped_unpaid_prebill, charged_off, paid, unbilled,
+                           hourly_rate, notes, created_at
+                    FROM billing_basis;
+                DROP TABLE billing_basis;
+                ALTER TABLE billing_basis_new RENAME TO billing_basis;
+                PRAGMA foreign_keys=ON;
+            """)
+        finally:
+            _mig_conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -2040,23 +2085,60 @@ def delete_salary_record(emp_nbr: str, year: int) -> None:
 # ---------------------------------------------------------------------------
 
 def get_billing_basis_year(year: int) -> list[BillingBasis]:
+    """Return the 'active' record per consultant: manual takes priority over time_tracking."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT b.id, b.emp_nbr, b.year, b.source, b.billed, b.capped_paid_prebill,
+                      b.capped_unpaid_prebill, b.charged_off, b.paid, b.unbilled,
+                      b.hourly_rate, b.notes, b.created_at
+               FROM billing_basis b
+               INNER JOIN (
+                   SELECT emp_nbr,
+                          MIN(CASE source WHEN 'manual' THEN 0 ELSE 1 END) AS best_prio
+                   FROM billing_basis WHERE year = ?
+                   GROUP BY emp_nbr
+               ) p ON b.emp_nbr = p.emp_nbr
+                  AND (CASE b.source WHEN 'manual' THEN 0 ELSE 1 END) = p.best_prio
+               WHERE b.year = ?
+               ORDER BY b.emp_nbr""",
+            (year, year)
+        ).fetchall()
+    return [BillingBasis(**dict(r)) for r in rows]
+
+
+def get_billing_basis_year_by_source(year: int, source: str) -> list[BillingBasis]:
+    """Return all records for a year filtered by source ('manual' or 'time_tracking')."""
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT id, emp_nbr, year, source, billed, capped_paid_prebill, "
             "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, notes, created_at "
-            "FROM billing_basis WHERE year = ? ORDER BY emp_nbr",
-            (year,)
+            "FROM billing_basis WHERE year = ? AND source = ? ORDER BY emp_nbr",
+            (year, source)
         ).fetchall()
     return [BillingBasis(**dict(r)) for r in rows]
 
 
 def get_billing_basis(emp_nbr: str, year: int) -> BillingBasis | None:
+    """Return the 'active' record for a consultant: manual takes priority over time_tracking."""
     with get_connection() as conn:
         row = conn.execute(
             "SELECT id, emp_nbr, year, source, billed, capped_paid_prebill, "
             "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, notes, created_at "
-            "FROM billing_basis WHERE emp_nbr = ? AND year = ?",
+            "FROM billing_basis WHERE emp_nbr = ? AND year = ? "
+            "ORDER BY CASE source WHEN 'manual' THEN 0 ELSE 1 END LIMIT 1",
             (emp_nbr, year)
+        ).fetchone()
+    return BillingBasis(**dict(row)) if row else None
+
+
+def get_billing_basis_by_source(emp_nbr: str, year: int, source: str) -> BillingBasis | None:
+    """Return the record for a specific source, or None if not saved yet."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, emp_nbr, year, source, billed, capped_paid_prebill, "
+            "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, notes, created_at "
+            "FROM billing_basis WHERE emp_nbr = ? AND year = ? AND source = ?",
+            (emp_nbr, year, source)
         ).fetchone()
     return BillingBasis(**dict(row)) if row else None
 
@@ -2080,8 +2162,8 @@ def upsert_billing_basis(
             "(emp_nbr, year, source, billed, capped_paid_prebill, capped_unpaid_prebill, "
             "charged_off, paid, unbilled, hourly_rate, notes) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(emp_nbr, year) DO UPDATE SET "
-            "source=excluded.source, billed=excluded.billed, "
+            "ON CONFLICT(emp_nbr, year, source) DO UPDATE SET "
+            "billed=excluded.billed, "
             "capped_paid_prebill=excluded.capped_paid_prebill, "
             "capped_unpaid_prebill=excluded.capped_unpaid_prebill, "
             "charged_off=excluded.charged_off, paid=excluded.paid, "
