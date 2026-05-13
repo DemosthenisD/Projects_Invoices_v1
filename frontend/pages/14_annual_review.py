@@ -141,6 +141,14 @@ def _build_review_excel(
     return buf.read()
 
 
+def _flip_name(name: str) -> str:
+    """'Lastname, Firstname' → 'Firstname Lastname'; unchanged if no comma."""
+    if ", " in name:
+        last, first = name.split(", ", 1)
+        return f"{first} {last}"
+    return name
+
+
 def _unique_colleagues(raw: str, exclude_name: str) -> str:
     """Return a deduplicated, self-excluded comma-separated colleagues string.
 
@@ -228,7 +236,7 @@ def _generate_feedback_docx(
             assign += f" — {proj['description']}"
         row.cells[0].text = proj["client"]
         row.cells[1].text = assign
-        row.cells[2].text = _unique_colleagues(proj["colleagues"], name)
+        row.cells[2].text = _unique_colleagues(proj["colleagues"], _flip_name(name))
         row.cells[3].text = f"{proj['hours_pct']:.0f}%"
 
     # Table 3 — Assessment: score + comments + development ideas per area
@@ -688,7 +696,7 @@ with st.expander("4 — Feedback Form Export", expanded=False):
                 _agg_seen: set[str] = set()
                 _agg_names: list[str] = []
                 for _ar in _aggregate_rows:
-                    for _n in _unique_colleagues(_ar["colleagues"], selected_name).split(", "):
+                    for _n in _unique_colleagues(_ar["colleagues"], _flip_name(selected_name)).split(", "):
                         _n = _n.strip()
                         if _n and _n not in _agg_seen:
                             _agg_seen.add(_n)

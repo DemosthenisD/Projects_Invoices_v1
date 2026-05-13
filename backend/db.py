@@ -2390,8 +2390,21 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
             """,
             (str(year), consultant, str(year)),
         ).fetchall()
+        def _flip(name: str) -> str:
+            """'Lastname, Firstname' → 'Firstname Lastname'; unchanged if no comma."""
+            if ", " in name:
+                last, first = name.split(", ", 1)
+                return f"{first} {last}"
+            return name
+
         for cr in coll_rows:
-            project_colleagues[cr["project_id"]] = cr["others"] or ""
+            if cr["others"]:
+                flipped = " | ".join(
+                    _flip(n.strip()) for n in cr["others"].split(" | ") if n.strip()
+                )
+                project_colleagues[cr["project_id"]] = flipped
+            else:
+                project_colleagues[cr["project_id"]] = ""
 
     result = []
     for r in rows:
