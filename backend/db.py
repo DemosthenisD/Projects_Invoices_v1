@@ -2364,23 +2364,29 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
         # Use ' | ' separator so "Lastname, Firstname" names are not fragmented when parsed.
         # Only include colleagues who actually logged billable hours (non_z_hours > 0).
         project_colleagues: dict[int, str] = {}
+        # SQLite does not support GROUP_CONCAT(DISTINCT x, sep) — DISTINCT form
+        # accepts only one argument.  Deduplicate in a subquery first, then
+        # GROUP_CONCAT with the custom separator on the outer query.
         coll_rows = conn.execute(
             """
-            SELECT te.project_id,
-                   GROUP_CONCAT(DISTINCT te2.consultant, ' | ') AS others
-            FROM time_entries te
-            JOIN projects p ON p.id = te.project_id
-            JOIN clients  c ON c.id = p.client_id
-            JOIN time_entries te2
-                 ON te2.project_id = te.project_id
-                AND SUBSTR(te2.period, 1, 4) = ?
-                AND te2.consultant != te.consultant
-                AND te2.non_z_hours > 0
-            WHERE te.consultant = ?
-              AND SUBSTR(te.period, 1, 4) = ?
-              AND c.client_type != 'internal'
-              AND c.client_code NOT LIKE '0009%'
-            GROUP BY te.project_id
+            SELECT project_id,
+                   GROUP_CONCAT(colleague, ' | ') AS others
+            FROM (
+                SELECT DISTINCT te.project_id, te2.consultant AS colleague
+                FROM time_entries te
+                JOIN projects p ON p.id = te.project_id
+                JOIN clients  c ON c.id = p.client_id
+                JOIN time_entries te2
+                     ON te2.project_id = te.project_id
+                    AND SUBSTR(te2.period, 1, 4) = ?
+                    AND te2.consultant != te.consultant
+                    AND te2.non_z_hours > 0
+                WHERE te.consultant = ?
+                  AND SUBSTR(te.period, 1, 4) = ?
+                  AND c.client_type != 'internal'
+                  AND c.client_code NOT LIKE '0009%'
+            )
+            GROUP BY project_id
             """,
             (str(year), consultant, str(year)),
         ).fetchall()
