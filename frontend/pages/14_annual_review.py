@@ -142,10 +142,19 @@ def _build_review_excel(
 
 
 def _unique_colleagues(raw: str, exclude_name: str) -> str:
-    """Return a deduplicated, self-excluded comma-separated colleagues string."""
+    """Return a deduplicated, self-excluded comma-separated colleagues string.
+
+    Handles ' | '-separated input (from DB) as well as plain comma-separated
+    text (user-edited fields).  Names in 'Lastname, Firstname' format are kept
+    intact when the pipe separator is used.
+    """
     seen: set[str] = set()
     unique: list[str] = []
-    for n in (p.strip() for p in raw.split(",") if p.strip()):
+    if " | " in raw:
+        parts = [p.strip() for p in raw.split(" | ") if p.strip()]
+    else:
+        parts = [p.strip() for p in raw.split(",") if p.strip()]
+    for n in parts:
         if n not in seen and n != exclude_name:
             seen.add(n)
             unique.append(n)
@@ -672,14 +681,23 @@ with st.expander("4 — Feedback Form Export", expanded=False):
                     _aggregate_rows.append(_p)
             final_proj_rows = _included_rows
             if _aggregate_rows:
-                _all_agg_colleagues = ", ".join(
-                    r["colleagues"] for r in _aggregate_rows if r["colleagues"]
-                )
+                # Merge colleague lists from all aggregated rows.
+                # Each r["colleagues"] may be ' | '-separated (from DB) or
+                # comma-separated (user-edited). Collect unique names via
+                # _unique_colleagues applied per row, then join with ' | '.
+                _agg_seen: set[str] = set()
+                _agg_names: list[str] = []
+                for _ar in _aggregate_rows:
+                    for _n in _unique_colleagues(_ar["colleagues"], selected_name).split(", "):
+                        _n = _n.strip()
+                        if _n and _n not in _agg_seen:
+                            _agg_seen.add(_n)
+                            _agg_names.append(_n)
                 final_proj_rows.append({
                     "client":        "",
                     "project_name":  "Other Projects",
                     "description":   "",
-                    "colleagues":    _unique_colleagues(_all_agg_colleagues, selected_name),
+                    "colleagues":    ", ".join(_agg_names),
                     "hours_pct":     sum(r["hours_pct"] for r in _aggregate_rows),
                     "fees_pct":      sum(r["fees_pct"] for r in _aggregate_rows),
                 })

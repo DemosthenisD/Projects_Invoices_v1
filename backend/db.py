@@ -2315,17 +2315,19 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
     Returns list of dicts ordered by fees (charges) descending:
         client, project_name, description, hours, fees,
         hours_pct, fees_pct, colleagues
-    Colleagues = comma-separated names of other consultants who also billed
-    to the same project in the same year.
+    Colleagues = ' | '-separated names of other consultants with billable hours
+    on the same project in the same year (subject consultant excluded).
+    Keyed internally by project_id to avoid collisions when projects share a name.
     """
     with get_connection() as conn:
         rows = conn.execute(
             """
             SELECT
-                c.name               AS client,
-                p.name               AS project_name,
-                p.description        AS description,
-                SUM(te.non_z_hours)  AS hours,
+                te.project_id,
+                c.name                AS client,
+                p.name                AS project_name,
+                p.description         AS description,
+                SUM(te.non_z_hours)   AS hours,
                 SUM(te.non_z_charges) AS fees
             FROM time_entries te
             JOIN projects p ON p.id = te.project_id
@@ -2358,12 +2360,14 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
         total_hrs  = totals_row["total_hrs"]  if totals_row else 0.0
         total_fees = totals_row["total_fees"] if totals_row else 0.0
 
-        # Colleagues per project
-        project_colleagues: dict[str, str] = {}
+        # Colleagues per project — keyed by project_id (not name) to avoid collisions.
+        # Use ' | ' separator so "Lastname, Firstname" names are not fragmented when parsed.
+        # Only include colleagues who actually logged billable hours (non_z_hours > 0).
+        project_colleagues: dict[int, str] = {}
         coll_rows = conn.execute(
             """
-            SELECT p.name AS project_name,
-                   GROUP_CONCAT(DISTINCT te2.consultant) AS others
+            SELECT te.project_id,
+                   GROUP_CONCAT(DISTINCT te2.consultant, ' | ') AS others
             FROM time_entries te
             JOIN projects p ON p.id = te.project_id
             JOIN clients  c ON c.id = p.client_id
@@ -2371,6 +2375,7 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
                  ON te2.project_id = te.project_id
                 AND SUBSTR(te2.period, 1, 4) = ?
                 AND te2.consultant != te.consultant
+                AND te2.non_z_hours > 0
             WHERE te.consultant = ?
               AND SUBSTR(te.period, 1, 4) = ?
               AND c.client_type != 'internal'
@@ -2380,7 +2385,7 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
             (str(year), consultant, str(year)),
         ).fetchall()
         for cr in coll_rows:
-            project_colleagues[cr["project_name"]] = cr["others"] or ""
+            project_colleagues[cr["project_id"]] = cr["others"] or ""
 
     result = []
     for r in rows:
@@ -2394,7 +2399,7 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
             "fees":         round(r["fees"], 2),
             "hours_pct":    round(hrs_pct, 1),
             "fees_pct":     round(fees_pct, 1),
-            "colleagues":   project_colleagues.get(r["project_name"], ""),
+            "colleagues":   project_colleagues.get(r["project_id"], ""),
         })
     return result
 
