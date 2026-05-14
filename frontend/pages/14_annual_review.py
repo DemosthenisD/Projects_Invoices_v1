@@ -236,7 +236,7 @@ def _generate_feedback_docx(
             assign += f" — {proj['description']}"
         row.cells[0].text = proj["client"]
         row.cells[1].text = assign
-        row.cells[2].text = _unique_colleagues(proj["colleagues"], _flip_name(name))
+        row.cells[2].text = proj.get("teams", "")
         row.cells[3].text = f"{proj['hours_pct']:.0f}%"
 
     # Table 3 — Assessment: score + comments + development ideas per area
@@ -582,18 +582,20 @@ with st.expander("4 — Feedback Form Export", expanded=False):
 
         _TOGGLE_OPTIONS = ["Include", "Aggregate", "Exclude"]
 
-        h0, h1, h2, h3, h4, h5 = st.columns([2, 4, 3, 1, 1, 1])
+        h0, h1, h2, h_t, h3, h4, h5 = st.columns([2, 3, 2, 2, 1, 1, 1])
         h0.markdown("**Client**")
         h1.markdown("**Assignment**")
         h2.markdown("**Colleagues involved**")
+        h_t.markdown("**Teams involved**")
         h3.markdown("**Hrs %**")
         h4.markdown("**Fees %**")
         h5.markdown("**Action**")
 
         colleague_vals: dict[int, str] = {}
+        team_vals: dict[int, str] = {}
         row_decisions: dict[int, str] = {}
         for i, proj in enumerate(proj_hours):
-            c0, c1, c2, c3, c4, c5 = st.columns([2, 4, 3, 1, 1, 1])
+            c0, c1, c2, c_t, c3, c4, c5 = st.columns([2, 3, 2, 2, 1, 1, 1])
             assign = proj["project_name"]
             if proj["description"]:
                 assign += f" — {proj['description']}"
@@ -604,7 +606,14 @@ with st.expander("4 — Feedback Form Export", expanded=False):
                 value=proj["colleagues"],
                 key=f"fb_coll_{i}_{review_year}",
                 label_visibility="collapsed",
-                placeholder="e.g. Savva K, Petros A",
+                placeholder="e.g. Konstantinos Savva",
+            )
+            team_vals[i] = c_t.text_input(
+                "Teams",
+                value=proj.get("teams", ""),
+                key=f"fb_teams_{i}_{review_year}",
+                label_visibility="collapsed",
+                placeholder="e.g. ICEE | Local",
             )
             c3.markdown(f"**{proj['hours_pct']:.0f}%**")
             c4.markdown(f"**{proj['fees_pct']:.0f}%**")
@@ -681,7 +690,11 @@ with st.expander("4 — Feedback Form Export", expanded=False):
             _included_rows = []
             _aggregate_rows = []
             for i, proj in enumerate(proj_hours):
-                _p = {**proj, "colleagues": colleague_vals.get(i, proj["colleagues"])}
+                _p = {
+                    **proj,
+                    "colleagues": colleague_vals.get(i, proj["colleagues"]),
+                    "teams":      team_vals.get(i, proj.get("teams", "")),
+                }
                 _dec = row_decisions.get(i, "Include")
                 if _dec == "Include":
                     _included_rows.append(_p)
@@ -689,10 +702,7 @@ with st.expander("4 — Feedback Form Export", expanded=False):
                     _aggregate_rows.append(_p)
             final_proj_rows = _included_rows
             if _aggregate_rows:
-                # Merge colleague lists from all aggregated rows.
-                # Each r["colleagues"] may be ' | '-separated (from DB) or
-                # comma-separated (user-edited). Collect unique names via
-                # _unique_colleagues applied per row, then join with ' | '.
+                # Merge colleague lists (deduplicated)
                 _agg_seen: set[str] = set()
                 _agg_names: list[str] = []
                 for _ar in _aggregate_rows:
@@ -701,11 +711,23 @@ with st.expander("4 — Feedback Form Export", expanded=False):
                         if _n and _n not in _agg_seen:
                             _agg_seen.add(_n)
                             _agg_names.append(_n)
+                # Merge team lists (deduplicated)
+                _agg_team_seen: set[str] = set()
+                _agg_teams: list[str] = []
+                for _ar in _aggregate_rows:
+                    raw_t = _ar.get("teams", "")
+                    parts_t = [p.strip() for p in raw_t.split(" | ")] if " | " in raw_t \
+                              else [p.strip() for p in raw_t.split(",")]
+                    for _t in parts_t:
+                        if _t and _t not in _agg_team_seen:
+                            _agg_team_seen.add(_t)
+                            _agg_teams.append(_t)
                 final_proj_rows.append({
                     "client":        "",
                     "project_name":  "Other Projects",
                     "description":   "",
                     "colleagues":    ", ".join(_agg_names),
+                    "teams":         ", ".join(_agg_teams),
                     "hours_pct":     sum(r["hours_pct"] for r in _aggregate_rows),
                     "fees_pct":      sum(r["fees_pct"] for r in _aggregate_rows),
                 })

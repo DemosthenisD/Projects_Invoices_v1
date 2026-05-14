@@ -231,13 +231,14 @@ class BillingBasis:
     emp_nbr: str
     year: int
     source: str = "manual"           # 'time_tracking' or 'manual'
+    is_preferred: int = 0            # 1 = explicitly chosen for Annual Review calc
     billed: float = 0.0
     capped_paid_prebill: float = 0.0
     capped_unpaid_prebill: float = 0.0
     charged_off: float = 0.0
     paid: float = 0.0
     unbilled: float = 0.0
-    hourly_rate: float = 0.0          # used to convert £ basis → equivalent hours
+    hourly_rate: float = 0.0          # used to convert basis → equivalent hours
     notes: str = ""
     created_at: str = ""
 

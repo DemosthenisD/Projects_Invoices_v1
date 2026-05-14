@@ -388,6 +388,27 @@ def init_db() -> None:
         except Exception:
             pass
 
+        # --- Migration: billing_basis.is_preferred column ---
+        try:
+            conn.execute(
+                "ALTER TABLE billing_basis ADD COLUMN is_preferred INTEGER NOT NULL DEFAULT 0"
+            )
+            # Initialise based on priority rule: manual preferred; time_tracking preferred
+            # only when no manual record exists for the same (emp_nbr, year).
+            conn.execute("UPDATE billing_basis SET is_preferred=1 WHERE source='manual'")
+            conn.execute("""
+                UPDATE billing_basis SET is_preferred=1
+                WHERE source='time_tracking'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM billing_basis b2
+                      WHERE b2.emp_nbr = billing_basis.emp_nbr
+                        AND b2.year   = billing_basis.year
+                        AND b2.source = 'manual'
+                  )
+            """)
+        except Exception:
+            pass
+
         # --- Migration: billing_basis UNIQUE(emp_nbr,year) → UNIQUE(emp_nbr,year,source) ---
         # SQLite requires a table recreation to change a UNIQUE constraint.
         # We do this outside the main connection (executescript issues its own COMMITs).
@@ -2085,21 +2106,26 @@ def delete_salary_record(emp_nbr: str, year: int) -> None:
 # ---------------------------------------------------------------------------
 
 def get_billing_basis_year(year: int) -> list[BillingBasis]:
-    """Return the 'active' record per consultant: manual takes priority over time_tracking."""
+    """Return the active record per consultant.
+
+    Priority: is_preferred=1 first; if neither record has is_preferred set,
+    manual beats time_tracking (legacy default).
+    """
     with get_connection() as conn:
         rows = conn.execute(
-            """SELECT b.id, b.emp_nbr, b.year, b.source, b.billed, b.capped_paid_prebill,
-                      b.capped_unpaid_prebill, b.charged_off, b.paid, b.unbilled,
+            """SELECT b.id, b.emp_nbr, b.year, b.source, b.is_preferred,
+                      b.billed, b.capped_paid_prebill, b.capped_unpaid_prebill,
+                      b.charged_off, b.paid, b.unbilled,
                       b.hourly_rate, b.notes, b.created_at
                FROM billing_basis b
-               INNER JOIN (
-                   SELECT emp_nbr,
-                          MIN(CASE source WHEN 'manual' THEN 0 ELSE 1 END) AS best_prio
-                   FROM billing_basis WHERE year = ?
-                   GROUP BY emp_nbr
-               ) p ON b.emp_nbr = p.emp_nbr
-                  AND (CASE b.source WHEN 'manual' THEN 0 ELSE 1 END) = p.best_prio
                WHERE b.year = ?
+                 AND b.id = (
+                     SELECT id FROM billing_basis
+                     WHERE emp_nbr = b.emp_nbr AND year = ?
+                     ORDER BY is_preferred DESC,
+                              CASE source WHEN 'manual' THEN 0 ELSE 1 END
+                     LIMIT 1
+                 )
                ORDER BY b.emp_nbr""",
             (year, year)
         ).fetchall()
@@ -2110,7 +2136,7 @@ def get_billing_basis_year_by_source(year: int, source: str) -> list[BillingBasi
     """Return all records for a year filtered by source ('manual' or 'time_tracking')."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, emp_nbr, year, source, billed, capped_paid_prebill, "
+            "SELECT id, emp_nbr, year, source, is_preferred, billed, capped_paid_prebill, "
             "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, notes, created_at "
             "FROM billing_basis WHERE year = ? AND source = ? ORDER BY emp_nbr",
             (year, source)
@@ -2119,13 +2145,16 @@ def get_billing_basis_year_by_source(year: int, source: str) -> list[BillingBasi
 
 
 def get_billing_basis(emp_nbr: str, year: int) -> BillingBasis | None:
-    """Return the 'active' record for a consultant: manual takes priority over time_tracking."""
+    """Return the active record for a consultant.
+
+    Priority: is_preferred=1 first; falls back to manual > time_tracking.
+    """
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, emp_nbr, year, source, billed, capped_paid_prebill, "
+            "SELECT id, emp_nbr, year, source, is_preferred, billed, capped_paid_prebill, "
             "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, notes, created_at "
             "FROM billing_basis WHERE emp_nbr = ? AND year = ? "
-            "ORDER BY CASE source WHEN 'manual' THEN 0 ELSE 1 END LIMIT 1",
+            "ORDER BY is_preferred DESC, CASE source WHEN 'manual' THEN 0 ELSE 1 END LIMIT 1",
             (emp_nbr, year)
         ).fetchone()
     return BillingBasis(**dict(row)) if row else None
@@ -2135,12 +2164,28 @@ def get_billing_basis_by_source(emp_nbr: str, year: int, source: str) -> Billing
     """Return the record for a specific source, or None if not saved yet."""
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, emp_nbr, year, source, billed, capped_paid_prebill, "
+            "SELECT id, emp_nbr, year, source, is_preferred, billed, capped_paid_prebill, "
             "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, notes, created_at "
             "FROM billing_basis WHERE emp_nbr = ? AND year = ? AND source = ?",
             (emp_nbr, year, source)
         ).fetchone()
     return BillingBasis(**dict(row)) if row else None
+
+
+def set_billing_basis_preferred(emp_nbr: str, year: int, source: str) -> None:
+    """Explicitly mark one source as preferred for Annual Review calculations.
+
+    Clears any existing preference for the same (emp_nbr, year) first.
+    """
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE billing_basis SET is_preferred=0 WHERE emp_nbr=? AND year=?",
+            (emp_nbr, year)
+        )
+        conn.execute(
+            "UPDATE billing_basis SET is_preferred=1 WHERE emp_nbr=? AND year=? AND source=?",
+            (emp_nbr, year, source)
+        )
 
 
 def upsert_billing_basis(
@@ -2360,13 +2405,29 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
         total_hrs  = totals_row["total_hrs"]  if totals_row else 0.0
         total_fees = totals_row["total_fees"] if totals_row else 0.0
 
-        # Colleagues per project — keyed by project_id (not name) to avoid collisions.
-        # Use ' | ' separator so "Lastname, Firstname" names are not fragmented when parsed.
-        # Only include colleagues who actually logged billable hours (non_z_hours > 0).
+        def _flip(name: str) -> str:
+            """'Lastname, Firstname' → 'Firstname Lastname'; unchanged if no comma."""
+            if ", " in name:
+                last, first = name.split(", ", 1)
+                return f"{first} {last}"
+            return name
+
+        # ------------------------------------------------------------------
+        # Colleagues per project.
+        # Join strategy: te2.project_id = te.project_id (same project) AND
+        # te2.project_code_id must belong to that project (validated via the
+        # project_codes table).  This means:
+        #   • Different codes within the same project share colleagues (correct
+        #     for multi-code real projects).
+        #   • Suffixes of the same client_code that are assigned to DIFFERENT
+        #     projects are excluded (e.g., a reassigned auto-created code no
+        #     longer belongs to the default project).
+        #   • Time entries whose project_code has been moved away from a project
+        #     are excluded (project_codes.project_id is the authoritative source).
+        # GROUP_CONCAT(DISTINCT x, sep) is illegal in SQLite — deduplicate in
+        # a subquery and apply the separator in the outer query.
+        # ------------------------------------------------------------------
         project_colleagues: dict[int, str] = {}
-        # SQLite does not support GROUP_CONCAT(DISTINCT x, sep) — DISTINCT form
-        # accepts only one argument.  Deduplicate in a subquery first, then
-        # GROUP_CONCAT with the custom separator on the outer query.
         coll_rows = conn.execute(
             """
             SELECT project_id,
@@ -2378,6 +2439,10 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
                 JOIN clients  c ON c.id = p.client_id
                 JOIN time_entries te2
                      ON te2.project_id = te.project_id
+                    AND te2.project_code_id IN (
+                        SELECT id FROM project_codes
+                        WHERE project_id = te.project_id
+                    )
                     AND SUBSTR(te2.period, 1, 4) = ?
                     AND te2.consultant != te.consultant
                     AND te2.non_z_hours > 0
@@ -2390,13 +2455,6 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
             """,
             (str(year), consultant, str(year)),
         ).fetchall()
-        def _flip(name: str) -> str:
-            """'Lastname, Firstname' → 'Firstname Lastname'; unchanged if no comma."""
-            if ", " in name:
-                last, first = name.split(", ", 1)
-                return f"{first} {last}"
-            return name
-
         for cr in coll_rows:
             if cr["others"]:
                 flipped = " | ".join(
@@ -2405,6 +2463,43 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
                 project_colleagues[cr["project_id"]] = flipped
             else:
                 project_colleagues[cr["project_id"]] = ""
+
+        # ------------------------------------------------------------------
+        # Teams per project — distinct consultant_groups.group_name values
+        # for the same colleague population (same join as above).
+        # ------------------------------------------------------------------
+        project_teams: dict[int, str] = {}
+        team_rows = conn.execute(
+            """
+            SELECT project_id,
+                   GROUP_CONCAT(team, ' | ') AS teams
+            FROM (
+                SELECT DISTINCT te.project_id,
+                       COALESCE(cg.group_name, 'Other') AS team
+                FROM time_entries te
+                JOIN projects p ON p.id = te.project_id
+                JOIN clients  c ON c.id = p.client_id
+                JOIN time_entries te2
+                     ON te2.project_id = te.project_id
+                    AND te2.project_code_id IN (
+                        SELECT id FROM project_codes
+                        WHERE project_id = te.project_id
+                    )
+                    AND SUBSTR(te2.period, 1, 4) = ?
+                    AND te2.consultant != te.consultant
+                    AND te2.non_z_hours > 0
+                LEFT JOIN consultant_groups cg ON cg.consultant = te2.consultant
+                WHERE te.consultant = ?
+                  AND SUBSTR(te.period, 1, 4) = ?
+                  AND c.client_type != 'internal'
+                  AND c.client_code NOT LIKE '0009%'
+            )
+            GROUP BY project_id
+            """,
+            (str(year), consultant, str(year)),
+        ).fetchall()
+        for tr in team_rows:
+            project_teams[tr["project_id"]] = tr["teams"] or ""
 
     result = []
     for r in rows:
@@ -2419,6 +2514,7 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
             "hours_pct":    round(hrs_pct, 1),
             "fees_pct":     round(fees_pct, 1),
             "colleagues":   project_colleagues.get(r["project_id"], ""),
+            "teams":        project_teams.get(r["project_id"], ""),
         })
     return result
 

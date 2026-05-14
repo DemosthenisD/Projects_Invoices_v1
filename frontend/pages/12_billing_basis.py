@@ -24,6 +24,7 @@ from backend.db import (
     get_billing_basis_by_source,
     get_billing_basis_from_time_entries,
     upsert_billing_basis,
+    set_billing_basis_preferred,
     get_billing_basis_summary,
 )
 from shared.ui import dataframe_with_total
@@ -441,12 +442,12 @@ with tab_saved:
                     })
                     # Active = the record Annual Review will use:
                     # manual always wins; time_tracking is active only if no manual exists
-                    is_active = (b.source == "manual") or (b.emp_nbr not in _emps_with_manual)
+                    is_active = bool(b.is_preferred)
                     records.append({
                         "Consultant":        _name_map.get(b.emp_nbr, b.emp_nbr),
                         "Group":             grp,
                         "Source":            b.source,
-                        "Active":            "Yes" if is_active else "No",
+                        "Active for Review": "✓" if is_active else "",
                         "Billed €":          float(b.billed),
                         "Capped Paid €":     float(b.capped_paid_prebill),
                         "Capped Unpaid €":   float(b.capped_unpaid_prebill),
@@ -463,7 +464,7 @@ with tab_saved:
                     st.info("No records for the selected group.")
                 else:
                     df_saved = pd.DataFrame(records)
-                    df_active = df_saved[df_saved["Active"] == "Yes"]
+                    df_active = df_saved[df_saved["Active for Review"] == "✓"]
 
                     if sv_view == "By Group":
                         # Aggregate only Active records to avoid double-counting
@@ -473,11 +474,52 @@ with tab_saved:
                     else:
                         # By Consultant — shows all records (manual + auto) with Source / Active columns
                         st.caption(
-                            "Both manual and auto records shown. "
-                            "'Active = Yes' is the record used by Annual Review "
-                            "(manual takes priority when both exist)."
+                            "Both manual and auto records are shown. "
+                            "'✓' in **Active for Review** is the record used by the Annual Review. "
+                            "Use the selector below to change which source is used per consultant."
                         )
                         st.dataframe(df_saved, use_container_width=True, hide_index=True)
+
+                        # --- Explicit source-selection for consultants with both records ---
+                        _both_emps = [
+                            emp for emp in {r["Emp #"] if "Emp #" in df_saved.columns
+                                           else b.emp_nbr
+                                           for b in (_manual_saved + _auto_saved)}
+                            if any(b.emp_nbr == emp and b.source == "manual"   for b in _manual_saved)
+                            and any(b.emp_nbr == emp and b.source == "time_tracking" for b in _auto_saved)
+                        ]
+                        # Rebuild emp_nbr list from the records dicts
+                        _both_emps_from_records = []
+                        seen_emps: set[str] = set()
+                        for rec in records:
+                            emp = next((b.emp_nbr for b in (_manual_saved + _auto_saved)
+                                        if _name_map.get(b.emp_nbr, b.emp_nbr) == rec["Consultant"]), None)
+                            if emp and emp not in seen_emps:
+                                has_manual = any(b.emp_nbr == emp for b in _manual_saved)
+                                has_auto   = any(b.emp_nbr == emp for b in _auto_saved)
+                                if has_manual and has_auto:
+                                    _both_emps_from_records.append((emp, rec["Consultant"]))
+                                    seen_emps.add(emp)
+
+                        if _both_emps_from_records:
+                            st.markdown("**Set Annual Review source** *(only shown for consultants with both manual and auto entries)*")
+                            with st.form(f"form_pref_{year}"):
+                                _choices: dict[str, str] = {}
+                                for emp, name in _both_emps_from_records:
+                                    current = get_billing_basis(emp, year)
+                                    cur_src = current.source if current else "manual"
+                                    _choices[emp] = st.radio(
+                                        name,
+                                        ["manual", "time_tracking"],
+                                        index=0 if cur_src == "manual" else 1,
+                                        horizontal=True,
+                                        key=f"pref_{emp}_{year}",
+                                    )
+                                if st.form_submit_button("Save preferences", type="primary"):
+                                    for emp, src in _choices.items():
+                                        set_billing_basis_preferred(emp, year, src)
+                                    st.success("Annual Review source preferences saved.")
+                                    st.rerun()
 
         buf = _export_billing_basis_excel(saved_rows, year)
         st.download_button(
