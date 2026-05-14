@@ -2,6 +2,48 @@
 
 ---
 
+## V1.1 — Billing Basis dual-source, Annual Review project breakdown fixes, Teams column (May 2026)
+
+> **Updates on 13 May 2026** — Six targeted improvements across Billing Basis (Page 11) and Annual Review (Page 14).
+>
+> **(1) Billing Basis dual-source storage:** The `billing_basis` table now stores Auto (time_tracking) and Manual entries as two independent rows per consultant per year, keyed by `source`. Previously an upsert on `(emp_nbr, year)` would overwrite whichever source was saved first. The corrected constraint is `UNIQUE(emp_nbr, year, source)`, ensuring both sources coexist. The Manual Entry tab pre-populates only from existing `manual` rows (zeros for consultants with no manual entry).
+>
+> **(2) Explicit billing basis source selection for Annual Review:** A new `is_preferred` flag (`INTEGER DEFAULT 0`) on `billing_basis` lets you designate which source (Auto or Manual) the Annual Review uses for each consultant when both are saved. The Saved Basis tab shows a ✓ in the **Active for Review** column next to the active source. A radio-button form at the bottom of the Saved Basis tab lists every consultant with dual entries and lets you set the preferred source with a single click. All Annual Review queries now order by `is_preferred DESC` so the explicit choice always wins.
+>
+> **(3) Annual Review project breakdown — correct colleague filtering:** The colleagues list for each project in Section 4A was incorrectly showing all consultants billing to any suffix of the same client code. The join now uses `project_id` combined with a `project_codes` subquery validation (`te2.project_code_id IN (SELECT id FROM project_codes WHERE project_id = te.project_id)`), so only consultants billing to codes that actually belong to the specific project are included. Consultants billing to the same client code under a different project are excluded.
+>
+> **(4) Colleague names as "Firstname Lastname":** Names in the Colleagues involved column are now displayed as "Firstname Lastname" (e.g. "Konstantinos Savva") instead of "Lastname, Firstname". A `_flip_name()` helper converts the stored format at display time.
+>
+> **(5) Self-exclusion fix:** The reviewed consultant's own name is now reliably excluded from the colleagues list. The fix uses a ` | ` separator in `GROUP_CONCAT` (replacing `,`) so that "Lastname, Firstname" names are not fragmented when parsed, enabling exact-match exclusion.
+>
+> **(6) Teams involved column:** Each project row in Section 4A now shows a **Teams involved** field alongside Colleagues involved. Teams are derived by joining `consultant_groups` — if three ICEE consultants worked on a project, "ICEE" appears only once. The generated Word Feedback Form document uses the Teams column (not the individual colleagues list), giving a cleaner team-level view. Both columns are editable before generating.
+
+### DB Schema Changes (non-breaking, migrated automatically on startup)
+
+- **`billing_basis`** — unique constraint changed from `(emp_nbr, year)` to `(emp_nbr, year, source)`. New column `is_preferred INTEGER NOT NULL DEFAULT 0`. Existing rows migrated: if only one row exists for a consultant/year, it is set to `is_preferred=1` automatically.
+
+### New DB Functions
+
+- `set_billing_basis_preferred(emp_nbr, year, source)` — clears `is_preferred` for all rows matching `(emp_nbr, year)`, then sets `is_preferred=1` for the specified source.
+
+### Updated DB Functions
+
+- `upsert_billing_basis()` — ON CONFLICT clause updated to `(emp_nbr, year, source)`; `source` removed from UPDATE set (it is part of the key, not updatable).
+- `get_billing_basis_year()` — uses `is_preferred DESC` ordering to return the active source for each consultant.
+- `get_billing_basis()` — same ordering fix for single-consultant lookup.
+- `get_consultant_project_hours(consultant, year)` — result dict now includes `"teams"` field (pipe-separated team names); colleague join revised to `project_id + project_codes` subquery validation; uses ` | ` separator in GROUP_CONCAT via a DISTINCT subquery to comply with SQLite restrictions.
+
+### Model Changes
+
+- **`BillingBasis`** dataclass (`shared/models.py`) — added `is_preferred: int = 0`.
+
+### Page Changes
+
+- **Page 11 — Billing Basis:** Manual Entry tab pre-populates from `manual` rows only; info banner clarifies source isolation. Saved Basis tab: shows both sources per consultant; Active for Review ✓ indicator; explicit source selection form for consultants with dual entries.
+- **Page 14 — Annual Review:** `_flip_name()` helper converts display names to "Firstname Lastname". `_unique_colleagues()` helper splits on ` | ` and excludes the reviewed consultant. Project breakdown layout expanded to 7 columns to include the Teams involved field. Word export uses teams (not colleagues). Aggregate Other Projects row merges both colleague and team lists with deduplication.
+
+---
+
 ## Sprint 16 — TOTAL row pinning, Section 4A project toggles, employee status & UX fixes (May 2026)
 
 > **Updates on 7–8 May 2026** — Six improvements across five pages.

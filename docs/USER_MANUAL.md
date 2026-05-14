@@ -276,15 +276,21 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 ### Page 11 — Billing Basis
 
-**What it does:** Annual billing summary per consultant, used as the basis for productivity-bonus calculation.
+**What it does:** Annual billing summary per consultant, used as the basis for productivity-bonus calculation. Two independent sources can be stored per consultant per year — the Auto source (from imported time entries) and the Manual source (hand-entered). Only one source is used for the Annual Review; you choose which one explicitly.
 
 **Selectors:** Financial Year and Group (Local / ICEE / Other / All — defaults to Local).
 
 **Tabs:**
 
 - **Auto (from Time Tracking):** Aggregates `non_z_charges` per consultant from imported time entries for the selected year. Write-offs are mapped to the Charged Off column. The **Group filter** at the top of the page applies here — only consultants in the selected group are shown in the preview table and the rate entry inputs; Save only writes those consultants' rows. Click **Load from Time Tracking** to preview, then enter hourly rates and click **Save Auto Basis**.
-- **Manual Entry:** Spreadsheet-style table matching the bonus template's Sheet5 layout (Billed / Capped Paid Prebill / Capped Unpaid Prebill / Charged Off / Paid / Unbilled). A computed summary below shows Grand Total, Basis for Bonus, Equivalent Hours, and Productivity Bonus % live as you type. Click **Save Manual Basis** to persist.
-- **Saved Basis:** Read-only view of all saved rows for the year.
+
+- **Manual Entry:** Spreadsheet-style table matching the bonus template's Sheet5 layout (Billed / Capped Paid Prebill / Capped Unpaid Prebill / Charged Off / Paid / Unbilled). Pre-populates from any previously saved Manual entry for the selected year (zeros for consultants with no manual entry yet). A computed summary below shows Grand Total, Basis for Bonus, Equivalent Hours, and Productivity Bonus % live as you type. Click **Save Manual Basis** to persist — this saves or updates the `manual` source row only, leaving any `time_tracking` row unchanged.
+
+- **Saved Basis:** Read-only view of all saved rows for the year — both sources are shown for consultants who have entries from both.
+
+  *Active for Review indicator:* The **Active for Review** column shows ✓ next to the source that will be used by the Annual Review for each consultant. For consultants with only one saved source, that source is used automatically. For consultants with **both** sources saved, the active source is whichever was last explicitly selected (or defaults to Manual if no explicit choice has been made).
+
+  *Explicit source selection:* At the bottom of the Saved Basis tab, consultants who have both sources saved are listed with a radio button to choose which source to use for the Annual Review. Click **Set Active Sources** to confirm the selection — the ✓ indicator updates immediately.
 
   *Group filter:* Radio above the table restricts the display to the selected group (Local / ICEE / Other / All).
 
@@ -292,7 +298,7 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
   | Mode | Description |
   |------|-------------|
-  | By Consultant | Default view — one row per consultant with all billing columns and derived metrics |
+  | By Consultant | Default view — one row per consultant (active source) with all billing columns and derived metrics |
   | By Group | Aggregated per consultant group (Local / ICEE / Other) |
   | By Consultant → Project | Per consultant, broken down by project; uses time-entry amounts |
   | By Project | Aggregated per project across all consultants; uses time-entry amounts |
@@ -352,7 +358,12 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 4. **Feedback Form Export:** Generates the ICEE Feedback Form Word document (`.docx`) for the selected consultant and year, saved to `exports/feedback_<Name>_<Year>.docx`.
 
-   **Sub-section A — Project Breakdown:** Auto-filled from time entries for the review year. Internal projects (`0009*` codes and internal client type) are excluded automatically. Each row shows: Client, Project name + description, editable Colleagues field, Hours %, Fees %, and an **Action** selector.
+   **Sub-section A — Project Breakdown:** Auto-filled from time entries for the review year. Internal projects (`0009*` codes and internal client type) are excluded automatically. Each row shows: Client, Project name + description, editable **Colleagues involved** field, editable **Teams involved** field, Hours %, Fees %, and an **Action** selector.
+
+   - **Colleagues involved** — other consultants who billed to the same project in the same year, shown as "Firstname Lastname" names separated by ` | `. Only consultants billing to project codes that belong to the specific project are included (consultants billing to the same client code under a different project are excluded). The reviewed consultant's own name is removed automatically.
+   - **Teams involved** — the consultant teams (Local / ICEE / Other) corresponding to the colleagues on the project. If multiple colleagues belong to the same team, the team name appears only once. This field is used in the generated Word document instead of individual names, giving a cleaner team-level view.
+
+   Both fields are editable before generating the document.
 
    *Action selector per row:*
    | Action | Effect in the generated document |
@@ -363,7 +374,7 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
    The default action is **Aggregate** for any project representing less than 2 % of the consultant's total fees for the year, and **Include** for all others. You can override any row manually.
 
-   Decisions are saved to the database and reloaded on subsequent visits. The Colleagues field is editable before generating — the app automatically deduplicates names and removes the reviewed consultant's own name from all lists (including the Other Projects aggregate row).
+   Decisions are saved to the database and reloaded on subsequent visits.
 
    **Sub-section B — Assessment Comments & Development Ideas:** One block per performance area showing the computed average score. Two editable text fields per area:
    - *Comments from Feedback Provider* — narrative on performance during the year
@@ -382,6 +393,14 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 **What it does:** Direct view of all underlying database tables for inspection and editing.
 
 Use the tabs to switch between tables. The **"Open DB"** button shows the full path of the database file and opens the containing folder in File Explorer. To edit the DB directly, download [DB Browser for SQLite](https://sqlitebrowser.org/dl/) — it provides a spreadsheet-style interface with no coding required.
+
+---
+
+### Page 15 — Field Definitions
+
+**What it does:** In-app reference page listing all field names and their meanings across every section of the app.
+
+Organised by topic area (Invoices, Projects, Time Tracking, Billing Basis, Annual Review, etc.). Use this page when you encounter an unfamiliar field name or want to confirm the exact meaning of a billing column. No actions available — read-only reference.
 
 ---
 
@@ -435,7 +454,13 @@ The `billing_basis` table stores amounts at the consultant level, not per projec
 Section 4 on Page 13 (Annual Review) fills the ICEE Feedback Form Word template with data from the app: profile details, time entries for the year (for the project breakdown), saved performance scores (group averages), and the comments/development ideas you enter. The file is saved permanently to `exports/feedback_<Name>_<Year>.docx` and a download button is offered immediately. Comments and development ideas are also persisted in the database so they reload on the next visit.
 
 **The Colleagues column in the Feedback Form shows too many names — can I edit it?**
-Yes. Section 4A shows all other consultants who billed to the same project in the same year, as a comma-separated list. The app automatically deduplicates names and removes the reviewed consultant's own name. The field is still editable before you click Save & Generate — trim or rewrite it as needed. Your edits are not saved to the database; only the final document reflects what you typed.
+Yes. Section 4A shows all other consultants who billed to the same project in the same year. The app filters strictly: only consultants billing to project codes that actually belong to the specific project are included — consultants billing to the same client code under a different project are excluded. Names are shown as "Firstname Lastname", deduplicated, and the reviewed consultant's own name is removed automatically. The field is still editable before you click Save & Generate — trim or rewrite it as needed.
+
+**What is the "Teams involved" column in Section 4A?**
+Alongside the Colleagues involved column, each project row also shows the consultant teams (Local / ICEE / Other) of the colleagues on that project. If three ICEE consultants worked on the project, "ICEE" appears only once. This field is what gets written into the generated Word document — the Feedback Form template shows teams rather than individual names, which is cleaner and more appropriate for the document. The Teams field is editable before generating.
+
+**Which billing basis source does the Annual Review use — Auto or Manual?**
+For consultants with only one saved source, that source is used automatically. For consultants with both sources saved, the Annual Review uses whichever source is marked **Active for Review** (shown with a ✓ in the Saved Basis tab). You set this explicitly at the bottom of the Saved Basis tab using the source radio buttons for each consultant with dual entries. Without an explicit selection, Manual is preferred over Auto. Always check the ✓ indicator before running an Annual Review for a consultant.
 
 **What is the difference between "Include", "Aggregate", and "Exclude" in Section 4A?**
 These control how each project row appears in the generated Feedback Form document. **Include** keeps the row as-is. **Exclude** drops it entirely (use for internal overhead or data errors). **Aggregate** merges the row with all other Aggregate rows into a single "Other Projects" line, which is useful for grouping small-contribution projects into one summary entry. The default is Aggregate for projects under 2 % of total fees, and Include for the rest. Decisions are saved and reload on future visits.

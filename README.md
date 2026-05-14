@@ -1,4 +1,4 @@
-# InvoiceApp — V1.0
+# InvoiceApp — V1.1
 
 Personal invoice and project billing management tool built with **Streamlit** and **SQLite**.
 
@@ -51,9 +51,10 @@ python -m pytest tests/ -v
 | 9 | Data Tables | Direct view of all DB tables; open in DB Browser for SQLite |
 | 10 | Project Overview | Full project-level financial summary; filter by client/status/source; export to Excel |
 | 11 | Add New Project | Flat intake form: client + project + codes in one step; import creates only missing records |
-| 12 | Billing Basis | Annual billing summary per consultant (auto from time entries or manual entry); computes productivity bonus % |
+| 12 | Billing Basis | Annual billing summary per consultant — two independent sources (Auto from time entries, Manual entry); explicit source selection for Annual Review; computes productivity bonus % |
 | 13 | Consultant Profiles | Employment details, Milliman status/level, salary history year-by-year, billing rates |
-| 14 | Annual Review | Per-consultant annual assessment: salary chain, bonus calculation, performance scores (3 groups), Excel export |
+| 14 | Annual Review | Per-consultant annual assessment: salary chain, bonus calculation, performance scores (3 groups), project breakdown with Colleagues + Teams columns, Word Feedback Form export, Excel export |
+| 15 | Field Definitions | Reference page for all field names and their meanings across the app |
 
 ---
 
@@ -76,7 +77,7 @@ docs/               User manual, technical reference, release notes
 
 All data lives in a single SQLite file: `data/invoiceapp.db`.
 
-**Tables:** `clients`, `addresses`, `projects`, `invoices`, `invoice_allocations`, `pipeline`, `project_codes`, `time_entries`, `write_offs`, `consultant_groups`, `consultant_profiles`, `annual_salary_history`, `billing_basis`, `review_scores`
+**Tables:** `clients`, `addresses`, `projects`, `invoices`, `invoice_allocations`, `payments`, `pipeline`, `project_codes`, `time_entries`, `write_offs`, `consultant_groups`, `consultant_profiles`, `annual_salary_history`, `billing_basis`, `review_scores`, `review_feedback`
 
 To inspect or edit the database directly, use [DB Browser for SQLite](https://sqlitebrowser.org/dl/) (free, Windows). The app's **Data Tables** page (page 9) has a button that opens the file directly.
 

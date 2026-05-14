@@ -159,7 +159,7 @@ groups = {
                 "Set or update stage, contracted value, min/est/max budget, probability, and notes per project",
             ],
             [
-                "Filter by stage, client type, and country",
+                "Filter by stage, client, client type, and country",
                 "Columns include: Country, In Pipeline (date first entered), In Stage Since (auto-updated when stage changes)",
                 "Probability-weighted forecast totals (weighted min / est / max)",
                 "Stage summary metrics (count + total value per stage)",
@@ -169,9 +169,10 @@ groups = {
             "7. Dashboard",
             [],
             [
+                "Year selector; multiselect filters: Client Type, Country, Client",
                 "YTD revenue vs prior year (net, VAT, gross) with % change",
                 "Monthly revenue bar chart (net vs gross)",
-                "Revenue by client bar chart",
+                "Revenue by client bar chart (with client-level multiselect filter)",
                 "VAT summary table by month with totals row",
                 "Pipeline forecast: probability-weighted min / est / max",
             ],
@@ -182,9 +183,10 @@ groups = {
                 "Export the full project table to Excel",
             ],
             [
-                "One row per project: Client, Project, Source, Codes, Budget, Billable, Write-offs, Net, Invoiced, Remaining, Status",
-                "Multi-select filters: Client, Status, Source",
-                "Summary totals: project count, budget, billable, invoiced",
+                "One row per project: Client, Type, Project, Source, Codes, Budget, Billable, Write-offs, Net, Invoiced, Remaining, Status",
+                "Six multiselect filters: Client, Status, Source / Office, Type, Consultant Team, Consultant",
+                "Sortable columns (amounts sort numerically); pinned TOTAL row",
+                "Year-by-Year sub-table per project with TOTAL row and column",
             ],
         ),
     ],
@@ -194,14 +196,14 @@ groups = {
             [
                 "Import a monthly time-charge CSV (rows matched by client_code + suffix)",
                 "Delete an entire import batch if needed",
-                "Assign or change a consultant's group (Local / ICEE / Other) on the Consultant Groups tab",
-                "Add new consultants manually on the Consultant Groups tab",
+                "Assign or change a consultant's team (Local / ICEE / Other) and Active/Inactive status on the Consultant Teams tab",
+                "Add new consultants manually on the Consultant Teams tab",
             ],
             [
-                "Entries tab: raw time entries filterable by client, project, period, billable-only",
-                "Rollup tab: project-level and per-code summary of billable hours, charges, write-offs, net",
-                "Local / ICEE / Other breakdown by consultant group in the Rollup tab",
-                "Consultant Groups tab: full list of consultants with group assignments",
+                "Entries tab: raw time entries filterable by Client Type, Country, Client, Project, period, billable-only",
+                "Rollup tab: project-level and per-code summary; 6-control filter row; By Code or Year-by-Year view toggle; breakdown by Consultant Team and by Consultant",
+                "Team Summary tab: aggregate hours/charges by consultant, by consultant + project, and period pivot",
+                "Consultant Teams tab: consultants grouped by team with Active/Inactive status for Local consultants",
             ],
         ),
         (
@@ -221,45 +223,50 @@ groups = {
         (
             "11. Billing Basis",
             [
-                "Select **Financial Year** and filter by **Group** (Local / ICEE / Other / All) — defaults to Local",
-                "Auto-aggregate billing amounts from Time Tracking (non_z_charges per consultant for the year)",
-                "Or enter billing amounts manually in the Sheet5-style table",
-                "Enter each consultant's hourly billing rate to unlock equivalent-hours and productivity-bonus calculation",
-                "Save the basis for use by page 13 — Annual Review",
+                "Select **Financial Year** and filter by **Consultant Team** (Local / ICEE / Other / All) — defaults to Local",
+                "**Auto tab**: load billing amounts from Time Tracking (non_z_charges per consultant), enter hourly rates, save as the Auto source",
+                "**Manual Entry tab**: enter billing amounts in the Sheet5-style table, save as the Manual source — both sources can coexist per consultant per year",
+                "**Saved Basis tab**: view both sources; select which source is **Active for Review** for consultants with dual entries using the radio buttons at the bottom",
             ],
             [
-                "Per-consultant: Grand Total, Basis for Bonus (Grand Total − Charged Off), Equivalent Hours, Productivity Bonus %",
-                "Saved Basis tab shows all stored rows for the selected year",
-                "Productivity bonus formula: `(Equiv Hours − 800) / 40 × 1%`",
+                "Per-consultant derived metrics: Grand Total, Basis for Bonus (Grand Total − Charged Off), Equivalent Hours, Productivity Bonus %",
+                "Active for Review ✓ indicator shows which source the Annual Review will use",
+                "7 view modes: By Consultant, By Group, By Consultant → Project, By Project, By Project → Group, By Project → Consultant, By Project → Group → Consultant",
+                "Pinned TOTAL row; Export to Excel available",
+                "Productivity bonus formula: `max(Equiv Hours − 800, 0) / 40 × 1%`",
             ],
         ),
         (
             "12. Consultant Profiles",
             [
-                "Filter by **Group** (Local / ICEE / Other / All) — defaults to Local",
+                "Filter by **Consultant Team** (Local / ICEE / Other / All) and **Employment Status** (Active / Inactive / All) — defaults to Local + Active",
                 "Record employment start date, prior experience, Milliman status, external level, languages, and tools",
                 "Add or edit year records in the Salary History tab: starting salary, exams passed, exam raise rate, other raise, objective bonus %, proposed billing rate",
+                "Delete a year record from the Salary History tab",
             ],
             [
-                "Profile tab: full employment profile for the selected consultant",
+                "Profile tab: full employment profile; Years at Milliman and total experience computed automatically",
                 "Salary History tab: year-by-year salary chain with bonus details; updated salary auto-carries to next year",
-                "Rates tab: billing rates by year from salary history and billing basis",
-                "Productivity bonus pulled from page 11 (Billing Basis) automatically",
+                "Rates tab: Proposed Rate for following year vs Billing Basis hourly rate, side by side per year",
+                "Productivity bonus pulled from Billing Basis (active source) automatically",
             ],
         ),
         (
             "13. Annual Review",
             [
-                "Select consultant + year; set assessor name and assessment date",
+                "Consultant dropdown shows only **Local + Active** consultants",
                 "Section 1 — Compensation: enter exams passed, other raise, objective bonus %, proposed rate → computed fields update live",
-                "Section 2 — Performance Scores: score each sub-item (1.0–5.0) across Professionalism, Management, Social Skills",
+                "Section 2 — Performance Scores: score each sub-item (1.0–4.0) across Professionalism, Management, Social Skills",
+                "Section 4 — Feedback Form Export: review project breakdown (Colleagues + Teams), fill assessment comments and development ideas, generate Word document",
                 "Save compensation and scores independently; export full review to Excel",
             ],
             [
-                "Auto-pulls productivity bonus % from saved Billing Basis",
-                "Shows salary chain and bonus calculation live",
+                "Auto-pulls productivity bonus % from saved Billing Basis (active source for the consultant)",
+                "Shows salary chain and bonus calculation live; bonus applied to pre-raise starting salary",
                 "Prior 3 years shown as reference; group averages calculated automatically",
-                "Management scoring group always shown — set to 0 for non-manager consultants",
+                "Section 4A: Colleagues involved (Firstname Lastname format, self-excluded) and Teams involved per project",
+                "Section 4A: Include / Aggregate / Exclude toggle per project; Aggregate rows merged into Other Projects line",
+                "Word export uses Teams column; comments and decisions saved to DB for subsequent visits",
             ],
         ),
     ],
@@ -271,9 +278,18 @@ groups = {
                 "Open the database folder in File Explorer",
             ],
             [
-                "Read-only view of every table: Clients, Projects, Project Codes, Invoices, Payments, Time Entries, Write-offs, Pipeline, Billing Basis, Salary History, Review Scores",
+                "Read-only view of every table: Clients, Projects, Project Codes, Invoices, Payments, Time Entries, Write-offs, Pipeline, Billing Basis, Salary History, Review Scores, Review Feedback",
                 "Configurable row limit per table; Show All option",
                 "Full database file path displayed for reference",
+            ],
+        ),
+        (
+            "15. Field Definitions",
+            [],
+            [
+                "In-app reference for all field names and their meanings",
+                "Organised by topic area — Invoices, Projects, Time Tracking, Billing Basis, Annual Review, and more",
+                "No actions — read-only reference page",
             ],
         ),
     ],
@@ -318,10 +334,14 @@ st.markdown("""
 | Pipeline stage / estimated value / probability | **6. Pipeline / CRM** → edit row → Save |
 | Consultant group (Local / ICEE / Other) | **9. Time Tracking** → Consultant Groups tab |
 | Write-off reason / reversal | **10. Write-offs** → Log tab → Reverse button |
-| Annual billing amounts for bonus calc | **11. Billing Basis** → Manual Entry or Auto tab (filter by Local first) |
-| Consultant employment / experience / tools | **12. Consultant Profiles** → Profile tab (filter by Local first) |
+| Annual billing amounts for bonus calc (auto) | **11. Billing Basis** → Auto tab → Load from Time Tracking → Save |
+| Annual billing amounts for bonus calc (manual) | **11. Billing Basis** → Manual Entry tab → fill amounts → Save |
+| Choose which billing basis source the Annual Review uses | **11. Billing Basis** → Saved Basis tab → source radio buttons at bottom → Set Active Sources |
+| Consultant employment / experience / tools | **12. Consultant Profiles** → Profile tab |
 | Salary record for a specific year | **12. Consultant Profiles** → Salary History tab → Add / Edit Year Record |
 | Performance scores for a review year | **13. Annual Review** → Section 2 — Performance Scores |
+| Generate the Feedback Form Word document | **13. Annual Review** → Section 4 → Save & Generate Feedback Form |
+| Look up what a field name means | **15. Field Definitions** |
 | Anything else (direct DB edit) | **14. Data Tables** → Open in DB Browser for SQLite |
 """)
 
@@ -353,5 +373,8 @@ st.markdown("""
 | **managed client** | Standard client with full project tracking, budgets, and invoices. |
 | **external client** | Client outside normal managed scope — tracked at a basic level; project codes optional. |
 | **internal client** | Non-billable overhead codes (e.g. internal projects, admin time). |
-| **Local group** | The Cyprus local team. Default filter on Billing Basis and Consultant Profiles pages. |
+| **Local group** | The Cyprus local team. Default filter on Billing Basis, Consultant Profiles, and Annual Review pages. |
+| **Active for Review** | The billing basis source (Auto or Manual) designated for use in the Annual Review for a given consultant and year. Set explicitly in the Saved Basis tab on Page 11. |
+| **Colleagues involved** | Other consultants who billed to the same project codes in the same year, shown in "Firstname Lastname" format. Used in Section 4A of the Annual Review. |
+| **Teams involved** | The consultant teams (Local / ICEE / Other) of the colleagues on a project, deduplicated. Used in the generated Word Feedback Form document. |
 """)

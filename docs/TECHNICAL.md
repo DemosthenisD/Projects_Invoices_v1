@@ -18,6 +18,10 @@ frontend/
     9_data_tables.py        ← Direct table viewer
     10_project_overview.py  ← Project-level financial overview
     11_add_new_project.py   ← Flat intake form: client + project + codes in one step
+    12_billing_basis.py     ← Annual billing summary — Auto (time entries) + Manual sources; is_preferred selection
+    13_consultant_profiles.py ← Employment details, salary history, billing rates
+    14_annual_review.py     ← Annual assessment: compensation, scores, Feedback Form Word export
+    15_data_field_definitions.py ← Field reference guide
 
 backend/
   db.py                     ← All SQLite access (CRUD functions)
@@ -26,6 +30,7 @@ backend/
 shared/
   config.py                 ← Paths, credentials (from .streamlit/secrets.toml)
   models.py                 ← Dataclass definitions (Client, Project, Invoice, …)
+  ui.py                     ← Shared UI helpers (dataframe_with_total pinned footer)
 
 data/
   invoiceapp.db             ← SQLite database (single file)
@@ -221,6 +226,95 @@ Unique on `(period, emp_nbr, client_code, client_suffix)`.
 | emp_nbr | TEXT | Nullable until first time entry seen |
 | consultant | TEXT NOT NULL | Name as in time reports |
 | group_name | TEXT | `Local` / `ICEE` / `Other` |
+| status | TEXT | `Active` / `Inactive`; Local consultants only; determines Annual Review visibility |
+
+### `consultant_profiles`
+
+One row per consultant — extended HR details.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| emp_nbr | TEXT | |
+| employment_date | TEXT | YYYY-MM-DD |
+| prior_exp_years | REAL | Years of experience before joining Milliman |
+| milliman_status | TEXT | e.g. `Approved Professional` |
+| external_level | TEXT | e.g. `Senior Consultant` |
+| languages | TEXT | Free text |
+| tools | TEXT | Free text |
+| current_role | TEXT | |
+| notes | TEXT | |
+
+### `annual_salary_history`
+
+One row per consultant per year.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| emp_nbr | TEXT | |
+| year | INTEGER | |
+| starting_salary | REAL | Carried from prior year's updated_salary |
+| exams_passed | REAL | Can be fractional (e.g. 1.5) |
+| exam_raise_per_exam | REAL | €/exam |
+| other_raise | REAL | Discretionary raise |
+| effective_date | TEXT | YYYY-MM-DD |
+| objective_bonus_pct | REAL | e.g. 0.07 for 7% |
+| bonus_paid | REAL | Actual bonus paid (historical record) |
+| proposed_rate | REAL | Proposed hourly billing rate for the following year |
+| notes | TEXT | |
+
+### `billing_basis`
+
+One or two rows per consultant per year (one per source).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| emp_nbr | TEXT | |
+| year | INTEGER | |
+| source | TEXT | `time_tracking` or `manual` |
+| is_preferred | INTEGER | `1` = explicitly chosen for Annual Review calc; `0` otherwise |
+| billed | REAL | |
+| capped_paid_prebill | REAL | |
+| capped_unpaid_prebill | REAL | |
+| charged_off | REAL | |
+| paid | REAL | |
+| unbilled | REAL | |
+| hourly_rate | REAL | Used to convert basis → equivalent hours |
+| notes | TEXT | |
+
+Unique on `(emp_nbr, year, source)`. Both sources can coexist per year; `is_preferred=1` marks the one used by the Annual Review.
+
+### `review_scores`
+
+One row per consultant per year per score group per item.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| emp_nbr | TEXT | |
+| year | INTEGER | |
+| score_group | TEXT | `Professionalism` / `Management` / `Social Skills` |
+| item_name | TEXT | e.g. `Modelling skills` |
+| score | REAL | 1.0–4.0 |
+
+Unique on `(emp_nbr, year, score_group, item_name)`.
+
+### `review_feedback`
+
+Narrative text per consultant per year per area.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| emp_nbr | TEXT | |
+| year | INTEGER | |
+| area | TEXT | `Professionalism` / `Management` / `Social Skills` / `Other` / `_project_rows` |
+| comments | TEXT | Narrative from feedback provider |
+| development_ideas | TEXT | Suggested areas for growth |
+
+Unique on `(emp_nbr, year, area)`. The special area `_project_rows` stores JSON for Section 4A project action decisions.
 
 ---
 
