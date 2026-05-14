@@ -481,14 +481,6 @@ with tab_saved:
                         st.dataframe(df_saved, use_container_width=True, hide_index=True)
 
                         # --- Explicit source-selection for consultants with both records ---
-                        _both_emps = [
-                            emp for emp in {r["Emp #"] if "Emp #" in df_saved.columns
-                                           else b.emp_nbr
-                                           for b in (_manual_saved + _auto_saved)}
-                            if any(b.emp_nbr == emp and b.source == "manual"   for b in _manual_saved)
-                            and any(b.emp_nbr == emp and b.source == "time_tracking" for b in _auto_saved)
-                        ]
-                        # Rebuild emp_nbr list from the records dicts
                         _both_emps_from_records = []
                         seen_emps: set[str] = set()
                         for rec in records:
