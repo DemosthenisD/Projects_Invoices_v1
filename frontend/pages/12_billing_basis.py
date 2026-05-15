@@ -174,9 +174,53 @@ with tab_auto:
                 total_chg = sum(m["non_z_charges"] or 0 for m in monthly)
                 _avg_rates[r["emp_nbr"]] = round(total_chg / total_hrs, 1) if total_hrs > 0 else 0.0
 
+            # Compute defaults: saved DB value takes priority over auto-computed rate
+            _defaults: dict[str, tuple[float, float]] = {}  # emp_nbr → (default_avg, default_hourly)
+            for r in rows:
+                _existing = get_billing_basis_by_source(r["emp_nbr"], year, "time_tracking")
+                _saved_avg    = _existing.avg_annual_rate if _existing else 0.0
+                _saved_hourly = _existing.hourly_rate     if _existing else 0.0
+                _computed_avg = _avg_rates.get(r["emp_nbr"], 0.0)
+                _defaults[r["emp_nbr"]] = (
+                    _saved_avg if _saved_avg > 0 else _computed_avg,
+                    _saved_hourly,
+                )
+
+            # Rate inputs — OUTSIDE a form so the preview below updates live on every change
+            st.caption(
+                "**Avg Annual Rate** is pre-filled from time entries (weighted avg NonZ rate). "
+                "Edit if needed — the bonus calculation below updates immediately. "
+                "**Hourly Rate** is your reference/proposed rate (shown on Rates by Year only)."
+            )
+            rate_cols = st.columns(min(len(rows), 3))
+            hourly_rates: dict[str, float] = {}
+            avg_rates_input: dict[str, float] = {}
+            for i, r in enumerate(rows):
+                _emp  = r["emp_nbr"]
+                _name = r.get("consultant", _emp)
+                _col  = rate_cols[i % len(rate_cols)]
+                _col.markdown(f"**{_name}**")
+                _def_avg, _def_hourly = _defaults[_emp]
+                avg_rates_input[_emp] = _col.number_input(
+                    "Avg Annual Rate €/hr", value=float(_def_avg),
+                    min_value=0.0, step=1.0, key=f"auto_avg_{_emp}",
+                    help="Weighted avg from time entries — used for bonus %"
+                )
+                hourly_rates[_emp] = _col.number_input(
+                    "Hourly Rate €/hr (reference)", value=float(_def_hourly),
+                    min_value=0.0, step=5.0, key=f"auto_rate_{_emp}",
+                    help="Proposed/current rate — shown on Rates by Year"
+                )
+
+            # Preview table — built using CURRENT widget values so bonus calc is always in sync
             records = []
             for r in rows:
-                derived = _derive({**r, "avg_annual_rate": _avg_rates.get(r["emp_nbr"], 0.0)})
+                _emp = r["emp_nbr"]
+                derived = _derive({
+                    **r,
+                    "avg_annual_rate": avg_rates_input.get(_emp, _defaults[_emp][0]),
+                    "hourly_rate":     hourly_rates.get(_emp, _defaults[_emp][1]),
+                })
                 records.append({
                     "Emp #":            r["emp_nbr"],
                     "Consultant":       r.get("consultant", ""),
@@ -204,7 +248,7 @@ with tab_auto:
                         continue
                     name = r.get("consultant", r["emp_nbr"])
                     avg  = _avg_rates.get(r["emp_nbr"], 0.0)
-                    st.markdown(f"**{name}** — Avg Annual Rate: **€{avg:.1f}/hr**")
+                    st.markdown(f"**{name}** — Auto-computed weighted avg: **€{avg:.1f}/hr**")
                     df_m = pd.DataFrame([{
                         "Period":        m["period"],
                         "NonZ Hours":    m["non_z_hours"],
@@ -227,58 +271,24 @@ with tab_auto:
                     }])
                     st.dataframe(df_m, use_container_width=True, hide_index=True)
 
-            with st.form("form_auto_save"):
-                st.caption(
-                    "**Avg Annual Rate** is pre-filled from time entries (weighted avg NonZ rate across all periods). "
-                    "Edit if needed — this rate is used for the bonus % calculation. "
-                    "**Hourly Rate** is your reference/proposed rate (used on the Rates by Year view)."
-                )
-                rate_rows = []
+            if st.button("Save Basis", type="primary", key="btn_save_auto"):
                 for r in rows:
-                    existing_auto = get_billing_basis_by_source(r["emp_nbr"], year, "time_tracking")
-                    saved_hourly  = existing_auto.hourly_rate     if existing_auto else 0.0
-                    saved_avg     = existing_auto.avg_annual_rate  if existing_auto else 0.0
-                    computed_avg  = _avg_rates.get(r["emp_nbr"], 0.0)
-                    # Pre-fill avg with computed value; fall back to saved if already set
-                    default_avg   = saved_avg if saved_avg > 0 else computed_avg
-                    rate_rows.append((r["emp_nbr"], r.get("consultant", r["emp_nbr"]),
-                                      saved_hourly, default_avg))
-
-                rate_cols = st.columns(min(len(rate_rows), 3))
-                hourly_rates: dict[str, float] = {}
-                avg_rates_input: dict[str, float] = {}
-                for i, (emp, name, def_hourly, def_avg) in enumerate(rate_rows):
-                    col = rate_cols[i % len(rate_cols)]
-                    col.markdown(f"**{name}**")
-                    avg_rates_input[emp] = col.number_input(
-                        f"Avg Annual Rate €/hr", value=float(def_avg),
-                        min_value=0.0, step=1.0, key=f"auto_avg_{emp}",
-                        help="Weighted avg from time entries — used for bonus %"
+                    upsert_billing_basis(
+                        emp_nbr=r["emp_nbr"],
+                        year=year,
+                        source="time_tracking",
+                        billed=r["billed"],
+                        capped_paid_prebill=r["capped_paid_prebill"],
+                        capped_unpaid_prebill=r["capped_unpaid_prebill"],
+                        charged_off=r["charged_off"],
+                        paid=r["paid"],
+                        unbilled=r["unbilled"],
+                        hourly_rate=hourly_rates.get(r["emp_nbr"], 0.0),
+                        avg_annual_rate=avg_rates_input.get(r["emp_nbr"], 0.0),
                     )
-                    hourly_rates[emp] = col.number_input(
-                        f"Hourly Rate €/hr (reference)", value=float(def_hourly),
-                        min_value=0.0, step=5.0, key=f"auto_rate_{emp}",
-                        help="Proposed/current rate — shown on Rates by Year"
-                    )
-
-                if st.form_submit_button("Save Auto Basis"):
-                    for r in rows:
-                        upsert_billing_basis(
-                            emp_nbr=r["emp_nbr"],
-                            year=year,
-                            source="time_tracking",
-                            billed=r["billed"],
-                            capped_paid_prebill=r["capped_paid_prebill"],
-                            capped_unpaid_prebill=r["capped_unpaid_prebill"],
-                            charged_off=r["charged_off"],
-                            paid=r["paid"],
-                            unbilled=r["unbilled"],
-                            hourly_rate=hourly_rates.get(r["emp_nbr"], 0.0),
-                            avg_annual_rate=avg_rates_input.get(r["emp_nbr"], 0.0),
-                        )
-                    del st.session_state["_bb_auto_rows"]
-                    st.success(f"Saved Auto billing basis for {len(rows)} consultant(s) — {year}.")
-                    st.rerun()
+                del st.session_state["_bb_auto_rows"]
+                st.success(f"Saved billing basis for {len(rows)} consultant(s) — {year}.")
+                st.rerun()
 
 # ── Manual Entry tab ─────────────────────────────────────────────────────────
 with tab_manual:
