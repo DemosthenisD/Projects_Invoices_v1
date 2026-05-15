@@ -2268,7 +2268,7 @@ def get_billing_basis_year(year: int) -> list[BillingBasis]:
             """SELECT b.id, b.emp_nbr, b.year, b.source, b.is_preferred,
                       b.billed, b.capped_paid_prebill, b.capped_unpaid_prebill,
                       b.charged_off, b.paid, b.unbilled,
-                      b.hourly_rate, b.notes, b.created_at
+                      b.hourly_rate, b.avg_annual_rate, b.notes, b.created_at
                FROM billing_basis b
                WHERE b.year = ?
                  AND b.id = (
@@ -2289,7 +2289,7 @@ def get_billing_basis_year_by_source(year: int, source: str) -> list[BillingBasi
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT id, emp_nbr, year, source, is_preferred, billed, capped_paid_prebill, "
-            "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, notes, created_at "
+            "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, avg_annual_rate, notes, created_at "
             "FROM billing_basis WHERE year = ? AND source = ? ORDER BY emp_nbr",
             (year, source)
         ).fetchall()
@@ -2304,7 +2304,7 @@ def get_billing_basis(emp_nbr: str, year: int) -> BillingBasis | None:
     with get_connection() as conn:
         row = conn.execute(
             "SELECT id, emp_nbr, year, source, is_preferred, billed, capped_paid_prebill, "
-            "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, notes, created_at "
+            "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, avg_annual_rate, notes, created_at "
             "FROM billing_basis WHERE emp_nbr = ? AND year = ? "
             "ORDER BY is_preferred DESC, CASE source WHEN 'manual' THEN 0 ELSE 1 END LIMIT 1",
             (emp_nbr, year)
@@ -2317,7 +2317,7 @@ def get_billing_basis_by_source(emp_nbr: str, year: int, source: str) -> Billing
     with get_connection() as conn:
         row = conn.execute(
             "SELECT id, emp_nbr, year, source, is_preferred, billed, capped_paid_prebill, "
-            "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, notes, created_at "
+            "capped_unpaid_prebill, charged_off, paid, unbilled, hourly_rate, avg_annual_rate, notes, created_at "
             "FROM billing_basis WHERE emp_nbr = ? AND year = ? AND source = ?",
             (emp_nbr, year, source)
         ).fetchone()

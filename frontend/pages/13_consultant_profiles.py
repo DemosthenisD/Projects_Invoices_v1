@@ -355,8 +355,9 @@ with tab_rates:
             bb = get_billing_basis(emp_nbr, h.year)
             rate_rows.append({
                 "Year":                  h.year,
-                "Proposed Rate for following year €/hr":    h.proposed_rate,
+                "Proposed Rate for following year €/hr": h.proposed_rate,
+                "Avg Annual Rate €/hr":    bb.avg_annual_rate if bb else "—",
                 "Billing Basis Rate €/hr": bb.hourly_rate if bb else "—",
-                "Source":                bb.source if bb else "—",
+                "Source":                  bb.source if bb else "—",
             })
         st.dataframe(pd.DataFrame(rate_rows), use_container_width=True, hide_index=True)
