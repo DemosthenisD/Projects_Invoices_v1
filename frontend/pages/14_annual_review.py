@@ -396,6 +396,19 @@ with st.expander("2 — Performance Scores", expanded=True):
     hist_years = [int(review_year) - 1, int(review_year) - 2, int(review_year) - 3]
     hist_scores = get_review_scores_multi_year(emp_nbr, hist_years)
 
+    # Sync widget session state from DB whenever the consultant or year selection changes.
+    # Streamlit ignores the number_input `value` param when the key already exists in
+    # session state — this ensures DB values are reflected after a hot-reload or
+    # switching consultants/years within the same browser session.
+    _sel_key = f"_ar_sel_{emp_nbr}_{int(review_year)}"
+    if st.session_state.get("_ar_prev_sel") != _sel_key:
+        st.session_state["_ar_prev_sel"] = _sel_key
+        for _gn, _gits in SCORE_GROUPS.items():
+            for _it in _gits:
+                st.session_state[f"score_{_gn}_{_it}_{int(review_year)}"] = float(
+                    current_scores.get(_gn, {}).get(_it, 0.0)
+                )
+
     # Collect new scores into a dict as user edits
     new_scores: dict[str, dict[str, float]] = {}
 
