@@ -23,6 +23,7 @@ from backend.db import (
     get_billing_basis,
     get_billing_basis_by_source,
     get_billing_basis_from_time_entries,
+    get_monthly_billing_rate_breakdown,
     upsert_billing_basis,
     set_billing_basis_preferred,
     get_billing_basis_summary,
@@ -66,7 +67,11 @@ def _derive(row: dict) -> dict:
     co     = float(row.get("charged_off", 0) or 0)
     paid   = float(row.get("paid", 0) or 0)
     ub     = float(row.get("unbilled", 0) or 0)
-    rate   = float(row.get("hourly_rate", 0) or 0)
+    # Prefer avg_annual_rate (weighted from time entries) over simple hourly_rate
+    avg_rate  = float(row.get("avg_annual_rate", 0) or 0)
+    hourly    = float(row.get("hourly_rate", 0) or 0)
+    rate      = avg_rate if avg_rate > 0 else hourly
+    rate_src  = "avg" if avg_rate > 0 else "manual"
 
     grand_total    = billed + cpp + cup + co + paid + ub
     basis          = grand_total - co
@@ -76,6 +81,8 @@ def _derive(row: dict) -> dict:
     return {
         "Grand Total €":      round(grand_total, 2),
         "Basis for Bonus €":  round(basis, 2),
+        "Rate Used €/hr":     round(rate, 1),
+        "Rate Source":        rate_src,
         "Equiv Hrs":          round(equiv_hrs, 1),
         "Productivity Bonus": f"{prod_bonus_pct:.2%}",
     }
@@ -91,14 +98,16 @@ def _export_billing_basis_excel(rows: list, year: int) -> bytes:
         derived = _derive({
             "billed": b.billed, "capped_paid_prebill": b.capped_paid_prebill,
             "capped_unpaid_prebill": b.capped_unpaid_prebill, "charged_off": b.charged_off,
-            "paid": b.paid, "unbilled": b.unbilled, "hourly_rate": b.hourly_rate,
+            "paid": b.paid, "unbilled": b.unbilled,
+            "avg_annual_rate": b.avg_annual_rate, "hourly_rate": b.hourly_rate,
         })
         records.append({
             "Year": year, "Emp #": b.emp_nbr, "Source": b.source,
             "Billed": b.billed, "Capped Paid Prebill": b.capped_paid_prebill,
             "Capped Unpaid Prebill": b.capped_unpaid_prebill,
             "Charged Off": b.charged_off, "Paid": b.paid, "Unbilled": b.unbilled,
-            "Hourly Rate": b.hourly_rate,
+            "Avg Annual Rate": b.avg_annual_rate, "Hourly Rate": b.hourly_rate,
+            "Rate Used": derived["Rate Used €/hr"], "Rate Source": derived["Rate Source"],
             "Grand Total": derived["Grand Total €"],
             "Basis for Bonus": derived["Basis for Bonus €"],
             "Equiv Hrs": derived["Equiv Hrs"],
@@ -155,9 +164,19 @@ with tab_auto:
                         "Annual Review uses Manual entries when available."
                     )
 
+            # Compute avg_annual_rate from time entries per consultant
+            _monthly_data: dict[str, list] = {}
+            _avg_rates: dict[str, float] = {}
+            for r in rows:
+                monthly = get_monthly_billing_rate_breakdown(r["emp_nbr"], year)
+                _monthly_data[r["emp_nbr"]] = monthly
+                total_hrs = sum(m["non_z_hours"] or 0 for m in monthly)
+                total_chg = sum(m["non_z_charges"] or 0 for m in monthly)
+                _avg_rates[r["emp_nbr"]] = round(total_chg / total_hrs, 1) if total_hrs > 0 else 0.0
+
             records = []
             for r in rows:
-                derived = _derive(r)
+                derived = _derive({**r, "avg_annual_rate": _avg_rates.get(r["emp_nbr"], 0.0)})
                 records.append({
                     "Emp #":            r["emp_nbr"],
                     "Consultant":       r.get("consultant", ""),
@@ -172,25 +191,74 @@ with tab_auto:
             df = pd.DataFrame(records)
             st.dataframe(df, use_container_width=True, hide_index=True)
 
+            # Monthly rate breakdown per consultant
+            with st.expander("Monthly rate breakdown (basis for Avg Annual Rate)", expanded=False):
+                st.caption(
+                    "**NonZ Rate** = non_z_charges ÷ non_z_hours per period. "
+                    "The **Avg Annual Rate** (Grand Total row) is the weighted average across all periods "
+                    "and is used instead of the simple Hourly Rate for the bonus calculation."
+                )
+                for r in rows:
+                    monthly = _monthly_data.get(r["emp_nbr"], [])
+                    if not monthly:
+                        continue
+                    name = r.get("consultant", r["emp_nbr"])
+                    avg  = _avg_rates.get(r["emp_nbr"], 0.0)
+                    st.markdown(f"**{name}** — Avg Annual Rate: **€{avg:.1f}/hr**")
+                    df_m = pd.DataFrame([{
+                        "Period":        m["period"],
+                        "NonZ Hours":    m["non_z_hours"],
+                        "NonZ Charges €": m["non_z_charges"],
+                        "NonZ Rate €/hr": m["avg_nonz_rate"],
+                        "Total Hours":   m["total_hours"],
+                        "Total Charges €": m["total_charges"],
+                        "Total Rate €/hr": m["avg_total_rate"],
+                    } for m in monthly] + [{
+                        "Period":        "TOTAL / AVG",
+                        "NonZ Hours":    sum(m["non_z_hours"] or 0 for m in monthly),
+                        "NonZ Charges €": sum(m["non_z_charges"] or 0 for m in monthly),
+                        "NonZ Rate €/hr": avg,
+                        "Total Hours":   sum(m["total_hours"] or 0 for m in monthly),
+                        "Total Charges €": sum(m["total_charges"] or 0 for m in monthly),
+                        "Total Rate €/hr": round(
+                            sum(m["total_charges"] or 0 for m in monthly) /
+                            sum(m["total_hours"] or 0 for m in monthly), 1
+                        ) if sum(m["total_hours"] or 0 for m in monthly) > 0 else 0.0,
+                    }])
+                    st.dataframe(df_m, use_container_width=True, hide_index=True)
+
             with st.form("form_auto_save"):
                 st.caption(
-                    "Hourly rates below are pre-filled from any previously saved Auto rate. "
-                    "Enter or update before saving."
+                    "**Avg Annual Rate** is pre-filled from time entries (weighted avg NonZ rate across all periods). "
+                    "Edit if needed — this rate is used for the bonus % calculation. "
+                    "**Hourly Rate** is your reference/proposed rate (used on the Rates by Year view)."
                 )
                 rate_rows = []
                 for r in rows:
-                    # Use the existing AUTO rate, not the manual one
                     existing_auto = get_billing_basis_by_source(r["emp_nbr"], year, "time_tracking")
-                    default_rate = existing_auto.hourly_rate if existing_auto else 0.0
-                    rate_rows.append((r["emp_nbr"], r.get("consultant", r["emp_nbr"]), default_rate))
+                    saved_hourly  = existing_auto.hourly_rate     if existing_auto else 0.0
+                    saved_avg     = existing_auto.avg_annual_rate  if existing_auto else 0.0
+                    computed_avg  = _avg_rates.get(r["emp_nbr"], 0.0)
+                    # Pre-fill avg with computed value; fall back to saved if already set
+                    default_avg   = saved_avg if saved_avg > 0 else computed_avg
+                    rate_rows.append((r["emp_nbr"], r.get("consultant", r["emp_nbr"]),
+                                      saved_hourly, default_avg))
 
-                rate_cols = st.columns(min(len(rate_rows), 4))
-                rates: dict[str, float] = {}
-                for i, (emp, name, default_rate) in enumerate(rate_rows):
+                rate_cols = st.columns(min(len(rate_rows), 3))
+                hourly_rates: dict[str, float] = {}
+                avg_rates_input: dict[str, float] = {}
+                for i, (emp, name, def_hourly, def_avg) in enumerate(rate_rows):
                     col = rate_cols[i % len(rate_cols)]
-                    rates[emp] = col.number_input(
-                        f"{name} rate (€/hr)", value=float(default_rate),
-                        min_value=0.0, step=5.0, key=f"auto_rate_{emp}"
+                    col.markdown(f"**{name}**")
+                    avg_rates_input[emp] = col.number_input(
+                        f"Avg Annual Rate €/hr", value=float(def_avg),
+                        min_value=0.0, step=1.0, key=f"auto_avg_{emp}",
+                        help="Weighted avg from time entries — used for bonus %"
+                    )
+                    hourly_rates[emp] = col.number_input(
+                        f"Hourly Rate €/hr (reference)", value=float(def_hourly),
+                        min_value=0.0, step=5.0, key=f"auto_rate_{emp}",
+                        help="Proposed/current rate — shown on Rates by Year"
                     )
 
                 if st.form_submit_button("Save Auto Basis"):
@@ -205,7 +273,8 @@ with tab_auto:
                             charged_off=r["charged_off"],
                             paid=r["paid"],
                             unbilled=r["unbilled"],
-                            hourly_rate=rates.get(r["emp_nbr"], 0.0),
+                            hourly_rate=hourly_rates.get(r["emp_nbr"], 0.0),
+                            avg_annual_rate=avg_rates_input.get(r["emp_nbr"], 0.0),
                         )
                     del st.session_state["_bb_auto_rows"]
                     st.success(f"Saved Auto billing basis for {len(rows)} consultant(s) — {year}.")
@@ -237,16 +306,17 @@ with tab_manual:
             emp = cg["emp_nbr"] or ""
             existing = existing_rows.get(emp)
             manual_data.append({
-                "Emp #":            emp,
-                "Consultant":       cg["consultant"],
-                "Billed €":         existing.billed if existing else 0.0,
+                "Emp #":               emp,
+                "Consultant":          cg["consultant"],
+                "Billed €":            existing.billed if existing else 0.0,
                 "Capped Paid Prebill €":   existing.capped_paid_prebill if existing else 0.0,
                 "Capped Unpaid Prebill €": existing.capped_unpaid_prebill if existing else 0.0,
-                "Charged Off €":    existing.charged_off if existing else 0.0,
-                "Paid €":           existing.paid if existing else 0.0,
-                "Unbilled €":       existing.unbilled if existing else 0.0,
-                "Hourly Rate €/hr": existing.hourly_rate if existing else 0.0,
-                "Notes":            existing.notes if existing else "",
+                "Charged Off €":       existing.charged_off if existing else 0.0,
+                "Paid €":              existing.paid if existing else 0.0,
+                "Unbilled €":          existing.unbilled if existing else 0.0,
+                "Avg Annual Rate €/hr": existing.avg_annual_rate if existing else 0.0,
+                "Hourly Rate €/hr":    existing.hourly_rate if existing else 0.0,
+                "Notes":               existing.notes if existing else "",
             })
 
         df_edit = pd.DataFrame(manual_data)
@@ -263,7 +333,10 @@ with tab_manual:
                 "Charged Off €":             st.column_config.NumberColumn(format="€%.2f"),
                 "Paid €":                    st.column_config.NumberColumn(format="€%.2f"),
                 "Unbilled €":                st.column_config.NumberColumn(format="€%.2f"),
-                "Hourly Rate €/hr":          st.column_config.NumberColumn(format="€%.0f"),
+                "Avg Annual Rate €/hr":      st.column_config.NumberColumn(format="€%.1f",
+                    help="Weighted avg rate used for bonus % — enter from time-tracking breakdown or leave 0 to use Hourly Rate"),
+                "Hourly Rate €/hr":          st.column_config.NumberColumn(format="€%.0f",
+                    help="Reference/proposed rate shown on Rates by Year"),
             },
         )
 
@@ -284,6 +357,7 @@ with tab_manual:
                 "charged_off":           row["Charged Off €"],
                 "paid":                  row["Paid €"],
                 "unbilled":              row["Unbilled €"],
+                "avg_annual_rate":       row["Avg Annual Rate €/hr"],
                 "hourly_rate":           row["Hourly Rate €/hr"],
             }
             derived = _derive(r_dict)
@@ -318,6 +392,7 @@ with tab_manual:
                     charged_off=float(row["Charged Off €"] or 0),
                     paid=float(row["Paid €"] or 0),
                     unbilled=float(row["Unbilled €"] or 0),
+                    avg_annual_rate=float(row["Avg Annual Rate €/hr"] or 0),
                     hourly_rate=float(row["Hourly Rate €/hr"] or 0),
                     notes=str(row["Notes"] or ""),
                 )
@@ -359,12 +434,14 @@ with tab_saved:
         _MONEY_COLS = ["Billed €", "Capped Paid €", "Capped Unpaid €",
                        "Charged Off €", "Paid €", "Unbilled €",
                        "Grand Total €", "Basis for Bonus €"]
+        _RATE_COLS = ["Avg Rate €/hr", "Rate €/hr"]
         _HR_COL = "Equiv Hrs"
 
         def _sv_fmt_dict(df_in: pd.DataFrame) -> dict:
             mc = [c for c in _MONEY_COLS if c in df_in.columns]
+            rc = [c for c in _RATE_COLS if c in df_in.columns]
             hc = [c for c in [_HR_COL] if c in df_in.columns]
-            return {**{c: "{:,.0f}" for c in mc}, **{c: "{:,.1f}" for c in hc}}
+            return {**{c: "{:,.0f}" for c in mc}, **{c: "{:,.1f}" for c in rc + hc}}
 
         def _sv_total_dict(df_in: pd.DataFrame, label_col: str, label: str = "TOTAL") -> dict:
             mc = [c for c in _MONEY_COLS + [_HR_COL] if c in df_in.columns]
@@ -438,10 +515,9 @@ with tab_saved:
                     derived = _derive({
                         "billed": b.billed, "capped_paid_prebill": b.capped_paid_prebill,
                         "capped_unpaid_prebill": b.capped_unpaid_prebill, "charged_off": b.charged_off,
-                        "paid": b.paid, "unbilled": b.unbilled, "hourly_rate": b.hourly_rate,
+                        "paid": b.paid, "unbilled": b.unbilled,
+                        "avg_annual_rate": b.avg_annual_rate, "hourly_rate": b.hourly_rate,
                     })
-                    # Active = the record Annual Review will use:
-                    # manual always wins; time_tracking is active only if no manual exists
                     is_active = bool(b.is_preferred)
                     records.append({
                         "Consultant":        _name_map.get(b.emp_nbr, b.emp_nbr),
@@ -454,6 +530,8 @@ with tab_saved:
                         "Charged Off €":     float(b.charged_off),
                         "Paid €":            float(b.paid),
                         "Unbilled €":        float(b.unbilled),
+                        "Avg Rate €/hr":     float(b.avg_annual_rate),
+                        "Rate €/hr":         float(derived["Rate Used €/hr"]),
                         "Grand Total €":     float(derived["Grand Total €"]),
                         "Basis for Bonus €": float(derived["Basis for Bonus €"]),
                         "Equiv Hrs":         float(derived["Equiv Hrs"]),

@@ -409,6 +409,21 @@ def init_db() -> None:
         except Exception:
             pass
 
+        # --- Migration: billing_basis.avg_annual_rate column ---
+        try:
+            conn.execute(
+                "ALTER TABLE billing_basis ADD COLUMN avg_annual_rate REAL NOT NULL DEFAULT 0.0"
+            )
+        except Exception:
+            pass
+
+        # --- Migration: pipeline → prospect support (nullable project_id, new columns) ---
+        _pl_schema_row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='pipeline'"
+        ).fetchone()
+        _pl_schema_str = (_pl_schema_row[0] if _pl_schema_row else "") or ""
+        _need_pl_migration = "is_prospect" not in _pl_schema_str
+
         # --- Migration: billing_basis UNIQUE(emp_nbr,year) → UNIQUE(emp_nbr,year,source) ---
         # SQLite requires a table recreation to change a UNIQUE constraint.
         # We do this outside the main connection (executescript issues its own COMMITs).
@@ -438,6 +453,7 @@ def init_db() -> None:
                     paid                  REAL    DEFAULT 0.0,
                     unbilled              REAL    DEFAULT 0.0,
                     hourly_rate           REAL    DEFAULT 0.0,
+                    avg_annual_rate       REAL    DEFAULT 0.0,
                     notes                 TEXT    DEFAULT '',
                     created_at            TEXT    DEFAULT (datetime('now')),
                     UNIQUE(emp_nbr, year, source)
@@ -445,11 +461,57 @@ def init_db() -> None:
                 INSERT OR IGNORE INTO billing_basis_new
                     SELECT id, emp_nbr, year, source, billed, capped_paid_prebill,
                            capped_unpaid_prebill, charged_off, paid, unbilled,
-                           hourly_rate, notes, created_at
+                           hourly_rate, 0.0, notes, created_at
                     FROM billing_basis;
                 DROP TABLE billing_basis;
                 ALTER TABLE billing_basis_new RENAME TO billing_basis;
                 PRAGMA foreign_keys=ON;
+            """)
+        finally:
+            _mig_conn.close()
+
+    if _need_pl_migration:
+        _mig_conn = sqlite3.connect(DB_PATH)
+        _mig_conn.row_factory = sqlite3.Row
+        try:
+            _mig_conn.executescript("""
+                PRAGMA foreign_keys = OFF;
+                CREATE TABLE pipeline_new (
+                    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id            INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+                    is_prospect           INTEGER NOT NULL DEFAULT 0,
+                    company_name          TEXT    DEFAULT '',
+                    prospect_name         TEXT    DEFAULT '',
+                    description           TEXT    DEFAULT '',
+                    stage                 TEXT    DEFAULT 'Prospect',
+                    value                 REAL    DEFAULT 0.0,
+                    budget_min            REAL    DEFAULT 0.0,
+                    budget_est            REAL    DEFAULT 0.0,
+                    budget_max            REAL    DEFAULT 0.0,
+                    probability           REAL    DEFAULT 0.5,
+                    notes                 TEXT    DEFAULT '',
+                    updated_at            TEXT    DEFAULT (datetime('now')),
+                    date_entered_pipeline TEXT    DEFAULT '',
+                    date_entered_stage    TEXT    DEFAULT '',
+                    opportunity_country   TEXT    DEFAULT ''
+                );
+                INSERT INTO pipeline_new
+                    (id, project_id, is_prospect, stage, value,
+                     budget_min, budget_est, budget_max, probability, notes,
+                     updated_at, date_entered_pipeline, date_entered_stage, opportunity_country)
+                    SELECT id, project_id, 0, stage, value,
+                           COALESCE(budget_min,  0.0), COALESCE(budget_est,  0.0),
+                           COALESCE(budget_max,  0.0), COALESCE(probability, 0.5),
+                           COALESCE(notes, ''),  COALESCE(updated_at, datetime('now')),
+                           COALESCE(date_entered_pipeline, ''),
+                           COALESCE(date_entered_stage,    ''),
+                           COALESCE(opportunity_country,   '')
+                    FROM pipeline;
+                DROP TABLE pipeline;
+                ALTER TABLE pipeline_new RENAME TO pipeline;
+                CREATE UNIQUE INDEX IF NOT EXISTS uidx_pipeline_project
+                    ON pipeline(project_id) WHERE project_id IS NOT NULL;
+                PRAGMA foreign_keys = ON;
             """)
         finally:
             _mig_conn.close()
@@ -1112,20 +1174,34 @@ def compute_prorata_allocations(project_id: int, net_amount: float) -> list[dict
 # ---------------------------------------------------------------------------
 
 def get_pipeline() -> list[dict]:
-    """Returns pipeline entries joined with project and client names."""
+    """Returns all pipeline entries — both linked (project_id set) and standalone prospects."""
     with get_connection() as conn:
         rows = conn.execute("""
-            SELECT pl.id, pl.project_id, pl.stage, pl.value,
+            SELECT pl.id, pl.project_id, pl.is_prospect,
+                   pl.company_name, pl.prospect_name, pl.description,
+                   pl.stage, pl.value,
                    pl.budget_min, pl.budget_est, pl.budget_max, pl.probability,
                    pl.notes, pl.updated_at,
                    pl.date_entered_pipeline, pl.date_entered_stage,
                    pl.opportunity_country,
-                   pr.name AS project_name, pr.status AS project_status,
-                   c.name AS client_name, c.client_type, c.country
+                   pr.name        AS project_name,
+                   pr.status      AS project_status,
+                   c.name         AS client_name,
+                   c.client_type,
+                   c.country      AS client_country,
+                   CASE WHEN pl.is_prospect = 1
+                        THEN pl.company_name
+                        ELSE c.name END   AS display_client,
+                   CASE WHEN pl.is_prospect = 1
+                        THEN COALESCE(NULLIF(pl.prospect_name, ''), pl.company_name)
+                        ELSE pr.name END  AS display_project,
+                   CASE WHEN pl.is_prospect = 1
+                        THEN pl.company_name
+                        ELSE COALESCE(c.country, '') END AS country
             FROM pipeline pl
-            JOIN projects pr ON pr.id = pl.project_id
-            JOIN clients c ON c.id = pr.client_id
-            ORDER BY pl.stage, c.name
+            LEFT JOIN projects pr ON pr.id = pl.project_id
+            LEFT JOIN clients  c  ON c.id  = pr.client_id
+            ORDER BY pl.stage, display_client
         """).fetchall()
     return [dict(r) for r in rows]
 
@@ -1135,29 +1211,105 @@ def upsert_pipeline(project_id: int, stage: str = "Prospect",
                     budget_min: float = 0.0, budget_est: float = 0.0,
                     budget_max: float = 0.0, probability: float = 0.5,
                     opportunity_country: str = "") -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    """Insert or update a pipeline entry for an existing linked project (is_prospect=0)."""
+    now   = datetime.now(timezone.utc).isoformat()
     today = datetime.now(timezone.utc).date().isoformat()
     with get_connection() as conn:
         existing = conn.execute(
-            "SELECT stage FROM pipeline WHERE project_id = ?", (project_id,)
+            "SELECT id, stage, date_entered_stage FROM pipeline WHERE project_id = ?",
+            (project_id,)
         ).fetchone()
         stage_changed = existing is None or existing["stage"] != stage
-        conn.execute(
-            "INSERT INTO pipeline "
-            "(project_id, stage, value, budget_min, budget_est, budget_max, probability, notes, "
-            " updated_at, date_entered_pipeline, date_entered_stage, opportunity_country) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(project_id) DO UPDATE SET "
-            "stage=excluded.stage, value=excluded.value, "
-            "budget_min=excluded.budget_min, budget_est=excluded.budget_est, "
-            "budget_max=excluded.budget_max, probability=excluded.probability, "
-            "notes=excluded.notes, updated_at=excluded.updated_at, "
-            "opportunity_country=excluded.opportunity_country, "
-            "date_entered_stage=CASE WHEN stage != excluded.stage THEN excluded.date_entered_stage "
-            "                        ELSE pipeline.date_entered_stage END",
-            (project_id, stage, value, budget_min, budget_est, budget_max, probability, notes,
-             now, today, today, opportunity_country)
+        stage_date = today if stage_changed else (existing["date_entered_stage"] if existing else today)
+        if existing:
+            conn.execute(
+                "UPDATE pipeline SET stage=?, value=?, budget_min=?, budget_est=?, budget_max=?, "
+                "probability=?, notes=?, updated_at=?, opportunity_country=?, date_entered_stage=? "
+                "WHERE id=?",
+                (stage, value, budget_min, budget_est, budget_max, probability, notes,
+                 now, opportunity_country, stage_date, existing["id"])
+            )
+        else:
+            conn.execute(
+                "INSERT INTO pipeline (project_id, is_prospect, stage, value, budget_min, budget_est, "
+                "budget_max, probability, notes, updated_at, date_entered_pipeline, "
+                "date_entered_stage, opportunity_country) VALUES (?,0,?,?,?,?,?,?,?,?,?,?,?)",
+                (project_id, stage, value, budget_min, budget_est, budget_max, probability, notes,
+                 now, today, stage_date, opportunity_country)
+            )
+
+
+def add_prospect(company_name: str, prospect_name: str = "", description: str = "",
+                 country: str = "", stage: str = "Prospect", value: float = 0.0,
+                 budget_min: float = 0.0, budget_est: float = 0.0,
+                 budget_max: float = 0.0, probability: float = 0.5,
+                 notes: str = "") -> int:
+    """Insert a standalone prospect row (project_id=NULL, is_prospect=1). Returns new id."""
+    now   = datetime.now(timezone.utc).isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO pipeline (project_id, is_prospect, company_name, prospect_name, "
+            "description, stage, value, budget_min, budget_est, budget_max, probability, "
+            "notes, updated_at, date_entered_pipeline, date_entered_stage, opportunity_country) "
+            "VALUES (NULL,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (company_name, prospect_name, description, stage, value,
+             budget_min, budget_est, budget_max, probability, notes,
+             now, today, today, "")
         )
+        return cur.lastrowid
+
+
+def update_prospect(pipeline_id: int, company_name: str, prospect_name: str = "",
+                    description: str = "", stage: str = "Prospect", value: float = 0.0,
+                    budget_min: float = 0.0, budget_est: float = 0.0,
+                    budget_max: float = 0.0, probability: float = 0.5,
+                    notes: str = "", opportunity_country: str = "") -> None:
+    """Update an existing standalone prospect row."""
+    now   = datetime.now(timezone.utc).isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
+    with get_connection() as conn:
+        old = conn.execute(
+            "SELECT stage, date_entered_stage FROM pipeline WHERE id=? AND is_prospect=1",
+            (pipeline_id,)
+        ).fetchone()
+        if old is None:
+            return
+        stage_date = today if old["stage"] != stage else old["date_entered_stage"]
+        conn.execute(
+            "UPDATE pipeline SET company_name=?, prospect_name=?, description=?, stage=?, "
+            "value=?, budget_min=?, budget_est=?, budget_max=?, probability=?, notes=?, "
+            "updated_at=?, date_entered_stage=?, opportunity_country=? "
+            "WHERE id=? AND is_prospect=1",
+            (company_name, prospect_name, description, stage, value,
+             budget_min, budget_est, budget_max, probability, notes,
+             now, stage_date, opportunity_country, pipeline_id)
+        )
+
+
+def convert_prospect_to_project(pipeline_id: int, project_id: int) -> None:
+    """Link a prospect row to a real project and clear prospect-only fields."""
+    now   = datetime.now(timezone.utc).isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT stage FROM pipeline WHERE id=? AND is_prospect=1", (pipeline_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"No prospect row found with id={pipeline_id}")
+        new_stage = "Active" if row["stage"] == "Prospect" else row["stage"]
+        conn.execute(
+            "UPDATE pipeline SET project_id=?, is_prospect=0, "
+            "company_name='', prospect_name='', description='', "
+            "stage=?, updated_at=?, date_entered_stage=? WHERE id=?",
+            (project_id, new_stage, now, today, pipeline_id)
+        )
+
+
+def delete_prospect(pipeline_id: int) -> None:
+    """Delete a standalone prospect row. Will not delete linked rows."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM pipeline WHERE id=? AND is_prospect=1", (pipeline_id,))
 
 
 # ---------------------------------------------------------------------------
@@ -2188,6 +2340,33 @@ def set_billing_basis_preferred(emp_nbr: str, year: int, source: str) -> None:
         )
 
 
+def get_monthly_billing_rate_breakdown(emp_nbr: str, year: int) -> list[dict]:
+    """Per-period hours/charges/implied rate for one consultant in a given year.
+
+    Used to compute the weighted average annual rate for the bonus calculation:
+      avg_annual_rate = SUM(non_z_charges) / SUM(non_z_hours) across all periods.
+    """
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT period,
+                   SUM(non_z_hours)   AS non_z_hours,
+                   SUM(non_z_charges) AS non_z_charges,
+                   CASE WHEN SUM(non_z_hours) > 0
+                        THEN ROUND(SUM(non_z_charges) / SUM(non_z_hours), 1)
+                        ELSE 0.0 END  AS avg_nonz_rate,
+                   SUM(total_hours)   AS total_hours,
+                   SUM(total_charges) AS total_charges,
+                   CASE WHEN SUM(total_hours) > 0
+                        THEN ROUND(SUM(total_charges) / SUM(total_hours), 1)
+                        ELSE 0.0 END  AS avg_total_rate
+            FROM time_entries
+            WHERE emp_nbr = ? AND SUBSTR(period, 1, 4) = ?
+            GROUP BY period
+            ORDER BY period
+        """, (emp_nbr, str(year))).fetchall()
+    return [dict(r) for r in rows]
+
+
 def upsert_billing_basis(
     emp_nbr: str,
     year: int,
@@ -2199,23 +2378,24 @@ def upsert_billing_basis(
     paid: float = 0.0,
     unbilled: float = 0.0,
     hourly_rate: float = 0.0,
+    avg_annual_rate: float = 0.0,
     notes: str = "",
 ) -> None:
     with get_connection() as conn:
         conn.execute(
             "INSERT INTO billing_basis "
             "(emp_nbr, year, source, billed, capped_paid_prebill, capped_unpaid_prebill, "
-            "charged_off, paid, unbilled, hourly_rate, notes) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+            "charged_off, paid, unbilled, hourly_rate, avg_annual_rate, notes) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(emp_nbr, year, source) DO UPDATE SET "
             "billed=excluded.billed, "
             "capped_paid_prebill=excluded.capped_paid_prebill, "
             "capped_unpaid_prebill=excluded.capped_unpaid_prebill, "
             "charged_off=excluded.charged_off, paid=excluded.paid, "
             "unbilled=excluded.unbilled, hourly_rate=excluded.hourly_rate, "
-            "notes=excluded.notes",
+            "avg_annual_rate=excluded.avg_annual_rate, notes=excluded.notes",
             (emp_nbr, year, source, billed, capped_paid_prebill, capped_unpaid_prebill,
-             charged_off, paid, unbilled, hourly_rate, notes)
+             charged_off, paid, unbilled, hourly_rate, avg_annual_rate, notes)
         )
 
 

@@ -18,13 +18,25 @@ if not st.session_state.get("authenticated", False):
     st.warning("Please sign in from the Home page.")
     st.stop()
 
+# Detect if we arrived via "Convert to Project" from Pipeline/CRM
+_pipeline_id      = st.session_state.pop("_convert_pipeline_id",    None)
+_prefill_company  = st.session_state.pop("_convert_company_name",   "")
+_prefill_desc     = st.session_state.pop("_convert_description",    "")
+_prefill_proj     = st.session_state.pop("_convert_prospect_name",  "")
+
 st.title("Add New Project")
-st.caption(
-    "Fill in client, project, and project codes in one form. "
-    "If the client already exists (matched by name) its existing record is used. "
-    "If the project name already exists under that client it is also reused. "
-    "Only genuinely new records are created."
-)
+if _pipeline_id:
+    st.info(
+        f"Converting pipeline prospect **{_prefill_company}** to a full project. "
+        "Client name and project name are pre-filled. Complete the remaining details and click Import."
+    )
+else:
+    st.caption(
+        "Fill in client, project, and project codes in one form. "
+        "If the client already exists (matched by name) its existing record is used. "
+        "If the project name already exists under that client it is also reused. "
+        "Only genuinely new records are created."
+    )
 
 # ------------------------------------------------------------------
 # Helpers
@@ -72,7 +84,7 @@ if client_mode == "Select existing client":
     )
 else:
     col1, col2 = st.columns(2)
-    c_name         = col1.text_input("Client name *", placeholder="Internal reference (e.g. ERGO)")
+    c_name         = col1.text_input("Client name *", value=_prefill_company, placeholder="Internal reference (e.g. ERGO)")
     c_name_for_inv = col2.text_input("Name for invoices *", placeholder="Legal name on invoices")
     col3, col4 = st.columns(2)
     c_code         = col3.text_input("Client code", placeholder="e.g. 0478ERG78")
@@ -94,8 +106,8 @@ st.divider()
 st.subheader("2. Project")
 
 col1, col2 = st.columns(2)
-p_name   = col1.text_input("Project name *", placeholder="e.g. IFRS17 - P3")
-p_desc   = col2.text_input("Description",    placeholder="Short description")
+p_name   = col1.text_input("Project name *", value=_prefill_proj, placeholder="e.g. IFRS17 - P3")
+p_desc   = col2.text_input("Description",    value=_prefill_desc, placeholder="Short description")
 col3, col4, col5 = st.columns(3)
 p_vat    = col3.number_input("VAT %", min_value=0.0, max_value=100.0, value=19.0, step=1.0)
 templates = _templates()
@@ -220,6 +232,14 @@ if st.button("Import to Database", type="primary"):
                 )
                 created["codes"].append((r["suffix"].strip(), new_id))
 
+            # If converting a pipeline prospect, link it back to the new project
+            if _pipeline_id:
+                try:
+                    db.convert_prospect_to_project(_pipeline_id, project_id)
+                    created["pipeline_linked"] = True
+                except Exception as exc:
+                    created["pipeline_link_error"] = str(exc)
+
             st.session_state["_np_result"] = {"success": True, "created": created,
                                                "client_name": c_name.strip(),
                                                "project_name": p_name.strip()}
@@ -247,6 +267,11 @@ if result := st.session_state.pop("_np_result", None):
             lines.append(f"New project **{result['project_name']}** created.")
         else:
             lines.append(f"Existing project **{result['project_name']}** used.")
-        lines.append(f"{len(c['codes'])} project code(s) added: " +
-                     ", ".join(s for s, _ in c["codes"]))
+        if c["codes"]:
+            lines.append(f"{len(c['codes'])} project code(s) added: " +
+                         ", ".join(s for s, _ in c["codes"]))
+        if c.get("pipeline_linked"):
+            lines.append("Pipeline prospect converted and linked to this project.")
         st.success("  \n".join(lines))
+        if c.get("pipeline_link_error"):
+            st.warning(f"Project created but pipeline link failed: {c['pipeline_link_error']}")

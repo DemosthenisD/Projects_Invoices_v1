@@ -73,7 +73,11 @@ class Payment:
 @dataclass
 class PipelineEntry:
     id: int
-    project_id: int
+    project_id: int | None       # None for standalone prospects
+    is_prospect: int = 0         # 1 = standalone prospect, 0 = linked to project
+    company_name: str = ""       # prospect-only: free-text company name
+    prospect_name: str = ""      # prospect-only: opportunity / contact name
+    description: str = ""        # prospect-only: opportunity description
     stage: str = "Prospect"      # Prospect / Active / On Hold / Completed
     value: float = 0.0
     notes: str = ""
@@ -238,7 +242,8 @@ class BillingBasis:
     charged_off: float = 0.0
     paid: float = 0.0
     unbilled: float = 0.0
-    hourly_rate: float = 0.0          # used to convert basis → equivalent hours
+    hourly_rate: float = 0.0          # proposed/current billing rate (reference)
+    avg_annual_rate: float = 0.0      # weighted avg rate from time entries — used for bonus calc
     notes: str = ""
     created_at: str = ""
 

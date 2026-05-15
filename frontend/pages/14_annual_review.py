@@ -83,11 +83,16 @@ st.divider()
 # ---------------------------------------------------------------------------
 def _productivity_bonus(bb) -> tuple[float, float, float]:
     """Returns (equiv_hrs, prod_bonus_pct, basis_for_bonus) from a BillingBasis object."""
-    if bb is None or bb.hourly_rate <= 0:
+    if bb is None:
+        return 0.0, 0.0, 0.0
+    avg_rate = float(getattr(bb, "avg_annual_rate", 0) or 0)
+    hourly   = float(bb.hourly_rate or 0)
+    rate     = avg_rate if avg_rate > 0 else hourly
+    if rate <= 0:
         return 0.0, 0.0, 0.0
     grand = bb.billed + bb.capped_paid_prebill + bb.capped_unpaid_prebill + bb.charged_off + bb.paid + bb.unbilled
     basis = grand - bb.charged_off
-    equiv_hrs = basis / bb.hourly_rate
+    equiv_hrs = basis / rate
     prod_pct = max(equiv_hrs - 800, 0) / 40 * 0.01
     return round(equiv_hrs, 1), round(prod_pct, 6), round(basis, 2)
 
@@ -112,7 +117,7 @@ def _build_review_excel(
                 "Milliman Status", "External Level", "Current Role",
                 "", "Starting Salary €", "Exams Passed", "Raise per Exam €",
                 "Exam Raise €", "Other Raise €", "Total Raise €", "Updated Salary €", "Effective Date",
-                "", "Billing Basis €", "Equiv Hours", "Hourly Rate €/hr",
+                "", "Billing Basis €", "Equiv Hours", "Rate Used €/hr",
                 "Productivity Bonus %", "Objective Bonus %", "Total Bonus %", "Bonus Amount €", "Proposed Rate €/hr",
             ],
             "Value": [
@@ -124,7 +129,8 @@ def _build_review_excel(
                 salary_rec.exam_raise_per_exam if salary_rec else 1000,
                 exam_raise_v, total_raise_v - exam_raise_v, total_raise_v, updated_sal_v,
                 salary_rec.effective_date if salary_rec else "", "",
-                basis, equiv_hrs, billing.hourly_rate if billing else 0,
+                basis, equiv_hrs,
+                (float(getattr(billing, "avg_annual_rate", 0) or 0) or float(billing.hourly_rate or 0)) if billing else 0,
                 f"{prod_pct:.2%}", f"{obj_pct_v:.2%}",
                 f"{total_bonus_v:.2%}", round(bonus_v, 2),
                 salary_rec.proposed_rate if salary_rec else 0,
@@ -497,10 +503,12 @@ with st.expander("3 — Summary & Export", expanded=False):
             f"**Total Bonus: {total_bonus_s:.2%} → €{bonus_amount_s:,.0f}**"
         )
         if billing:
+            _eff_rate = float(getattr(billing, "avg_annual_rate", 0) or 0) or float(billing.hourly_rate or 0)
+            _rate_lbl = "avg rate" if float(getattr(billing, "avg_annual_rate", 0) or 0) > 0 else "rate"
             st.markdown(
                 f"Billing Basis: €{basis:,.0f} · "
                 f"Equiv Hrs: {equiv_hrs:,.1f} · "
-                f"Rate: €{billing.hourly_rate:,.0f}/hr"
+                f"{_rate_lbl.title()}: €{_eff_rate:,.0f}/hr"
             )
 
     with col_r:
