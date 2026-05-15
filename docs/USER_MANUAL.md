@@ -9,9 +9,189 @@ InvoiceApp is a personal billing management tool for Milliman Cyprus. It lets yo
 - Manage clients, projects, and project codes (billing codes).
 - Import monthly time-charge reports and see billable amounts per project/code.
 - Track write-offs against projects with pro-rata or ad-hoc allocation.
-- Manage the sales pipeline with stage tracking and forecasting.
+- Manage the sales pipeline — track prospects from first contact through conversion to a live project.
 - View a dashboard of key financial metrics.
 - Run annual consultant reviews with bonus calculation and performance scoring.
+
+---
+
+## How To
+
+Step-by-step guides for the most common tasks. Each guide lists the exact pages and actions in order.
+
+---
+
+### How to Issue an Invoice
+
+1. Go to **1. Generate Invoice**.
+2. Ensure **Document type** is set to **Invoice** (default).
+3. Select the **client** — address and VAT number auto-fill.
+4. Select the **project** — description, VAT %, and template auto-fill. Tick **Include completed projects** if the project is marked Completed.
+5. Enter the **invoice date**, **net amount**, and confirm the auto-suggested **Invoice ID**.
+6. *(Optional)* Expand **Project Code Allocation** to manually split the net amount across project codes, or leave at 0 for automatic pro-rata.
+7. *(Optional)* Expand **Advanced** to choose PDF vs DOCX and add expense lines.
+8. Click **Generate Invoice** — the file is saved to `exports/` and a Download button appears.
+
+---
+
+### How to Issue a Credit Note
+
+1. Go to **1. Generate Invoice**.
+2. Toggle **Document type** to **Credit Note**.
+3. *(Optional)* Enter the **Invoice No being credited** (reference only — appears as a caption in the log).
+4. Select client and project as normal.
+5. Enter the **net amount as a positive number** — it is stored and displayed as negative automatically.
+6. Click **Generate Invoice**.
+7. The credit note appears in the Invoice Log with a 🔄 icon.
+
+---
+
+### How to Record a Payment on an Invoice
+
+**Full payment:**
+1. Go to **2. Invoice Log**.
+2. Find the invoice and click **✓ Pay** — records a full payment for the remaining balance with today's date.
+
+**Partial payment:**
+1. Go to **2. Invoice Log**.
+2. Find the invoice and click **± Part.** to open the inline payment form.
+3. Enter the **amount received**, the **date**, and an optional **note**.
+4. Click **Record Payment** — invoice status changes to Partial and the Balance updates.
+5. Repeat for each subsequent receipt.
+
+**To undo all payments:**
+- Click **↩ Reset** — clears all payment records and reverts the invoice to Outstanding.
+
+---
+
+### How to Add a New Client and Project
+
+**Option A — Add New Project page (recommended for new engagements):**
+1. Go to **4. Add New Project**.
+2. In **Section 1 — Client**, toggle to **Create new client** and fill in: name, billing name, client code, VAT number, client type, and country.
+3. In **Section 2 — Project**, fill in: project name, description, VAT %, template, and status.
+4. In **Section 3 — Project Codes**, enter at least one billing code row (suffix, budget, status). Click **+ Add row** for additional codes.
+5. Click **Import to Database** — creates only missing records (safe to re-run).
+
+**Option B — Clients & Projects page (for editing existing data):**
+1. Go to **3. Clients & Projects**.
+2. Use the **Clients tab** to add or edit client details.
+3. Use the **Projects tab** to add or edit projects within a client.
+
+---
+
+### How to Add a Project Code to an Existing Project
+
+1. Go to **5. Project Codes**.
+2. Select the **client** and **project**.
+3. Fill in the **suffix**, budget, optional date range, and status.
+4. Click **Add Project Code**.
+
+**To reuse a suffix that was used on a previous project:**
+1. Create the new code with the same suffix.
+2. Set **Date Start** (YYYY-MM-DD) to the first period this code should apply to.
+3. Time entries on or after that date route to the new project automatically; earlier entries stay with the original.
+
+---
+
+### How to Add a Prospect to the Pipeline
+
+1. Go to **6. Pipeline / CRM**.
+2. Click **➕ Add Prospect** to expand the form.
+3. Fill in: **Company name** (required), opportunity name, description, country, stage, budget min/est/max, and probability %.
+4. Click **Add Prospect** — the entry appears in the pipeline table immediately.
+5. Edit stage, budgets, probability, and notes at any time using the inline table and **Save changes**.
+
+---
+
+### How to Convert a Prospect to a Project (When Won)
+
+1. Go to **6. Pipeline / CRM**.
+2. Scroll to **Prospect Actions** at the bottom.
+3. Select the prospect from the dropdown.
+4. Click **Convert to Project →** — the app navigates to **4. Add New Project** with the company name, opportunity name, and description pre-filled.
+5. Complete the remaining fields: client code, VAT, client type, project codes, etc.
+6. Click **Import to Database** — the pipeline entry is automatically linked to the new project and its stage advances to Active.
+
+---
+
+### How to Import Monthly Time Charges
+
+1. Export the monthly time-charge report from the billing system as CSV.
+2. Go to **9. Time Tracking → Import tab**.
+3. Upload the CSV file — unmatched codes are shown for review before import.
+4. Click **Confirm Import** to load entries. Duplicate rows (same period/employee/code) are skipped automatically.
+5. Check the **Rollup tab** to verify the imported amounts per project and code.
+
+---
+
+### How to Prepare the Annual Billing Basis
+
+**Auto (from imported time entries):**
+1. Go to **11. Billing Basis**.
+2. Select the **Financial Year** and filter by **Consultant Team** (defaults to Local).
+3. Click **Load from Time Tracking** — preview table and monthly rate breakdown appear.
+4. Review the **Avg Annual Rate** pre-filled from the weighted average of NonZ Rate across all periods. Edit if needed — this rate is used for the Productivity Bonus % calculation.
+5. Enter a **Hourly Rate (reference)** if different from the avg rate.
+6. Click **Save Auto Basis**.
+
+**Manual entry:**
+1. Go to **11. Billing Basis → Manual Entry tab**.
+2. Fill in billing amounts for each consultant: Billed, Capped Paid Prebill, Capped Unpaid Prebill, Charged Off, Paid, Unbilled.
+3. Enter **Avg Annual Rate €/hr** (from the Auto tab monthly breakdown, or from an external source) and **Hourly Rate (reference)**.
+4. The computed summary updates live — verify Grand Total, Basis for Bonus, and Productivity Bonus %.
+5. Click **Save Manual Basis**.
+
+**If both sources are saved:**
+1. Go to **Saved Basis tab** → scroll to the source selector at the bottom.
+2. For each consultant with dual entries, choose which source to use and click **Save preferences**.
+3. The ✓ indicator updates to confirm which source is Active for Review.
+
+---
+
+### How to Run the Annual Review for a Consultant
+
+1. Complete the billing basis first (see above). The review reads from the saved basis automatically.
+2. Go to **11. Billing Basis → Saved Basis tab** and confirm the correct source has ✓ for the consultant.
+3. Go to **12. Consultant Profiles**. Select the consultant and confirm the profile is up to date (employment date, status, level, tools).
+4. In the **Salary History tab**, add or edit the year record: starting salary (auto-carried from prior year), exams passed, discretionary raise, objective bonus %, proposed rate.
+5. Go to **13. Annual Review**. Select the consultant and review year.
+6. **Section 1 — Compensation**: review the auto-computed productivity bonus %, adjust inputs if needed, click **Save Compensation**.
+7. **Section 2 — Performance Scores**: enter scores 1.0–4.0 for each item across the three groups. Click **Save All Scores**.
+8. **Section 3 — Summary**: review the formatted summary card. Click **Export Review to Excel** if needed.
+
+---
+
+### How to Generate the ICEE Feedback Form
+
+1. Complete Section 1 (Compensation) and Section 2 (Scores) for the consultant on **13. Annual Review** first.
+2. Expand **Section 4 — Feedback Form Export**.
+3. In **Sub-section A**, review the project breakdown auto-filled from time entries:
+   - Adjust **Colleagues involved** and **Teams involved** fields if needed.
+   - Set each project row to **Include**, **Aggregate**, or **Exclude**.
+4. In **Sub-section B**, fill in Assessment Comments and Development Ideas for each performance area.
+5. In **Sub-section C**, write any general narrative or additional comments.
+6. Click **Save & Generate Feedback Form** — the Word document is saved to `exports/` and a Download button appears.
+
+---
+
+### How to Back Up Your Data
+
+Copy two locations to a safe place:
+- `data/invoiceapp.db` — the complete database (all clients, projects, invoices, time entries, HR data).
+- `exports/` folder — all generated invoice and feedback form files.
+
+That is everything. No other data needs to be backed up.
+
+---
+
+### How to Fix a Data Error Directly
+
+For corrections not covered by the UI (wrong invoice number, duplicate row, typo in a name):
+1. Download **DB Browser for SQLite** from [sqlitebrowser.org](https://sqlitebrowser.org/dl/) — free Windows installer.
+2. Go to **14. Data Tables** in the app and note the full database file path shown there.
+3. Open the `.db` file in DB Browser → browse to the relevant table → double-click any cell to edit.
+4. Click **Write Changes** when done. The app reflects the change immediately on next page load.
 
 ---
 
@@ -27,7 +207,7 @@ The landing page after sign-in. Use the **left sidebar** to navigate between pag
 
 ### How to Use
 
-A brief in-app orientation page. Always visible at the top of the sidebar (no number assigned).
+A brief in-app orientation page with page summaries, a "Where to go for each edit" quick-reference table, and step-by-step How To guides for all major activities.
 
 ---
 
@@ -133,7 +313,7 @@ Use this when you need to load several historical invoices at once.
 
 **Click Import to Database** — the app creates only what is missing. It is safe to run multiple times; no duplicates are created.
 
-**When to use instead of Page 5:** Use Page 4 when you are setting up an entirely new engagement. Use Page 5 when you need to add a single code to an existing project or edit an existing code.
+**When to use instead of Page 3:** Use Page 4 when you are setting up an entirely new engagement, or when converting a pipeline prospect to a live project. Use Page 3 when you need to edit an existing client or project's details.
 
 ---
 
@@ -153,22 +333,53 @@ The `client_code` portion (e.g. `0478EUR30`) is set automatically from the clien
 
 ### Page 6 — Pipeline / CRM
 
-**What it does:** Tracks prospective and in-progress business opportunities with inline editing.
+**What it does:** Tracks prospects and active business opportunities from first contact through to a live project. Prospects can be added with minimal information — no client record or project setup is required until the engagement is won.
+
+#### Adding Prospects
+
+Click **➕ Add Prospect** to expand the form at the top of the page. Fields:
+- **Company name** (required)
+- **Opportunity name** — the project or engagement name
+- **Description** — free-text notes on the opportunity
+- **Country**, **Stage** (Prospect / Active / On Hold / Completed)
+- **Budget Min / Est / Max (€)** — range of expected contract value
+- **Probability %** — likelihood of winning
+
+Click **Add Prospect** — the entry appears in the pipeline table immediately and contributes to the probability-weighted forecast.
+
+#### Summary and Forecast
 
 **Summary strip:** Count and total value per stage (Prospect / Active / On Hold / Completed).
 
-**Probability-weighted forecast** (shown when at least one project has budget fields set):
-- Weighted Min, Weighted Est, Weighted Max = budget × probability for each project.
+**Probability-weighted forecast** (shown when at least one entry has budget fields set):
+- Weighted Min, Weighted Est, Weighted Max = budget × probability, summed across all filtered entries.
 
-**Inline editing table:** All pipeline rows are displayed in a single editable grid. You can directly edit:
-- Stage (dropdown: Prospect / Active / On Hold / Completed)
-- Value (€), Min (€), Est (€), Max (€)
-- Prob % (0–100)
-- Notes
+#### Inline Editing Table
 
-Click **Save changes** to persist all edits in one go.
+All pipeline entries — both standalone prospects and linked project entries — appear in a single editable grid. You can edit directly:
+- **Stage** (dropdown: Prospect / Active / On Hold / Completed)
+- **Value (€)**, **Min (€)**, **Est (€)**, **Max (€)**
+- **Prob %** (0–100)
+- **Notes**, **Opp. Country**
 
-Filters (Stage, Client) apply before the table is rendered. Changes outside the filter are not affected.
+Click **Save changes** to persist all edits in one go. Live subtotals for the filtered view are shown below the table.
+
+**Filters:** Stage, Client / Company, Opportunity Country, Client Country, Client Type.
+
+The **Prospect?** column (read-only checkbox) indicates whether a row is a standalone prospect (✓) or a project-linked entry.
+
+#### Prospect Actions
+
+When at least one standalone prospect exists, a **Prospect Actions** section appears at the bottom of the page.
+
+**Convert to Project →**
+1. Select the prospect from the dropdown.
+2. Click **Convert to Project →** — the app navigates to **Page 4 — Add New Project** with the company name, opportunity name, and description pre-filled.
+3. Complete the remaining details (client code, VAT, project codes, etc.) and click **Import to Database**.
+4. The pipeline entry is automatically linked to the new project and its stage advances to Active if it was previously Prospect.
+
+**🗑 Delete Prospect**
+- Permanently removes the selected prospect entry. This only works for standalone prospects — linked project entries cannot be deleted here.
 
 ---
 
@@ -257,7 +468,6 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 - Each expander has three fields: **Group**, **emp_nbr**, and (for Local consultants) **Status** (Active / Inactive).
 - Setting a Local consultant to **Inactive** hides them from the Annual Review consultant dropdown. They remain in all other pages and their historical data is unaffected.
 - ICEE and Other consultants have no status concept — the Status column is not shown for them.
-- Pre-populated from the ICEE Plan CY Excel on first seed.
 
 ---
 
@@ -276,23 +486,31 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 ### Page 11 — Billing Basis
 
-**What it does:** Annual billing summary per consultant, used as the basis for productivity-bonus calculation. Two independent sources can be stored per consultant per year — the Auto source (from imported time entries) and the Manual source (hand-entered). Only one source is used for the Annual Review; you choose which one explicitly.
+**What it does:** Annual billing summary per consultant, used as the basis for productivity-bonus calculation. Two independent sources can be stored per consultant per year — Auto (from imported time entries) and Manual (hand-entered). Only one source is used for the Annual Review; you choose which one explicitly.
 
 **Selectors:** Financial Year and Group (Local / ICEE / Other / All — defaults to Local).
 
 **Tabs:**
 
-- **Auto (from Time Tracking):** Aggregates `non_z_charges` per consultant from imported time entries for the selected year. Write-offs are mapped to the Charged Off column. The **Group filter** at the top of the page applies here — only consultants in the selected group are shown in the preview table and the rate entry inputs; Save only writes those consultants' rows. Click **Load from Time Tracking** to preview, then enter hourly rates and click **Save Auto Basis**.
+- **Auto (from Time Tracking):** Aggregates `non_z_charges` per consultant from imported time entries for the selected year. Write-offs are mapped to the Charged Off column. Click **Load from Time Tracking** to preview.
 
-- **Manual Entry:** Spreadsheet-style table matching the bonus template's Sheet5 layout (Billed / Capped Paid Prebill / Capped Unpaid Prebill / Charged Off / Paid / Unbilled). Pre-populates from any previously saved Manual entry for the selected year (zeros for consultants with no manual entry yet). A computed summary below shows Grand Total, Basis for Bonus, Equivalent Hours, and Productivity Bonus % live as you type. Click **Save Manual Basis** to persist — this saves or updates the `manual` source row only, leaving any `time_tracking` row unchanged.
+  The app also computes a **monthly rate breakdown** per consultant — for each billing period: NonZ Hours, NonZ Charges, and the implied NonZ Rate (non_z_charges ÷ non_z_hours). Expand **Monthly rate breakdown** to view this table. The weighted average across all periods gives the **Avg Annual Rate**, which is the fairest billing rate to use for the bonus calculation when a consultant's rate changed during the year.
+
+  Below the preview table, a form lets you set:
+  - **Avg Annual Rate €/hr** — pre-filled from the weighted average computed above. Edit if needed. This rate is used for the Productivity Bonus % calculation.
+  - **Hourly Rate €/hr (reference)** — your proposed or current rate. Shown on the Rates by Year view but not used for the bonus calculation when Avg Annual Rate is set.
+
+  Click **Save Auto Basis** to persist.
+
+- **Manual Entry:** Spreadsheet-style table matching the bonus template's Sheet5 layout (Billed / Capped Paid Prebill / Capped Unpaid Prebill / Charged Off / Paid / Unbilled). Includes an **Avg Annual Rate €/hr** column — enter the weighted average rate here (obtain it from the Auto tab's monthly breakdown if time entries are available, or enter it manually). A computed summary below shows Grand Total, Basis for Bonus, Equivalent Hours, and Productivity Bonus % live as you type. Click **Save Manual Basis** to persist.
 
 - **Saved Basis:** Read-only view of all saved rows for the year — both sources are shown for consultants who have entries from both.
 
   *Active for Review indicator:* The **Active for Review** column shows ✓ next to the source that will be used by the Annual Review for each consultant. For consultants with only one saved source, that source is used automatically. For consultants with **both** sources saved, the active source is whichever was last explicitly selected (or defaults to Manual if no explicit choice has been made).
 
-  *Explicit source selection:* At the bottom of the Saved Basis tab, consultants who have both sources saved are listed with a radio button to choose which source to use for the Annual Review. Click **Set Active Sources** to confirm the selection — the ✓ indicator updates immediately.
+  *Explicit source selection:* At the bottom of the Saved Basis tab, consultants who have both sources saved are listed with a radio button to choose which source to use for the Annual Review. Click **Save preferences** to confirm — the ✓ indicator updates immediately.
 
-  *Group filter:* Radio above the table restricts the display to the selected group (Local / ICEE / Other / All).
+  *Group filter:* Radio above the table restricts the display to the selected group.
 
   *Re-arrange to Show By:* A selectbox with 7 view modes:
 
@@ -311,8 +529,11 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 **Derived values (computed, not stored):**
 - **Grand Total** = sum of all six billing columns.
 - **Basis for Bonus** = Grand Total − Charged Off.
-- **Equivalent Hours** = Basis for Bonus ÷ Hourly Rate.
+- **Effective Rate** = Avg Annual Rate if set (> 0), otherwise Hourly Rate.
+- **Equivalent Hours** = Basis for Bonus ÷ Effective Rate.
 - **Productivity Bonus %** = `max(Equiv Hrs − 800, 0) / 40 × 1%`.
+
+Using the Avg Annual Rate instead of a fixed Hourly Rate accounts for mid-year billing rate changes and gives a fairer equivalent hours figure — for example, a consultant billed at €100/hr for the first half of the year and €120/hr for the second half would have a weighted Avg Annual Rate of ~€110/hr rather than whichever rate happens to be stored on their profile.
 
 ---
 
@@ -345,7 +566,7 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 **Sections:**
 
-1. **Compensation:** Auto-pulls productivity bonus % from the saved Billing Basis. Salary chain computed live (starting salary → exam raise → other raise → updated salary). **Bonus Amount = Starting Salary × Total Bonus %** (the bonus is applied to the pre-raise base salary, not the updated salary after the raise). Proposed billing rate compared to the Billing Basis hourly rate.
+1. **Compensation:** Auto-pulls productivity bonus % from the saved Billing Basis. The bonus uses the **Effective Rate** (Avg Annual Rate if set, otherwise Hourly Rate) to convert the billing basis into equivalent hours, ensuring mid-year rate changes are accounted for. Salary chain computed live (starting salary → exam raise → other raise → updated salary). **Bonus Amount = Starting Salary × Total Bonus %** (the bonus is applied to the pre-raise base salary, not the updated salary after the raise). Proposed billing rate compared to the Billing Basis rate.
 
 2. **Performance Scores:** Three groups scored on a **1–4 scale** (1 = Significant underperformance · 2 = Does not meet expectations · 3 = Meets expectations · 4 = Exceeds expectations):
    - *Professionalism* (7 items: Deliverance assignments, Modelling skills, Problem solving, Reporting skills, Presentations skills, Project management, Innovation)
@@ -360,7 +581,7 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
    **Sub-section A — Project Breakdown:** Auto-filled from time entries for the review year. Internal projects (`0009*` codes and internal client type) are excluded automatically. Each row shows: Client, Project name + description, editable **Colleagues involved** field, editable **Teams involved** field, Hours %, Fees %, and an **Action** selector.
 
-   - **Colleagues involved** — other consultants who billed to the same project in the same year, shown as "Firstname Lastname" names separated by ` | `. Only consultants billing to project codes that belong to the specific project are included (consultants billing to the same client code under a different project are excluded). The reviewed consultant's own name is removed automatically.
+   - **Colleagues involved** — other consultants who billed to the same project in the same year, shown as "Firstname Lastname" names separated by ` | `. Only consultants billing to project codes that belong to the specific project are included. The reviewed consultant's own name is removed automatically.
    - **Teams involved** — the consultant teams (Local / ICEE / Other) corresponding to the colleagues on the project. If multiple colleagues belong to the same team, the team name appears only once. This field is used in the generated Word document instead of individual names, giving a cleaner team-level view.
 
    Both fields are editable before generating the document.
@@ -432,6 +653,12 @@ On Page 1 — Generate Invoice, toggle **Document type** to Credit Note. Enter t
 - **external** — clients outside the normal managed scope; tracked at a basic level; project codes optional.
 - **internal** — non-billable overhead codes (e.g. internal projects, admin time). Project codes optional.
 
+**How do I add a prospect to the pipeline without creating a client or project first?**
+Go to **6. Pipeline / CRM** and click **➕ Add Prospect** at the top of the page. Fill in company name (required), opportunity name, description, country, stage, budgets, and probability. No client record, project, or billing codes are needed — these are created later when the prospect converts to a live engagement.
+
+**How do I convert a pipeline prospect to a live project?**
+In the **Prospect Actions** section at the bottom of Page 6, select the prospect and click **Convert to Project →**. The app navigates to Page 4 — Add New Project with the company name, opportunity name, and description pre-filled. Complete the remaining fields and click **Import to Database** — the pipeline entry links back to the new project automatically and advances to Active stage.
+
 **Why can't I see a consultant in the Billing Basis or Consultant Profiles page?**
 These pages default to the Local group filter. Use the Group radio at the top to switch to ICEE, Other, or All.
 
@@ -443,6 +670,9 @@ In Page 9 — Time Tracking → Consultant Groups tab, select the Local view, op
 
 **Time-charge CSV import fails with a Unicode error — what do I do?**
 The importer automatically tries UTF-8, UTF-8-BOM, Windows-1252, and Latin-1 encodings in sequence. If your file was exported from Excel on Windows (common for files containing special characters such as en-dashes), it is likely Windows-1252 and will be handled automatically. If the import still fails, open the file in Excel and re-save it as CSV UTF-8.
+
+**What is the Avg Annual Rate and how is it different from Hourly Rate?**
+The **Avg Annual Rate** is the weighted average billing rate across all periods in the year, computed as `SUM(non_z_charges) / SUM(non_z_hours)` from time entries. It accurately reflects the true effective rate when a consultant's billing rate changed mid-year. The **Hourly Rate** is a single reference figure — usually the current or proposed rate — stored for display on the Rates by Year view. The Productivity Bonus % calculation uses the Avg Annual Rate when it is set (> 0), falling back to Hourly Rate otherwise.
 
 **The Project Overview sort on amount columns doesn't seem to work correctly — is that fixed?**
 Yes. Amount columns are stored as numbers internally and displayed with comma thousands separators. Clicking a column header sorts numerically (e.g. 86,541 → 70,000 → 3,168), not lexicographically.

@@ -145,11 +145,17 @@ Unique on `(invoice_id, project_code_id)`.
 
 ### `pipeline`
 
+Tracks both standalone prospects (no project required) and entries linked to live projects.
+
 | Column | Type | Notes |
 |--------|------|-------|
 | id | INTEGER PK | |
-| project_id | INTEGER FK→projects UNIQUE | One pipeline entry per project |
-| stage | TEXT | Prospect / Proposal / Negotiation / Won / Lost |
+| project_id | INTEGER FK→projects NULLABLE | NULL for standalone prospects |
+| is_prospect | INTEGER | 1 = standalone prospect; 0 = linked to a project |
+| company_name | TEXT | Prospect-only: free-text company name |
+| prospect_name | TEXT | Prospect-only: opportunity / engagement name |
+| description | TEXT | Prospect-only: free-text notes |
+| stage | TEXT | Prospect / Active / On Hold / Completed |
 | value | REAL | Contracted value |
 | budget_min | REAL | For forecasting |
 | budget_est | REAL | For forecasting |
@@ -157,6 +163,11 @@ Unique on `(invoice_id, project_code_id)`.
 | probability | REAL | 0.0–1.0 |
 | notes | TEXT | |
 | updated_at | TEXT | |
+| date_entered_pipeline | TEXT | ISO date — set on first INSERT |
+| date_entered_stage | TEXT | ISO date — updated when stage changes |
+| opportunity_country | TEXT | Country of the opportunity (editable in grid) |
+
+A partial unique index enforces uniqueness on `project_id` only for non-NULL values (`WHERE project_id IS NOT NULL`), allowing multiple NULL `project_id` rows (standalone prospects) while ensuring each live project has at most one pipeline entry.
 
 ### `project_codes`
 
@@ -281,10 +292,13 @@ One or two rows per consultant per year (one per source).
 | charged_off | REAL | |
 | paid | REAL | |
 | unbilled | REAL | |
-| hourly_rate | REAL | Used to convert basis → equivalent hours |
+| avg_annual_rate | REAL | Weighted avg rate from time entries: SUM(non_z_charges)/SUM(non_z_hours). Used for Productivity Bonus % when > 0; falls back to hourly_rate otherwise. |
+| hourly_rate | REAL | Reference/proposed billing rate — shown on Rates by Year view |
 | notes | TEXT | |
 
 Unique on `(emp_nbr, year, source)`. Both sources can coexist per year; `is_preferred=1` marks the one used by the Annual Review.
+
+**Rate precedence for bonus calculation:** `avg_annual_rate` (when > 0) → `hourly_rate`. This ensures a mid-year rate change is properly weighted rather than using a single snapshot rate.
 
 ### `review_scores`
 
@@ -315,6 +329,28 @@ Narrative text per consultant per year per area.
 | development_ideas | TEXT | Suggested areas for growth |
 
 Unique on `(emp_nbr, year, area)`. The special area `_project_rows` stores JSON for Section 4A project action decisions.
+
+---
+
+## Key DB Functions (Pipeline & Billing Basis)
+
+### Pipeline
+
+| Function | Description |
+|----------|-------------|
+| `get_pipeline()` | Returns all pipeline rows (prospects + linked projects) as `list[dict]`. Uses LEFT JOIN to projects and clients; computes `display_client`, `display_project`, and `country` unified columns via CASE. |
+| `upsert_pipeline(project_id, stage, ...)` | Explicit SELECT → INSERT/UPDATE (no ON CONFLICT, as SQLite partial unique indexes do not support that clause). Sets `date_entered_pipeline` on first insert; updates `date_entered_stage` only when stage changes. |
+| `add_prospect(company_name, ...)` | Inserts a standalone prospect row (`project_id=NULL`, `is_prospect=1`). Returns `lastrowid`. |
+| `update_prospect(pipeline_id, ...)` | Updates a prospect row in-place. Only operates on rows where `is_prospect=1`. |
+| `convert_prospect_to_project(pipeline_id, project_id)` | Links a prospect to a real project: sets `project_id`, clears `is_prospect=0`, advances stage to Active if currently Prospect, clears prospect-only fields. |
+| `delete_prospect(pipeline_id)` | Deletes a row WHERE `id=? AND is_prospect=1`. |
+
+### Billing Basis
+
+| Function | Description |
+|----------|-------------|
+| `get_monthly_billing_rate_breakdown(emp_nbr, year)` | Returns a `list[dict]` — one row per period. Fields: `period`, `non_z_hours`, `non_z_charges`, `avg_nonz_rate` (non_z_charges/non_z_hours), `total_hours`, `total_charges`, `avg_total_rate`. Used to compute the weighted Avg Annual Rate. |
+| `upsert_billing_basis(..., avg_annual_rate=0.0)` | INSERT OR REPLACE on `(emp_nbr, year, source)`. Now includes `avg_annual_rate` in both INSERT and UPDATE. |
 
 ---
 

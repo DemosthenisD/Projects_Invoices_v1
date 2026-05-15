@@ -2,6 +2,49 @@
 
 ---
 
+## V1.2 — Pipeline prospect workflow + Avg Annual Rate for bonus calculation (May 2026)
+
+> **Updates on 15 May 2026** — Two major features plus a comprehensive documentation overhaul.
+>
+> **(1) Pipeline prospect workflow:** Prospects can now be added directly to the Pipeline / CRM page with minimal information (company name, opportunity name, description, country, budgets, probability) — no client record, project, or billing codes required. A "Convert to Project →" action navigates to Add New Project with the prospect's details pre-filled, and links the pipeline entry back to the new project on save (stage advances to Active automatically). Standalone prospects can also be deleted from the Prospect Actions section. Previously, pipeline entries could only be created by setting up a full client → project → codes chain first.
+>
+> **(2) Avg Annual Rate for bonus calculation:** A new `avg_annual_rate` field on `billing_basis` stores the weighted average billing rate for the year, computed as `SUM(non_z_charges) / SUM(non_z_hours)` from time entries. This is more accurate than a single `hourly_rate` snapshot when a consultant's rate changed during the year (e.g. €100/hr for H1 and €120/hr for H2 → weighted avg ≈ €110/hr). The Billing Basis Auto tab now shows a monthly rate breakdown table per consultant and pre-fills the Avg Annual Rate input from the computed weighted average. The Manual Entry tab also includes an Avg Annual Rate column. The Productivity Bonus % calculation in both Billing Basis (Page 11) and Annual Review (Page 13) uses Avg Annual Rate when set, falling back to Hourly Rate otherwise.
+>
+> **(3) Documentation overhaul:** USER_MANUAL.md restructured with a new **How To** section containing step-by-step guides for all major activities (issue invoice, record payment, add prospect, convert prospect, import time charges, prepare billing basis, run annual review, generate feedback form, back up data, fix data errors). TECHNICAL.md updated with the revised pipeline and billing_basis table schemas and new DB function reference. The in-app How to Use page (Page — How to Use) updated with the same How To section and refreshed Page 6 and Page 11 descriptions.
+
+### DB Schema Changes (non-breaking, migrated automatically on startup)
+
+- **`pipeline`** — table recreated with: `project_id` changed from UNIQUE NOT NULL to nullable (NULL for standalone prospects); new columns `is_prospect INTEGER NOT NULL DEFAULT 0`, `company_name TEXT`, `prospect_name TEXT`, `description TEXT`, `budget_min REAL`, `budget_est REAL`, `budget_max REAL`, `probability REAL`, `opportunity_country TEXT`. Partial unique index `uidx_pipeline_project ON pipeline(project_id) WHERE project_id IS NOT NULL` replaces the old column-level UNIQUE constraint. Existing rows migrated with `is_prospect=0`.
+- **`billing_basis`** — added `avg_annual_rate REAL NOT NULL DEFAULT 0.0` between `hourly_rate` and `notes`.
+
+### New DB Functions
+
+- `add_prospect(company_name, prospect_name, description, country, stage, value, budget_min, budget_est, budget_max, probability, notes)` — inserts a standalone prospect row; returns `lastrowid`.
+- `update_prospect(pipeline_id, ...)` — updates a prospect row in-place (`WHERE id=? AND is_prospect=1`).
+- `convert_prospect_to_project(pipeline_id, project_id)` — links a prospect to a real project; clears prospect fields; advances stage to Active if currently Prospect.
+- `delete_prospect(pipeline_id)` — deletes `WHERE id=? AND is_prospect=1`.
+- `get_monthly_billing_rate_breakdown(emp_nbr, year)` — per-period breakdown of `non_z_hours`, `non_z_charges`, and implied `avg_nonz_rate`. Used to compute the weighted Avg Annual Rate.
+
+### Updated DB Functions
+
+- `get_pipeline()` — LEFT JOIN instead of INNER JOIN; CASE expressions for `display_client`, `display_project`, `country` unified columns across prospect and linked-project rows; includes all new prospect columns.
+- `upsert_pipeline()` — rewritten as explicit SELECT → then INSERT or UPDATE (avoids `ON CONFLICT` limitation with partial unique indexes). Now includes `opportunity_country` parameter.
+- `upsert_billing_basis()` — now includes `avg_annual_rate` parameter; included in both INSERT and UPDATE.
+
+### Model Changes
+
+- **`PipelineEntry`** dataclass (`shared/models.py`) — added `is_prospect`, `company_name`, `prospect_name`, `description` fields.
+- **`BillingBasis`** dataclass (`shared/models.py`) — added `avg_annual_rate: float = 0.0` between `hourly_rate` and `notes`.
+
+### Page Changes
+
+- **Page 6 — Pipeline / CRM:** Add Prospect expander at top (minimal fields — no client/project required). Bootstrap loop scoped to non-null `project_id` rows only. Inline editor: `_is_prospect` checkbox (read-only) discriminates row type; save logic branches to `update_prospect()` vs `upsert_pipeline()` accordingly. Prospect Actions section at bottom: Convert to Project (sets session state + `st.switch_page` to Page 4), Delete Prospect. Filters now use unified `display_client` and `country` columns.
+- **Page 4 — Add New Project:** Reads `_convert_pipeline_id`, `_convert_company_name`, `_convert_description`, `_convert_prospect_name` from session state (set by Pipeline / CRM convert action). Pre-fills Client name, Project name, and Description fields. After successful import, calls `convert_prospect_to_project()` to link the pipeline entry. Conversion banner shown when arriving via the convert workflow.
+- **Page 11 — Billing Basis:** Auto tab: `get_monthly_billing_rate_breakdown()` called per consultant; monthly breakdown shown in expander; Avg Annual Rate input pre-filled from weighted average; both Avg Annual Rate and Hourly Rate saved via `upsert_billing_basis()`. `_derive()` updated: uses `avg_annual_rate` when > 0, else falls back to `hourly_rate`; new output fields `Rate Used €/hr` and `Rate Source`. Manual Entry tab: `Avg Annual Rate €/hr` column added to editor and save. Saved Basis tab: `Avg Rate €/hr` and `Rate €/hr` columns added; `_derive()` called with both rates. Excel export: `avg_annual_rate`, Rate Used, Rate Source columns included.
+- **Page 13 — Annual Review:** `_productivity_bonus()` updated to prefer `avg_annual_rate` over `hourly_rate`; guard condition updated to allow either rate being set. Summary display and Excel export show the effective rate used.
+
+---
+
 ## V1.1 — Billing Basis dual-source, Annual Review project breakdown fixes, Teams column (May 2026)
 
 > **Updates on 13 May 2026** — Six targeted improvements across Billing Basis (Page 11) and Annual Review (Page 14).
