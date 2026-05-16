@@ -144,10 +144,20 @@ def _metric(col, label, cur, pri):
         delta_str = f"vs {prior_period_label}: €{pri:,.0f}" if pri else None
     col.metric(label, f"€{cur:,.0f}", delta_str)
 
-col1, col2, col3 = st.columns(3)
+@st.cache_data(ttl=120)
+def _outstanding_balance() -> float:
+    return sum(
+        (inv.amount + inv.vat_amount + inv.expenses_net + inv.expenses_vat) - inv.total_paid
+        for inv in db.get_invoices()
+        if inv.status in ("outstanding", "partial")
+    )
+
+col1, col2, col3, col4 = st.columns(4)
 _metric(col1, "Net Revenue (€)",   ytd_net,   prior_net)
 _metric(col2, "VAT Collected (€)", ytd_vat,   prior_vat)
 _metric(col3, "Gross Revenue (€)", ytd_gross, prior_gross)
+col4.metric("Outstanding (€)", f"€{_outstanding_balance():,.0f}",
+            help="Gross balance due on all open/partial invoices across all years")
 
 st.divider()
 
@@ -237,35 +247,3 @@ if cur_f:
 else:
     st.info(f"No VAT data for {selected_year} matching the selected filters.")
 
-st.divider()
-
-# ------------------------------------------------------------------
-# Pipeline Forecast
-# ------------------------------------------------------------------
-
-st.subheader("Pipeline Forecast")
-
-@st.cache_data(ttl=120)
-def _pipeline():
-    return db.get_pipeline()
-
-pipeline = _pipeline()
-forecast_rows = [
-    r for r in pipeline
-    if (r.get("budget_min") or r.get("budget_est") or r.get("budget_max"))
-    and r.get("probability") is not None
-]
-
-if forecast_rows:
-    fw_min = sum((r["budget_min"] or 0) * (r["probability"] or 0) for r in forecast_rows)
-    fw_est = sum((r["budget_est"] or 0) * (r["probability"] or 0) for r in forecast_rows)
-    fw_max = sum((r["budget_max"] or 0) * (r["probability"] or 0) for r in forecast_rows)
-
-    fc1, fc2, fc3 = st.columns(3)
-    fc1.metric("Weighted Min (€)", f"{fw_min:,.0f}")
-    fc2.metric("Weighted Est (€)", f"{fw_est:,.0f}")
-    fc3.metric("Weighted Max (€)", f"{fw_max:,.0f}")
-    st.caption(f"Based on {len(forecast_rows)} pipeline projects with budget fields set. "
-               "Σ(budget × probability). Edit budgets and probabilities on the Pipeline / CRM page.")
-else:
-    st.info("No pipeline forecast data. Set Min/Est/Max budgets and probabilities on the Pipeline / CRM page.")

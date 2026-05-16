@@ -59,6 +59,11 @@ def _all_projects(include_completed: bool = False):
     return db.get_projects(status="Active")
 
 
+@st.cache_data(ttl=60)
+def _invoices():
+    return db.get_invoices()
+
+
 
 
 # ------------------------------------------------------------------
@@ -88,11 +93,19 @@ if doc_type == "Credit Note":
         "**Credit Note mode** — enter the amount to be credited (positive). "
         "It will be stored as a negative amount. Assign the same project as the original invoice."
     )
-    related_invoice_number = st.text_input(
-        "Original Invoice No (optional)",
-        placeholder="e.g. 12/2026",
-        help="Reference to the invoice being credited. For record-keeping only.",
-    )
+    _inv_list = _invoices()
+    if _inv_list:
+        _inv_opts = {"— none —": ""}
+        for _i in sorted(_inv_list,
+                         key=lambda x: (x.year, int(x.invoice_number) if x.invoice_number.isdigit() else 0),
+                         reverse=True):
+            _inv_opts[f"{_i.invoice_number}/{_i.year}  €{_i.amount:,.0f}  [{_i.status}]"] = _i.invoice_number
+        _sel = st.selectbox("Original Invoice (optional)", list(_inv_opts.keys()),
+                            help="Invoice being credited. For record-keeping only.")
+        related_invoice_number = _inv_opts[_sel]
+    else:
+        related_invoice_number = st.text_input("Original Invoice No (optional)",
+                                               placeholder="e.g. 12/2026")
 else:
     related_invoice_number = ""
 
@@ -391,3 +404,4 @@ if generate_clicked:
         file_name=download_name,
         mime=mime,
     )
+    st.page_link("pages/2_invoice_log.py", label="View in Invoice Log →", icon="📋")
