@@ -10,6 +10,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from datetime import date
 import streamlit as st
 import backend.db as db
 from shared.ui import require_auth, list_templates
@@ -145,10 +146,12 @@ for i, row in enumerate(codes):
                                              placeholder="e.g. PM workstream", label_visibility="collapsed")
     row["budget"]     = rcols[2].number_input("", value=row["budget"],   key=f"cb_{i}",
                                                min_value=0.0, step=1000.0, label_visibility="collapsed")
-    row["date_start"] = rcols[3].text_input("", value=row["date_start"], key=f"cds_{i}",
-                                             placeholder="YYYY-MM-DD", label_visibility="collapsed")
-    row["date_end"]   = rcols[4].text_input("", value=row["date_end"],   key=f"cde_{i}",
-                                             placeholder="YYYY-MM-DD", label_visibility="collapsed")
+    _ds_v = date.fromisoformat(row["date_start"]) if row["date_start"] else None
+    _de_v = date.fromisoformat(row["date_end"])   if row["date_end"]   else None
+    _ds = rcols[3].date_input("", value=_ds_v, key=f"cds_{i}", label_visibility="collapsed")
+    _de = rcols[4].date_input("", value=_de_v, key=f"cde_{i}", label_visibility="collapsed")
+    row["date_start"] = _ds.isoformat() if _ds else ""
+    row["date_end"]   = _de.isoformat() if _de else ""
     row["status"]     = rcols[5].selectbox("", ["Active", "On Hold", "Completed"], key=f"cst_{i}",
                                             label_visibility="collapsed")
 
@@ -170,11 +173,6 @@ if st.button("Import to Database", type="primary"):
     # Codes are optional for external/internal clients; required for managed
     if not valid_codes and c_type == "managed":
         errors.append("At least one project code (suffix) is required for managed clients.")
-    for r in valid_codes:
-        if r["date_start"].strip() and len(r["date_start"].strip()) != 10:
-            errors.append(f"Suffix '{r['suffix']}': Date Start must be YYYY-MM-DD or blank.")
-        if r["date_end"].strip() and len(r["date_end"].strip()) != 10:
-            errors.append(f"Suffix '{r['suffix']}': Date End must be YYYY-MM-DD or blank.")
 
     if errors:
         for e in errors:

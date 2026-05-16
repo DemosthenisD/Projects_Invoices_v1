@@ -125,7 +125,7 @@ with tab_log:
         sort_c1, sort_c2 = st.columns([3, 2])
         sort_by  = sort_c1.selectbox(
             "Sort by",
-            ["Date", "Invoice ID", "Amount", "Client", "Status", "Type"],
+            ["Date", "Invoice ID", "Amount", "Client", "Status", "Type", "Days Outstanding"],
             index=0, label_visibility="collapsed",
         )
         sort_dir = sort_c2.radio("Order", ["↓ Desc", "↑ Asc"], horizontal=True, index=0,
@@ -133,12 +133,14 @@ with tab_log:
         asc = sort_dir == "↑ Asc"
 
         _sort_key = {
-            "Date":       lambda i: i.date,
-            "Invoice ID": lambda i: int(i.invoice_number) if i.invoice_number.isdigit() else 0,
-            "Amount":     lambda i: i.amount,
-            "Client":     lambda i: client_map.get(i.client_id, ""),
-            "Status":     lambda i: i.status,
-            "Type":       lambda i: i.type,
+            "Date":             lambda i: i.date,
+            "Invoice ID":       lambda i: int(i.invoice_number) if i.invoice_number.isdigit() else 0,
+            "Amount":           lambda i: i.amount,
+            "Client":           lambda i: client_map.get(i.client_id, ""),
+            "Status":           lambda i: i.status,
+            "Type":             lambda i: i.type,
+            "Days Outstanding": lambda i: (date.today() - date.fromisoformat(i.date)).days
+                                          if i.status in ("outstanding", "partial") else -1,
         }
         filtered = sorted(filtered, key=_sort_key[sort_by], reverse=not asc)
 
@@ -184,7 +186,11 @@ with tab_log:
                 col_net.write(f"€{inv.amount:,.0f}")
                 col_vat.write(f"€{inv.vat_amount:,.0f}")
                 badge = STATUS_BADGE.get(inv.status, "")
-                col_st.write(f"{badge} {inv.status}")
+                if inv.status in ("outstanding", "partial"):
+                    _age = (date.today() - date.fromisoformat(inv.date)).days
+                    col_st.write(f"{badge} {inv.status} ({_age}d)")
+                else:
+                    col_st.write(f"{badge} {inv.status}")
 
                 # Balance: show remaining for unpaid/partial; "—" for fully paid
                 if inv.status == "paid" and inv.total_paid == 0:

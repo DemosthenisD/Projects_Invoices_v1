@@ -10,6 +10,7 @@ Tabs:
 """
 import sys
 import os
+import io
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -338,6 +339,14 @@ with tab_entries:
         ]
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         st.caption(f"{len(entries)} row(s)")
+        _buf = io.BytesIO()
+        pd.DataFrame(rows).to_excel(_buf, index=False, engine="openpyxl")
+        st.download_button(
+            "Export to Excel",
+            data=_buf.getvalue(),
+            file_name="time_entries_export.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
         st.divider()
         st.subheader("Delete a batch")

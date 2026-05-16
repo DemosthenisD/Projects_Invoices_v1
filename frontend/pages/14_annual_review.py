@@ -29,6 +29,9 @@ from backend.db import (
     get_review_feedback,
     upsert_review_feedback,
     get_consultant_project_hours,
+    is_review_locked,
+    lock_review,
+    unlock_review,
 )
 from shared.models import SCORE_GROUPS, MILLIMAN_STATUSES, EXTERNAL_LEVELS
 from shared.ui import require_auth
@@ -75,6 +78,18 @@ salary_rec     = get_salary_record(emp_nbr, int(review_year))
 prior_rec      = get_salary_record(emp_nbr, int(review_year) - 1)
 billing        = get_billing_basis(emp_nbr, int(review_year))
 current_scores = get_review_scores(emp_nbr, int(review_year))
+is_locked = is_review_locked(emp_nbr, int(review_year))
+
+_lock_col, _ = st.columns([2, 6])
+if is_locked:
+    st.warning(f"Review locked for **{selected_name} / {review_year}** — saves are disabled.")
+    if _lock_col.button("Unlock", key="btn_unlock"):
+        unlock_review(emp_nbr, int(review_year))
+        st.rerun()
+else:
+    if _lock_col.button("Lock Review", key="btn_lock"):
+        lock_review(emp_nbr, int(review_year))
+        st.rerun()
 
 st.divider()
 
@@ -362,7 +377,7 @@ with st.expander("1 — Compensation & Bonus", expanded=True):
         m4.metric("Total Bonus %",    f"{total_bonus:.2%}")
         m5.metric("Bonus Amount €",   f"€{bonus_amount:,.0f}")
 
-        if st.form_submit_button("Save Compensation", type="primary"):
+        if st.form_submit_button("Save Compensation", type="primary", disabled=is_locked):
             upsert_salary_record(
                 emp_nbr=emp_nbr,
                 year=int(review_year),
@@ -458,7 +473,7 @@ with st.expander("2 — Performance Scores", expanded=True):
             column_config={str(review_year): st.column_config.NumberColumn(format="%.2f")},
         )
 
-    if st.button("Save All Scores", type="primary", key="btn_save_scores"):
+    if st.button("Save All Scores", type="primary", key="btn_save_scores", disabled=is_locked):
         upsert_review_scores(emp_nbr, int(review_year), new_scores)
         st.success(f"Performance scores saved for {selected_name} / {review_year}.")
         st.rerun()
@@ -680,7 +695,7 @@ with st.expander("4 — Feedback Form Export", expanded=False):
 
     # ── Generate ────────────────────────────────────────────────────────────
     st.divider()
-    if st.button("Save & Generate Feedback Form", type="primary", key="btn_gen_feedback"):
+    if st.button("Save & Generate Feedback Form", type="primary", key="btn_gen_feedback", disabled=is_locked):
         # Persist feedback
         for area, (c_v, d_v) in area_comment_vals.items():
             upsert_review_feedback(emp_nbr, int(review_year), area, c_v, d_v)

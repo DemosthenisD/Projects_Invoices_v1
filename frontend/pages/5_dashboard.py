@@ -247,3 +247,6 @@ if cur_f:
 else:
     st.info(f"No VAT data for {selected_year} matching the selected filters.")
 
+st.divider()
+st.page_link("pages/1_how_to_use.py", label="New here? Read the How to Use guide", icon="📖")
+

@@ -252,6 +252,13 @@ def init_db() -> None:
                 UNIQUE(emp_nbr, year, area)
             );
 
+            CREATE TABLE IF NOT EXISTS review_locks (
+                emp_nbr   TEXT    NOT NULL,
+                year      INTEGER NOT NULL,
+                locked_at TEXT    DEFAULT (datetime('now')),
+                PRIMARY KEY (emp_nbr, year)
+            );
+
             -- FK and filter columns not covered by UNIQUE constraints
             CREATE INDEX IF NOT EXISTS idx_te_project_id   ON time_entries(project_id);
             CREATE INDEX IF NOT EXISTS idx_te_consultant    ON time_entries(consultant);
@@ -2558,6 +2565,23 @@ def upsert_review_feedback(
             "comments=excluded.comments, development_ideas=excluded.development_ideas",
             (emp_nbr, year, area, comments, development_ideas, now),
         )
+
+
+def is_review_locked(emp_nbr: str, year: int) -> bool:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT 1 FROM review_locks WHERE emp_nbr=? AND year=?", (emp_nbr, year)
+        ).fetchone() is not None
+
+
+def lock_review(emp_nbr: str, year: int) -> None:
+    with get_connection() as conn:
+        conn.execute("INSERT OR IGNORE INTO review_locks (emp_nbr, year) VALUES (?,?)", (emp_nbr, year))
+
+
+def unlock_review(emp_nbr: str, year: int) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM review_locks WHERE emp_nbr=? AND year=?", (emp_nbr, year))
 
 
 def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:

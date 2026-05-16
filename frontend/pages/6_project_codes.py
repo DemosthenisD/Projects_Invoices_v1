@@ -9,7 +9,9 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from datetime import date
 import streamlit as st
+import pandas as pd
 import backend.db as db
 from shared.ui import require_auth
 
@@ -92,14 +94,16 @@ with st.expander("Add project code", expanded=False):
         new_name   = st.text_input("Name", placeholder="e.g. IFRS17 Phase 1")
         new_desc   = st.text_area("Description", height=60)
         col3, col4, col5 = st.columns(3)
-        new_ds_raw = col3.text_input("Date Start (YYYY-MM-DD)", placeholder="leave blank if first use")
-        new_de_raw = col4.text_input("Date End   (YYYY-MM-DD)", placeholder="leave blank if open-ended")
+        new_ds_dt  = col3.date_input("Date Start", value=None, key="add_ds",
+                                      help="Leave blank for a first-use suffix")
+        new_de_dt  = col4.date_input("Date End",   value=None, key="add_de",
+                                      help="Leave blank for an open-ended code")
         new_status = col5.selectbox("Status", ["Active", "On Hold", "Completed"])
         submitted  = st.form_submit_button("Add project code")
 
     if submitted:
-        new_ds = new_ds_raw.strip()
-        new_de = new_de_raw.strip()
+        new_ds = new_ds_dt.isoformat() if new_ds_dt else ""
+        new_de = new_de_dt.isoformat() if new_de_dt else ""
         if not new_cs.strip():
             st.error("Client suffix is required.")
         elif not client_obj.client_code:
@@ -189,17 +193,18 @@ else:
                     key=f"stat_{code.id}"
                 )
                 col_c, col_d = st.columns(2)
-                e_ds = col_c.text_input("Date Start (YYYY-MM-DD)", value=code.date_start,
-                                        key=f"ds_{code.id}")
-                e_de = col_d.text_input("Date End (YYYY-MM-DD)",   value=code.date_end,
-                                        key=f"de_{code.id}")
+                _ds_val = date.fromisoformat(code.date_start) if code.date_start else None
+                _de_val = date.fromisoformat(code.date_end)   if code.date_end   else None
+                e_ds_dt = col_c.date_input("Date Start", value=_ds_val, key=f"ds_{code.id}")
+                e_de_dt = col_d.date_input("Date End",   value=_de_val, key=f"de_{code.id}")
                 col_save, col_del, _ = st.columns([1, 1, 4])
                 save   = col_save.form_submit_button("Save")
                 delete = col_del.form_submit_button("Delete", type="secondary")
 
             if save:
                 db.update_project_code(code.id, e_name, e_desc, e_budget, e_status,
-                                       e_ds.strip(), e_de.strip())
+                                       e_ds_dt.isoformat() if e_ds_dt else "",
+                                       e_de_dt.isoformat() if e_de_dt else "")
                 st.session_state["_code_msg"] = "Updated."
                 st.rerun()
 
@@ -213,3 +218,34 @@ else:
                 except ValueError as exc:
                     st.session_state["_code_err"] = str(exc)
                     st.rerun()
+
+# ------------------------------------------------------------------
+# All Codes — cross-client overview
+# ------------------------------------------------------------------
+
+st.divider()
+with st.expander("All Codes — Cross-Client Overview", expanded=False):
+    st.caption("All active project codes across all clients and projects.")
+    _all_codes = db.get_all_project_codes_with_context()
+    if _all_codes:
+        _acd = pd.DataFrame([
+            {
+                "Client":   c["client_name"],
+                "Project":  c["project_name"],
+                "Code":     f"{c['client_code']}-{c['client_suffix']}",
+                "Name":     c.get("code_name") or "",
+                "Budget €": c["budget_amount"],
+            }
+            for c in _all_codes
+        ])
+        _aco_client = st.multiselect("Filter by client", sorted(_acd["Client"].unique()),
+                                     key="aco_client")
+        if _aco_client:
+            _acd = _acd[_acd["Client"].isin(_aco_client)]
+        st.dataframe(
+            _acd.style.format({"Budget €": "{:,.0f}"}),
+            use_container_width=True, hide_index=True,
+        )
+        st.caption(f"{len(_acd)} active code(s)")
+    else:
+        st.info("No active project codes found.")
