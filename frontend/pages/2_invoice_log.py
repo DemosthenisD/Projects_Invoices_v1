@@ -20,15 +20,9 @@ import pandas as pd
 
 import backend.db as db
 from shared.config import EXPORTS_DIR
-from shared.ui import fmt_date
+from shared.ui import fmt_date, require_auth
 
-# ------------------------------------------------------------------
-# Auth guard
-# ------------------------------------------------------------------
-
-if not st.session_state.get("authenticated", False):
-    st.warning("Please sign in from the Home page.")
-    st.stop()
+require_auth()
 
 # ------------------------------------------------------------------
 # Page setup

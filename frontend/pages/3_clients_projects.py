@@ -14,22 +14,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import streamlit as st
 import pandas as pd
 import backend.db as db
-from shared.config import TEMPLATES_DIR
+from shared.ui import require_auth, list_templates
 
-if not st.session_state.get("authenticated", False):
-    st.warning("Please sign in from the Home page.")
-    st.stop()
+require_auth()
 
 st.title("Clients & Projects")
 
 tab_clients, tab_projects, tab_addresses = st.tabs(["Clients", "Projects", "Addresses"])
-
-def _templates() -> list[str]:
-    return sorted(
-        f.replace(".docx", "")
-        for f in os.listdir(TEMPLATES_DIR)
-        if f.endswith(".docx") and not f.startswith("filled")
-    )
 
 PROJECT_STATUSES = ["Active", "On Hold", "Completed", "Prospect"]
 CLIENT_TYPES     = ["managed", "external", "internal"]
@@ -286,7 +277,7 @@ with tab_projects:
     else:
         # ---- Add new project ----
         with st.expander("Add new project", expanded=False):
-            templates = _templates()
+            templates = list_templates()
             with st.form(f"add_project_form_{st.session_state['_add_proj_v']}"):
                 p_name  = st.text_input("Project name *")
                 p_desc  = st.text_area("Description", height=70)
@@ -329,7 +320,7 @@ with tab_projects:
                 "Select project to edit", proj_names, key="edit_proj_sel"
             )
             proj = next(p for p in all_projects if p.name == edit_proj_name)
-            templates = _templates()
+            templates = list_templates()
 
             with st.form(f"edit_proj_{proj.id}"):
                 e_desc  = st.text_area("Description", value=proj.description, height=70)

@@ -31,10 +31,9 @@ from backend.db import (
     get_consultant_project_hours,
 )
 from shared.models import SCORE_GROUPS, MILLIMAN_STATUSES, EXTERNAL_LEVELS
+from shared.ui import require_auth
 
-if not st.session_state.get("authenticated"):
-    st.warning("Please log in.")
-    st.stop()
+require_auth()
 
 st.title("Annual Review")
 st.caption("Performance assessment and compensation calculation per consultant per year.")

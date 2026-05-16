@@ -19,17 +19,11 @@ import pandas as pd
 import backend.db as db
 from shared.gap_report import build_gap_excel
 from shared.config import load_office_codes
-from shared.ui import dataframe_with_total
+from shared.ui import dataframe_with_total, require_auth
 
 _OFFICE_CODES = load_office_codes()
 
-# ------------------------------------------------------------------
-# Auth guard
-# ------------------------------------------------------------------
-
-if not st.session_state.get("authenticated", False):
-    st.warning("Please sign in from the Home page.")
-    st.stop()
+require_auth()
 
 # ------------------------------------------------------------------
 # Page setup

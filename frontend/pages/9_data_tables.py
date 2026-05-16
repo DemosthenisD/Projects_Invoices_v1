@@ -14,10 +14,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import streamlit as st
 import pandas as pd
 from shared.config import DB_PATH
+from shared.ui import require_auth
 
-if not st.session_state.get("authenticated", False):
-    st.warning("Please sign in from the Home page.")
-    st.stop()
+require_auth()
 
 st.title("Data Tables")
 

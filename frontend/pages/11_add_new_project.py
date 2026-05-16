@@ -12,11 +12,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import streamlit as st
 import backend.db as db
-from shared.config import TEMPLATES_DIR
+from shared.ui import require_auth, list_templates
 
-if not st.session_state.get("authenticated", False):
-    st.warning("Please sign in from the Home page.")
-    st.stop()
+require_auth()
 
 # Detect if we arrived via "Convert to Project" from Pipeline/CRM
 _pipeline_id      = st.session_state.pop("_convert_pipeline_id",    None)
@@ -41,14 +39,6 @@ else:
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
-
-def _templates() -> list[str]:
-    return sorted(
-        f.replace(".docx", "")
-        for f in os.listdir(TEMPLATES_DIR)
-        if f.endswith(".docx") and not f.startswith("filled")
-    )
-
 
 PROJECT_STATUSES = ["Active", "On Hold", "Completed", "Prospect"]
 
@@ -110,7 +100,7 @@ p_name   = col1.text_input("Project name *", value=_prefill_proj, placeholder="e
 p_desc   = col2.text_input("Description",    value=_prefill_desc, placeholder="Short description")
 col3, col4, col5 = st.columns(3)
 p_vat    = col3.number_input("VAT %", min_value=0.0, max_value=100.0, value=19.0, step=1.0)
-templates = _templates()
+templates = list_templates()
 p_tmpl   = col4.selectbox("Invoice Template", templates,
                            index=templates.index("template1_v3") if "template1_v3" in templates else 0)
 p_status = col5.selectbox("Status", PROJECT_STATUSES)

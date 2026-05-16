@@ -28,11 +28,9 @@ from backend.db import (
     set_billing_basis_preferred,
     get_billing_basis_summary,
 )
-from shared.ui import dataframe_with_total
+from shared.ui import dataframe_with_total, require_auth
 
-if not st.session_state.get("authenticated"):
-    st.warning("Please log in.")
-    st.stop()
+require_auth()
 
 st.title("Billing Basis")
 st.caption("Annual billing summary per consultant — the basis for productivity-bonus calculation.")

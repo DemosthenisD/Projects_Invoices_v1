@@ -16,14 +16,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import streamlit as st
 import backend.db as db
 from backend.invoice_gen import generate_invoice, convert_to_pdf
+from shared.ui import require_auth, list_templates
 
-# ------------------------------------------------------------------
-# Auth guard
-# ------------------------------------------------------------------
-
-if not st.session_state.get("authenticated", False):
-    st.warning("Please sign in from the Home page.")
-    st.stop()
+require_auth()
 
 # ------------------------------------------------------------------
 # Page setup
@@ -61,15 +56,6 @@ def _all_projects(include_completed: bool = False):
     return db.get_projects(status="Active")
 
 
-@st.cache_data(ttl=300)
-def _available_templates():
-    from shared.config import TEMPLATES_DIR
-    files = [
-        f.replace(".docx", "")
-        for f in os.listdir(TEMPLATES_DIR)
-        if f.endswith(".docx") and not f.startswith("filled")
-    ]
-    return sorted(files)
 
 
 # ------------------------------------------------------------------
@@ -200,7 +186,7 @@ with col1:
     vat_pct = st.number_input("VAT %", min_value=0.0, max_value=100.0,
                                value=float(default_vat_pct or 0.0), step=1.0)
 with col2:
-    available_templates = _available_templates()
+    available_templates = list_templates()
     template_index = (
         available_templates.index(default_template)
         if default_template and default_template in available_templates

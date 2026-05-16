@@ -11,14 +11,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import streamlit as st
 import backend.db as db
+from shared.ui import require_auth
 
-# ------------------------------------------------------------------
-# Auth guard
-# ------------------------------------------------------------------
-
-if not st.session_state.get("authenticated", False):
-    st.warning("Please sign in from the Home page.")
-    st.stop()
+require_auth()
 
 # ------------------------------------------------------------------
 # Page setup

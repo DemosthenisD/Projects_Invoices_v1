@@ -2,8 +2,35 @@
 Shared Streamlit UI helpers used across multiple pages.
 """
 from datetime import datetime
+import os
 import streamlit as st
 import pandas as pd
+
+from shared.config import TEMPLATES_DIR
+
+
+def require_auth() -> None:
+    """Stop page execution if the user is not authenticated.
+
+    Call once at the top of every page, immediately after imports.
+    """
+    if not st.session_state.get("authenticated", False):
+        st.warning("Please sign in from the Home page.")
+        st.stop()
+
+
+@st.cache_data(ttl=300)
+def list_templates() -> list[str]:
+    """Return sorted template names available in the templates directory.
+
+    Excludes filled/temp files that start with 'filled'. Result is cached
+    for 5 minutes so repeated calls don't hit the filesystem every rerun.
+    """
+    return sorted(
+        f.replace(".docx", "")
+        for f in os.listdir(TEMPLATES_DIR)
+        if f.endswith(".docx") and not f.startswith("filled")
+    )
 
 
 def fmt_date(d: str) -> str:

@@ -24,10 +24,9 @@ from backend.db import (
     get_billing_basis,
 )
 from shared.models import MILLIMAN_STATUSES, EXTERNAL_LEVELS
+from shared.ui import require_auth
 
-if not st.session_state.get("authenticated"):
-    st.warning("Please log in.")
-    st.stop()
+require_auth()
 
 st.title("Consultant Profiles")
 st.caption("Employment details, salary history, and billing rates per consultant.")
