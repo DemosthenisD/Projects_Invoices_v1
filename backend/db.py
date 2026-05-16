@@ -8,7 +8,7 @@ import sqlite3
 import sys
 import os
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import re
@@ -717,7 +717,6 @@ def add_project(client_id: int, name: str, description: str = "",
 def update_project(project_id: int, description: str, vat_pct: float,
                    template: str, status: str, date_start: str = "") -> int:
     """Update project fields. Returns count of project codes auto-closed (0 if no auto-close)."""
-    from datetime import date as _date
     closed_count = 0
     with get_connection() as conn:
         old = conn.execute("SELECT status FROM projects WHERE id=?", (project_id,)).fetchone()
@@ -727,7 +726,7 @@ def update_project(project_id: int, description: str, vat_pct: float,
             (description, vat_pct, template, status, date_start, project_id)
         )
         if status == "Completed" and old and old["status"] != "Completed":
-            today = _date.today().isoformat()
+            today = date.today().isoformat()
             cur = conn.execute(
                 "UPDATE project_codes SET status='Completed', date_end=? "
                 "WHERE project_id=? AND status='Active' AND date_end=''",
@@ -932,11 +931,10 @@ def _parse_date_str(val) -> str:
     Handles: Python date/datetime objects, pandas Timestamps, and text strings
     in DD/MM/YYYY, YYYY-MM-DD, or MM/DD/YYYY formats.
     """
-    from datetime import date as _date, datetime as _dt
     import pandas as _pd
     if val is None:
         return ""
-    if isinstance(val, (_date, _dt)):
+    if isinstance(val, (date, datetime)):
         return val.strftime("%Y-%m-%d")
     try:
         if isinstance(val, _pd.Timestamp):
@@ -948,8 +946,7 @@ def _parse_date_str(val) -> str:
         return ""
     for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%m/%d/%Y", "%d-%m-%Y", "%Y/%m/%d"):
         try:
-            from datetime import datetime as _dtp
-            return _dtp.strptime(s, fmt).strftime("%Y-%m-%d")
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
         except ValueError:
             pass
     return s  # fall back verbatim
@@ -1905,14 +1902,14 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
 
     years — list of calendar years to expand (default: current year + 3 prior).
     """
-    from datetime import date as _date
     if years is None:
-        cy = _date.today().year
+        cy = date.today().year
         years = [cy - i for i in range(4)]
 
-    # Build per-year subquery fragments
+    # Build per-year subquery fragments (yr cast to int — aliases can't be parameterized)
     sel, inv_j, te_j, wo_j = "", "", "", ""
     for yr in years:
+        yr = int(yr)
         sel += (
             f", COALESCE(inv_{yr}.invoiced, 0) AS invoiced_{yr}"
             f", COALESCE(te_{yr}.charges,  0) AS charges_{yr}"
@@ -2520,7 +2517,6 @@ def upsert_review_feedback(
     comments: str = "", development_ideas: str = "",
 ) -> None:
     """Insert or update a feedback record for one area."""
-    from datetime import datetime
     now = datetime.now().isoformat(timespec="seconds")
     with get_connection() as conn:
         conn.execute(

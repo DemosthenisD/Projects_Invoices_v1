@@ -389,9 +389,6 @@ if generate_clicked:
     )
     st.session_state.pop("_inv_allocations", None)
 
-    # Invalidate invoice number cache so next suggestion is correct
-    db.get_next_invoice_number.cache_clear() if hasattr(db.get_next_invoice_number, "cache_clear") else None
-
     with open(output_path, "rb") as f:
         file_bytes = f.read()
 

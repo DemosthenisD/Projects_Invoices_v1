@@ -417,13 +417,6 @@ with st.expander("2 — Performance Scores", expanded=True):
         if group_name == "Management":
             st.caption("Manager-level only — leave at 0 if not applicable.")
 
-        # Build a dataframe for display: Item | Current Year score | Y-1 | Y-2 | Y-3
-        score_rows = []
-        input_vals: dict[str, float] = {}
-        for item in items:
-            current_val = current_scores.get(group_name, {}).get(item, 0.0)
-            input_vals[item] = current_val
-
         # Score input — use columns (4 items per row for readability)
         new_scores[group_name] = {}
         num_cols = min(len(items), 4)
