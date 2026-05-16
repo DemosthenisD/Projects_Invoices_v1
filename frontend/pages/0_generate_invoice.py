@@ -20,6 +20,9 @@ from shared.ui import require_auth, list_templates
 
 require_auth()
 
+# Reset each render; re-set below only when allocations are entered and balance.
+st.session_state.pop("_inv_allocations", None)
+
 # ------------------------------------------------------------------
 # Page setup
 # ------------------------------------------------------------------

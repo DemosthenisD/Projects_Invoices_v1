@@ -17,10 +17,11 @@ from shared.ui import require_auth, list_templates
 require_auth()
 
 # Detect if we arrived via "Convert to Project" from Pipeline/CRM
-_pipeline_id      = st.session_state.pop("_convert_pipeline_id",    None)
-_prefill_company  = st.session_state.pop("_convert_company_name",   "")
-_prefill_desc     = st.session_state.pop("_convert_description",    "")
-_prefill_proj     = st.session_state.pop("_convert_prospect_name",  "")
+_pipeline_ctx    = st.session_state.pop("_pipeline_convert", None) or {}
+_pipeline_id     = _pipeline_ctx.get("id")
+_prefill_company = _pipeline_ctx.get("company",     "")
+_prefill_desc    = _pipeline_ctx.get("description", "")
+_prefill_proj    = _pipeline_ctx.get("prospect",    "")
 
 st.title("Add New Project")
 if _pipeline_id:

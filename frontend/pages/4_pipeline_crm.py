@@ -275,10 +275,12 @@ if prospect_rows:
         st.caption("Convert to Project: navigates to Add New Project with this prospect's details pre-filled. "
                    "The pipeline entry will be linked to the new project on save.")
         if st.button("Convert to Project →", type="secondary"):
-            st.session_state["_convert_pipeline_id"]    = sel_prospect["id"]
-            st.session_state["_convert_company_name"]   = sel_prospect["display_client"]
-            st.session_state["_convert_description"]    = sel_prospect.get("description", "")
-            st.session_state["_convert_prospect_name"]  = sel_prospect.get("prospect_name", "") or sel_prospect.get("display_project", "")
+            st.session_state["_pipeline_convert"] = {
+                "id":          sel_prospect["id"],
+                "company":     sel_prospect["display_client"],
+                "description": sel_prospect.get("description", ""),
+                "prospect":    sel_prospect.get("prospect_name", "") or sel_prospect.get("display_project", ""),
+            }
             st.switch_page("pages/11_add_new_project.py")
 
     with col_del:

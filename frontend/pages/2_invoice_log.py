@@ -163,7 +163,8 @@ with tab_log:
             ):
                 col.markdown(f"**{label}**")
 
-            st.session_state.setdefault("_pay_form", None)
+            if st.session_state.get("_pay_form") not in {inv.id for inv in filtered}:
+                st.session_state["_pay_form"] = None
 
             for inv in filtered:
                 (col_date, col_id, col_ref, col_type, col_client, col_proj,
