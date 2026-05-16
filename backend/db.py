@@ -251,6 +251,17 @@ def init_db() -> None:
                 created_at        TEXT,
                 UNIQUE(emp_nbr, year, area)
             );
+
+            -- FK and filter columns not covered by UNIQUE constraints
+            CREATE INDEX IF NOT EXISTS idx_te_project_id   ON time_entries(project_id);
+            CREATE INDEX IF NOT EXISTS idx_te_consultant    ON time_entries(consultant);
+            CREATE INDEX IF NOT EXISTS idx_te_emp_nbr      ON time_entries(emp_nbr);
+            CREATE INDEX IF NOT EXISTS idx_inv_year        ON invoices(year);
+            CREATE INDEX IF NOT EXISTS idx_inv_project_id  ON invoices(project_id);
+            CREATE INDEX IF NOT EXISTS idx_inv_client_id   ON invoices(client_id);
+            CREATE INDEX IF NOT EXISTS idx_pay_invoice_id  ON payments(invoice_id);
+            CREATE INDEX IF NOT EXISTS idx_pc_project_id   ON project_codes(project_id);
+            CREATE INDEX IF NOT EXISTS idx_wo_project_id   ON write_offs(project_id);
         """)
         # --- Migration: pipeline budget columns ---
         for col, defval in [
