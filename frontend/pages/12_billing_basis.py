@@ -21,7 +21,6 @@ from backend.db import (
     get_billing_basis_year,
     get_billing_basis_year_by_source,
     get_billing_basis,
-    get_billing_basis_by_source,
     get_billing_basis_from_time_entries,
     get_monthly_billing_rate_breakdown,
     upsert_billing_basis,
@@ -172,10 +171,15 @@ with tab_auto:
                 total_chg = sum(m["non_z_charges"] or 0 for m in monthly)
                 _avg_rates[r["emp_nbr"]] = round(total_chg / total_hrs, 1) if total_hrs > 0 else 0.0
 
+            # One query for all consultants instead of N separate queries
+            _saved_tt = {
+                bb.emp_nbr: bb
+                for bb in get_billing_basis_year_by_source(year, "time_tracking")
+            }
             # Compute defaults: saved DB value takes priority over auto-computed rate
             _defaults: dict[str, tuple[float, float]] = {}  # emp_nbr → (default_avg, default_hourly)
             for r in rows:
-                _existing = get_billing_basis_by_source(r["emp_nbr"], year, "time_tracking")
+                _existing = _saved_tt.get(r["emp_nbr"])
                 _saved_avg    = _existing.avg_annual_rate if _existing else 0.0
                 _saved_hourly = _existing.hourly_rate     if _existing else 0.0
                 _computed_avg = _avg_rates.get(r["emp_nbr"], 0.0)

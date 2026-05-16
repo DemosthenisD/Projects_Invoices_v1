@@ -70,10 +70,11 @@ if not emp_nbr:
     st.warning("No employee number for this consultant — import a time sheet to assign one.")
     st.stop()
 
-profile     = get_consultant_profile(emp_nbr)
-salary_rec  = get_salary_record(emp_nbr, int(review_year))
-prior_rec   = get_salary_record(emp_nbr, int(review_year) - 1)
-billing     = get_billing_basis(emp_nbr, int(review_year))
+profile        = get_consultant_profile(emp_nbr)
+salary_rec     = get_salary_record(emp_nbr, int(review_year))
+prior_rec      = get_salary_record(emp_nbr, int(review_year) - 1)
+billing        = get_billing_basis(emp_nbr, int(review_year))
+current_scores = get_review_scores(emp_nbr, int(review_year))
 
 st.divider()
 
@@ -389,8 +390,7 @@ with st.expander("2 — Performance Scores", expanded=True):
         "Group 2 (Management) is shown for all consultants — set to 0 if not applicable."
     )
 
-    # Load existing scores and history (prior 3 years)
-    current_scores = get_review_scores(emp_nbr, int(review_year))
+    # Load score history (prior 3 years); current_scores loaded at page top
     hist_years = [int(review_year) - 1, int(review_year) - 2, int(review_year) - 3]
     hist_scores = get_review_scores_multi_year(emp_nbr, hist_years)
 
@@ -468,9 +468,8 @@ with st.expander("2 — Performance Scores", expanded=True):
 # ---------------------------------------------------------------------------
 with st.expander("3 — Summary & Export", expanded=False):
 
-    # Reload saved values for display
+    # Reload salary after a potential Section 1 save; scores already loaded at page top
     salary_rec = get_salary_record(emp_nbr, int(review_year))
-    scores_saved = get_review_scores(emp_nbr, int(review_year))
 
     exam_raise_s   = (salary_rec.exams_passed * salary_rec.exam_raise_per_exam) if salary_rec else 0
     total_raise_s  = exam_raise_s + (salary_rec.other_raise if salary_rec else 0)
@@ -518,7 +517,7 @@ with st.expander("3 — Summary & Export", expanded=False):
     with col_r:
         st.markdown("**Performance Scores**")
         for group_name, items in SCORE_GROUPS.items():
-            group_scores = scores_saved.get(group_name, {})
+            group_scores = current_scores.get(group_name, {})
             vals = [group_scores.get(i, 0.0) for i in items if group_scores.get(i, 0.0) > 0]
             avg  = round(sum(vals) / len(vals), 2) if vals else "—"
             st.markdown(f"**{group_name}:** {avg}")
@@ -542,7 +541,7 @@ with st.expander("3 — Summary & Export", expanded=False):
             profile=profile,
             salary_rec=salary_rec,
             billing=billing,
-            scores=scores_saved,
+            scores=current_scores,
             prod_pct=prod_pct,
             equiv_hrs=equiv_hrs,
             basis=basis,
@@ -563,12 +562,11 @@ with st.expander("4 — Feedback Form Export", expanded=False):
         "Save compensation (Section 1) and scores (Section 2) first."
     )
 
-    scores_for_fb = get_review_scores(emp_nbr, int(review_year))
-    saved_fb      = get_review_feedback(emp_nbr, int(review_year))
+    saved_fb = get_review_feedback(emp_nbr, int(review_year))
     proj_hours    = get_consultant_project_hours(selected_name, int(review_year))
 
     def _group_avg_fb(group_name: str) -> float:
-        vals = [v for v in scores_for_fb.get(group_name, {}).values() if v > 0]
+        vals = [v for v in current_scores.get(group_name, {}).values() if v > 0]
         return round(sum(vals) / len(vals), 2) if vals else 0.0
 
     # ── A: Project breakdown ────────────────────────────────────────────────
