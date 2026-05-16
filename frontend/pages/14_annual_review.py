@@ -188,14 +188,13 @@ def _generate_feedback_docx(
 ) -> tuple[bytes, str]:
     import io as _io
     from docx import Document
-    from datetime import datetime as _dt
 
     # Total experience (Milliman + prior)
     total_exp_str = ""
     if profile and profile.employment_date:
         try:
-            emp_dt = _dt.strptime(profile.employment_date, "%Y-%m-%d")
-            mill_yrs = round((_dt.now() - emp_dt).days / 365.25, 1)
+            emp_dt = datetime.strptime(profile.employment_date, "%Y-%m-%d")
+            mill_yrs = round((datetime.now() - emp_dt).days / 365.25, 1)
             total_exp_str = str(round(mill_yrs + profile.prior_exp_years, 1))
         except ValueError:
             total_exp_str = str(getattr(profile, "prior_exp_years", ""))

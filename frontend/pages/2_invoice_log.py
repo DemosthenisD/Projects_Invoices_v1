@@ -20,6 +20,7 @@ import pandas as pd
 
 import backend.db as db
 from shared.config import EXPORTS_DIR
+from shared.ui import fmt_date
 
 # ------------------------------------------------------------------
 # Auth guard
@@ -168,13 +169,6 @@ with tab_log:
             ):
                 col.markdown(f"**{label}**")
 
-            def _fmt_date(d: str) -> str:
-                try:
-                    from datetime import datetime
-                    return datetime.strptime(str(d)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
-                except Exception:
-                    return str(d)
-
             st.session_state.setdefault("_pay_form", None)
 
             for inv in filtered:
@@ -186,7 +180,7 @@ with tab_log:
                 balance = gross - inv.total_paid
 
                 t_badge = TYPE_BADGE.get(getattr(inv, "type", "Invoice"), "📄")
-                col_date.write(_fmt_date(inv.date))
+                col_date.write(fmt_date(inv.date))
                 col_id.write(f"**{inv.invoice_number}**")
                 col_ref.write(f"**{inv_ref}**")
                 col_type.write(t_badge)
@@ -255,7 +249,7 @@ with tab_log:
                 if payments:
                     for p in payments:
                         st.caption(
-                            f"💰 {_fmt_date(p.date)}: €{p.amount:,.2f}"
+                            f"💰 {fmt_date(p.date)}: €{p.amount:,.2f}"
                             + (f" — {p.note}" if p.note else "")
                         )
 
@@ -458,7 +452,6 @@ with tab_upload:
         ex_proj   = (client_projects.get(ex_client.id) or [None])[0] if ex_client else None
         ex_addr   = next((a["address"] for a in addr_rows
                           if ex_client and a["client_id"] == ex_client.id), "")
-        from datetime import date as _today
         ex_vals = {
             "▶ Client Name":          ex_client.name if ex_client else "",
             "▶ Project Name":         ex_proj.name if ex_proj else "",

@@ -1,8 +1,32 @@
 """
 Shared Streamlit UI helpers used across multiple pages.
 """
+from datetime import datetime
 import streamlit as st
 import pandas as pd
+
+
+def fmt_date(d: str) -> str:
+    """Convert an ISO date string (YYYY-MM-DD) to display format (DD/MM/YYYY).
+
+    Returns the original string unchanged if parsing fails, so it is safe
+    to call on empty strings or legacy values.
+    """
+    try:
+        return datetime.strptime(str(d)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        return str(d)
+
+
+def fmt_eur(x, decimals: int = 0) -> str:
+    """Format a number as a Euro amount: €1,234 (0 dp) or €1,234.56 (2 dp).
+
+    Use decimals=0 for salaries/budgets, decimals=2 for invoice amounts/payments.
+    """
+    try:
+        return f"€{float(x):,.{decimals}f}"
+    except (TypeError, ValueError):
+        return "€—"
 
 
 def dataframe_with_total(
