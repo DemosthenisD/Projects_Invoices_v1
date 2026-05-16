@@ -72,20 +72,7 @@ with st.expander("➕ Add Prospect", expanded=False):
 def _load_pipeline():
     return db.get_pipeline()
 
-@st.cache_data(ttl=300)
-def _load_projects():
-    return db.get_projects()
-
-pipeline     = _load_pipeline()
-all_projects = _load_projects()
-
-# Bootstrap: every linked project should have a pipeline entry
-pipeline_project_ids = {row["project_id"] for row in pipeline if row["project_id"] is not None}
-for proj in all_projects:
-    if proj.id not in pipeline_project_ids:
-        db.upsert_pipeline(proj.id, stage=proj.status if proj.status in STAGES else "Prospect")
-
-pipeline = db.get_pipeline()
+pipeline = _load_pipeline()
 
 # ------------------------------------------------------------------
 # Filters

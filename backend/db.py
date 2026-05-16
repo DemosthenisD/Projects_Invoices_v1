@@ -527,6 +527,20 @@ def init_db() -> None:
         finally:
             _mig_conn.close()
 
+    # --- Bootstrap: give every existing project a pipeline entry (idempotent) ---
+    with get_connection() as conn:
+        conn.execute("""
+            INSERT INTO pipeline (project_id, is_prospect, stage,
+                                  date_entered_pipeline, date_entered_stage, updated_at)
+            SELECT p.id, 0,
+                   CASE WHEN p.status IN ('Active','On Hold','Completed','Prospect')
+                        THEN p.status ELSE 'Prospect' END,
+                   date('now'), date('now'), datetime('now')
+            FROM projects p
+            LEFT JOIN pipeline pl ON pl.project_id = p.id
+            WHERE pl.id IS NULL
+        """)
+
 
 # ---------------------------------------------------------------------------
 # Client CRUD
@@ -709,6 +723,8 @@ def get_projects(client_id: int | None = None, status: str | None = None) -> lis
 def add_project(client_id: int, name: str, description: str = "",
                 vat_pct: float = 19.0, template: str = "template1_v3",
                 status: str = "Active", date_start: str = "") -> int:
+    _PIPELINE_STAGES = {"Active", "On Hold", "Completed", "Prospect"}
+    is_new = False
     with get_connection() as conn:
         cur = conn.execute(
             "INSERT OR IGNORE INTO projects "
@@ -717,12 +733,17 @@ def add_project(client_id: int, name: str, description: str = "",
             (client_id, name, description, vat_pct, template, status, date_start)
         )
         if cur.lastrowid:
-            return cur.lastrowid
-        row = conn.execute(
-            "SELECT id FROM projects WHERE client_id=? AND name=?",
-            (client_id, name)
-        ).fetchone()
-        return row["id"]
+            project_id = cur.lastrowid
+            is_new = True
+        else:
+            row = conn.execute(
+                "SELECT id FROM projects WHERE client_id=? AND name=?",
+                (client_id, name)
+            ).fetchone()
+            project_id = row["id"]
+    if is_new:
+        upsert_pipeline(project_id, stage=status if status in _PIPELINE_STAGES else "Prospect")
+    return project_id
 
 
 def update_project(project_id: int, description: str, vat_pct: float,

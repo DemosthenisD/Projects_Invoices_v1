@@ -65,7 +65,13 @@ def _all_projects(include_completed: bool = False):
 # Selection mode
 # ------------------------------------------------------------------
 
-col_mode, col_comp, col_type = st.columns([3, 2, 2])
+col_type, col_mode, col_comp = st.columns([2, 3, 2])
+doc_type = col_type.radio(
+    "Document type",
+    ["Invoice", "Credit Note"],
+    horizontal=True,
+    help="Credit Notes are stored with negative amounts and negate a previously issued invoice.",
+)
 selection_mode = col_mode.radio(
     "Start from:",
     ["Client → Project", "Project → Client"],
@@ -75,12 +81,6 @@ include_completed = col_comp.checkbox(
     "Include completed projects",
     value=False,
     help="Show Active, On Hold, and Completed projects (not just Active).",
-)
-doc_type = col_type.radio(
-    "Document type",
-    ["Invoice", "Credit Note"],
-    horizontal=True,
-    help="Credit Notes are stored with negative amounts and negate a previously issued invoice.",
 )
 
 if doc_type == "Credit Note":
