@@ -19,6 +19,7 @@ import streamlit as st
 import pandas as pd
 import backend.db as db
 from shared.ui import require_auth
+from datetime import datetime
 
 require_auth()
 
@@ -78,19 +79,30 @@ pipeline = _load_pipeline()
 # Filters
 # ------------------------------------------------------------------
 
-all_display_clients  = sorted({r["display_client"] for r in pipeline if r.get("display_client")})
-all_client_countries = sorted({r["country"] for r in pipeline if r.get("country")})
-all_opp_countries    = sorted({r["opportunity_country"] for r in pipeline if r.get("opportunity_country")})
+# ------------------------------------------------------------------
+# Filters — cascade: each dropdown narrows the next
+# ------------------------------------------------------------------
 
 col1, col2, col3, col4, col5 = st.columns(5)
 with col1:
     stage_filter = st.selectbox("Stage", ["All"] + STAGES)
+
+# Stage cascade → available clients
+_after_stage = pipeline if stage_filter == "All" else [r for r in pipeline if r["stage"] == stage_filter]
+all_display_clients = sorted({r["display_client"] for r in _after_stage if r.get("display_client")})
 with col2:
     client_filter = st.selectbox("Client / Company", ["All"] + all_display_clients)
+
+# Stage + client cascade → available countries
+_after_client = _after_stage if client_filter == "All" else [r for r in _after_stage if r.get("display_client") == client_filter]
+all_opp_countries    = sorted({r["opportunity_country"] for r in _after_client if r.get("opportunity_country")})
+all_client_countries = sorted({r["country"] for r in _after_client if r.get("country")})
 with col3:
-    opp_country_filter = st.multiselect("Opportunity Country", all_opp_countries, key="pl_opp_country")
+    opp_country_filter = st.multiselect("Opportunity Country", all_opp_countries, key="pl_opp_country",
+                                         default=[v for v in st.session_state.get("pl_opp_country", []) if v in all_opp_countries])
 with col4:
-    country_filter = st.multiselect("Client Country", all_client_countries, key="pl_country")
+    country_filter = st.multiselect("Client Country", all_client_countries, key="pl_country",
+                                     default=[v for v in st.session_state.get("pl_country", []) if v in all_client_countries])
 with col5:
     type_filter = st.multiselect("Client Type", CLIENT_TYPES, key="pl_type",
                                   help="Only applies to linked (non-prospect) entries")
@@ -243,7 +255,7 @@ else:
         st.rerun()
 
 # ------------------------------------------------------------------
-# Convert Prospect → Project  |  Delete Prospect
+# Prospect Actions: Edit | Convert | Delete | Activity Log
 # ------------------------------------------------------------------
 
 prospect_rows = [r for r in pipeline if r.get("is_prospect")]
@@ -257,8 +269,55 @@ if prospect_rows:
     sel_label    = st.selectbox("Select prospect", list(prospect_options.keys()), key="prospect_sel")
     sel_prospect = prospect_options[sel_label]
 
-    col_conv, col_del = st.columns([2, 1])
-    with col_conv:
+    tab_edit, tab_convert, tab_log = st.tabs(["Edit", "Convert / Delete", "Activity Log"])
+
+    # ── Edit tab ────────────────────────────────────────────────────
+    with tab_edit:
+        with st.form("edit_prospect_form"):
+            ep_col1, ep_col2 = st.columns(2)
+            ep_company = ep_col1.text_input("Company name *",    value=sel_prospect["display_client"])
+            ep_opp     = ep_col2.text_input("Opportunity name",  value=sel_prospect.get("prospect_name") or "")
+            ep_desc    = st.text_input("Description / notes on opportunity",
+                                       value=sel_prospect.get("description") or "")
+            ep_col3, ep_col4, ep_col5 = st.columns(3)
+            ep_country = ep_col3.text_input("Opportunity Country",
+                                            value=sel_prospect.get("opportunity_country") or "")
+            ep_stage   = ep_col3.selectbox("Stage", STAGES,
+                                            index=STAGES.index(sel_prospect["stage"])
+                                            if sel_prospect["stage"] in STAGES else 0)
+            ep_min     = ep_col4.number_input("Budget Min (€)", min_value=0.0, step=1000.0,
+                                               value=float(sel_prospect.get("budget_min") or 0))
+            ep_est     = ep_col4.number_input("Budget Est (€)", min_value=0.0, step=1000.0,
+                                               value=float(sel_prospect.get("budget_est") or 0))
+            ep_max     = ep_col5.number_input("Budget Max (€)", min_value=0.0, step=1000.0,
+                                               value=float(sel_prospect.get("budget_max") or 0))
+            ep_prob    = ep_col5.slider("Probability %", 0, 100,
+                                        int(round((sel_prospect.get("probability") or 0.5) * 100)), step=5)
+            ep_notes   = st.text_area("Notes", value=sel_prospect.get("notes") or "", height=60)
+            if st.form_submit_button("Save changes", type="primary"):
+                if not ep_company.strip():
+                    st.error("Company name is required.")
+                else:
+                    db.update_prospect(
+                        pipeline_id=sel_prospect["id"],
+                        company_name=ep_company.strip(),
+                        prospect_name=ep_opp.strip(),
+                        description=ep_desc.strip(),
+                        stage=ep_stage,
+                        value=ep_est,
+                        budget_min=ep_min,
+                        budget_est=ep_est,
+                        budget_max=ep_max,
+                        probability=ep_prob / 100.0,
+                        notes=ep_notes.strip(),
+                        opportunity_country=ep_country.strip(),
+                    )
+                    st.success("Prospect updated.")
+                    st.cache_data.clear()
+                    st.rerun()
+
+    # ── Convert / Delete tab ────────────────────────────────────────
+    with tab_convert:
         st.caption("Convert to Project: navigates to Add New Project with this prospect's details pre-filled. "
                    "The pipeline entry will be linked to the new project on save.")
         if st.button("Convert to Project →", type="secondary"):
@@ -270,10 +329,30 @@ if prospect_rows:
             }
             st.switch_page("pages/11_add_new_project.py")
 
-    with col_del:
+        st.divider()
         st.caption("Delete this prospect entry permanently.")
-        if st.button("🗑 Delete Prospect", type="secondary"):
+        if st.button("Delete Prospect", type="secondary", key="btn_del_prospect"):
             db.delete_prospect(sel_prospect["id"])
             st.success(f"Prospect '{sel_prospect['display_client']}' deleted.")
             st.cache_data.clear()
             st.rerun()
+
+    # ── Activity Log tab ────────────────────────────────────────────
+    with tab_log:
+        st.caption("Timestamped notes — keep a running history of activity, conversations, and decisions for this prospect.")
+        existing_notes = db.get_pipeline_notes(sel_prospect["id"])
+        if existing_notes:
+            for entry in existing_notes:
+                ts = entry["created_at"][:16].replace("T", " ")
+                st.markdown(f"**{ts}** — {entry['note']}")
+        else:
+            st.info("No activity notes yet.")
+        st.divider()
+        with st.form("add_pipeline_note_form", clear_on_submit=True):
+            new_note = st.text_area("Add note", height=80, placeholder="e.g. Called client — interested, follow up next week.")
+            if st.form_submit_button("Add note"):
+                if new_note.strip():
+                    db.add_pipeline_note(sel_prospect["id"], new_note.strip())
+                    st.rerun()
+                else:
+                    st.warning("Note cannot be empty.")

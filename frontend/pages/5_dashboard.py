@@ -58,14 +58,22 @@ prev_rows = _detail(prior_year)
 # Global filters: Client Type, Country, Client
 # ------------------------------------------------------------------
 
-all_types     = sorted({r["client_type"] for r in cur_rows if r.get("client_type")})
-all_countries = sorted({r["country"] for r in cur_rows if r.get("country")})
-all_clients   = sorted({r["client"] for r in cur_rows if r.get("client")})
+all_types = sorted({r["client_type"] for r in cur_rows if r.get("client_type")})
 
 fc1, fc2, fc3 = st.columns(3)
-f_types    = fc1.multiselect("Client Type", all_types,    key="dash_types")
-f_countries= fc2.multiselect("Country",     all_countries, key="dash_countries")
-f_clients  = fc3.multiselect("Client",      all_clients,   key="dash_clients")
+f_types = fc1.multiselect("Client Type", all_types, key="dash_types")
+
+# Cascade: countries available after type filter is applied
+_rows_after_type = [r for r in cur_rows if not f_types or r.get("client_type") in f_types]
+all_countries = sorted({r["country"] for r in _rows_after_type if r.get("country")})
+f_countries = fc2.multiselect("Country", all_countries, key="dash_countries",
+                               default=[v for v in st.session_state.get("dash_countries", []) if v in all_countries])
+
+# Cascade: clients available after type + country filters are applied
+_rows_after_country = [r for r in _rows_after_type if not f_countries or r.get("country") in f_countries]
+all_clients = sorted({r["client"] for r in _rows_after_country if r.get("client")})
+f_clients = fc3.multiselect("Client", all_clients, key="dash_clients",
+                              default=[v for v in st.session_state.get("dash_clients", []) if v in all_clients])
 
 def _apply_filters(rows):
     out = rows

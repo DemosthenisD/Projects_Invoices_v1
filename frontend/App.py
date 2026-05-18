@@ -57,20 +57,20 @@ st.sidebar.button("Sign out", on_click=_logout, use_container_width=True)
 pg = st.navigation(
     {
         "": [
-            st.Page("pages/5_dashboard.py",             title="Dashboard",              icon="📈"),
+            st.Page("pages/0_generate_invoice.py",     title="Generate Invoice",       icon="📄"),
         ],
         "Invoices": [
-            st.Page("pages/0_generate_invoice.py",     title="1. Generate Invoice",    icon="📄"),
-            st.Page("pages/2_invoice_log.py",           title="2. Invoice Log",         icon="📋"),
+            st.Page("pages/2_invoice_log.py",           title="1. Invoice Log",         icon="📋"),
         ],
         "Clients & Projects": [
-            st.Page("pages/3_clients_projects.py",     title="3. Clients & Projects",  icon="🏢"),
-            st.Page("pages/11_add_new_project.py",     title="4. Add New Project",     icon="➕"),
-            st.Page("pages/6_project_codes.py",        title="5. Project Codes",       icon="🔑"),
+            st.Page("pages/3_clients_projects.py",     title="2. Clients & Projects",  icon="🏢"),
+            st.Page("pages/11_add_new_project.py",     title="3. Add New Project",     icon="➕"),
+            st.Page("pages/6_project_codes.py",        title="4. Project Codes",       icon="🔑"),
         ],
         "Pipeline & Reporting": [
-            st.Page("pages/4_pipeline_crm.py",         title="6. Pipeline / CRM",      icon="📊"),
-            st.Page("pages/10_project_overview.py",    title="7. Project Overview",    icon="🗂️"),
+            st.Page("pages/4_pipeline_crm.py",         title="5. Pipeline / CRM",      icon="📊"),
+            st.Page("pages/10_project_overview.py",    title="6. Project Overview",    icon="🗂️"),
+            st.Page("pages/5_dashboard.py",             title="7. Dashboard",           icon="📈"),
         ],
         "Time & Billing": [
             st.Page("pages/7_time_tracking.py",        title="8. Time Tracking",       icon="⏱️"),

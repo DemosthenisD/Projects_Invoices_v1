@@ -33,6 +33,20 @@ require_auth()
 
 st.title("Billing Basis")
 st.caption("Annual billing summary per consultant — the basis for productivity-bonus calculation.")
+st.info(
+    "**Two independent choices are made here:**\n\n"
+    "**1 — Which amounts to use (Billed, Paid, Charged Off, etc.):** "
+    "Use the *Auto* tab to pull figures directly from time entries and write-offs, "
+    "or the *Manual* tab to type amounts from an external billing system. "
+    "Annual Review always prefers Manual entries when they exist for a consultant/year, "
+    "falling back to Auto. Both sources are stored separately — neither overwrites the other.\n\n"
+    "**2 — Which rate drives the bonus calculation:** "
+    "Within either tab, *Avg Annual Rate* takes priority over *Hourly Rate*. "
+    "If Avg Annual Rate is zero, Hourly Rate is used as fallback. "
+    "In the Auto tab the Avg Annual Rate is pre-filled as the hours-weighted average from time entries "
+    "and can be overridden before saving. In the Manual tab you enter it directly.",
+    icon="ℹ️",
+)
 
 # ---------------------------------------------------------------------------
 # Year + group selectors

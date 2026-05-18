@@ -285,6 +285,13 @@ with st.expander("1 — Compensation & Bonus", expanded=True):
 
     equiv_hrs, prod_pct, basis = _productivity_bonus(billing)
 
+    st.caption(
+        "Billing figures come from **Billing Basis (page 10)**. "
+        "Manual entries are used when saved for this consultant/year; otherwise Auto (time-tracking) entries are used. "
+        "The bonus rate used is *Avg Annual Rate* if non-zero, otherwise *Hourly Rate*. "
+        "To change which figures or rate are used, update Billing Basis first."
+    )
+
     if billing is None:
         _hint = ""
         if salary_rec and salary_rec.proposed_rate:

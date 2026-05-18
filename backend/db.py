@@ -548,6 +548,17 @@ def init_db() -> None:
             WHERE pl.id IS NULL
         """)
 
+    # --- Migration: pipeline activity log ---
+    with get_connection() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_activity_log (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                pipeline_id INTEGER NOT NULL REFERENCES pipeline(id) ON DELETE CASCADE,
+                note        TEXT    NOT NULL DEFAULT '',
+                created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+
 
 # ---------------------------------------------------------------------------
 # Client CRUD
@@ -1346,6 +1357,24 @@ def delete_prospect(pipeline_id: int) -> None:
     """Delete a standalone prospect row. Will not delete linked rows."""
     with get_connection() as conn:
         conn.execute("DELETE FROM pipeline WHERE id=? AND is_prospect=1", (pipeline_id,))
+
+
+def add_pipeline_note(pipeline_id: int, note: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO pipeline_activity_log (pipeline_id, note) VALUES (?, ?)",
+            (pipeline_id, note.strip()),
+        )
+
+
+def get_pipeline_notes(pipeline_id: int) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, note, created_at FROM pipeline_activity_log "
+            "WHERE pipeline_id=? ORDER BY created_at DESC",
+            (pipeline_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
