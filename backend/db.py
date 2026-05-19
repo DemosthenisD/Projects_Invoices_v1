@@ -1378,6 +1378,83 @@ def get_pipeline_notes(pipeline_id: int) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Pipeline Financial Dashboard
+# ---------------------------------------------------------------------------
+
+def get_pipeline_financial_summary() -> list[dict]:
+    """Return Prospect/Active/On Hold pipeline entries with financial aggregates."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                pl.id          AS pipeline_id,
+                pl.project_id,
+                pl.is_prospect,
+                pl.stage,
+                COALESCE(pl.probability, 0.5) AS probability,
+                COALESCE(pl.budget_min,  0.0) AS budget_min,
+                COALESCE(pl.budget_est,  0.0) AS budget_est,
+                COALESCE(pl.budget_max,  0.0) AS budget_max,
+                CASE WHEN pl.is_prospect THEN pl.company_name
+                     ELSE COALESCE(c.name, '') END AS client_name,
+                CASE WHEN pl.is_prospect THEN COALESCE(pl.opportunity_country, '')
+                     ELSE COALESCE(c.country, '') END AS country,
+                CASE WHEN pl.is_prospect
+                          THEN COALESCE(NULLIF(pl.prospect_name,''), pl.company_name)
+                     ELSE COALESCE(p.name, '') END AS project_name,
+                COALESCE(c.client_type, '') AS client_type,
+                COALESCE(pc_s.code_budget,      0.0) AS code_budget,
+                COALESCE(te_s.time_charges,     0.0) AS time_charges,
+                COALESCE(inv_s.invoiced_amount, 0.0) AS invoiced_amount,
+                COALESCE(inv_s.paid_amount,     0.0) AS paid_amount
+            FROM pipeline pl
+            LEFT JOIN projects p  ON p.id  = pl.project_id
+            LEFT JOIN clients  c  ON c.id  = p.client_id
+            LEFT JOIN (
+                SELECT project_id, SUM(budget_amount) AS code_budget
+                FROM project_codes GROUP BY project_id
+            ) pc_s  ON pc_s.project_id  = pl.project_id
+            LEFT JOIN (
+                SELECT project_id, SUM(non_z_charges) AS time_charges
+                FROM time_entries GROUP BY project_id
+            ) te_s  ON te_s.project_id  = pl.project_id
+            LEFT JOIN (
+                SELECT i.project_id,
+                       SUM(i.amount)                  AS invoiced_amount,
+                       SUM(COALESCE(py.total_paid,0)) AS paid_amount
+                FROM invoices i
+                LEFT JOIN (
+                    SELECT invoice_id, SUM(amount) AS total_paid
+                    FROM payments GROUP BY invoice_id
+                ) py ON py.invoice_id = i.id
+                GROUP BY i.project_id
+            ) inv_s ON inv_s.project_id = pl.project_id
+            WHERE pl.stage IN ('Prospect', 'Active', 'On Hold')
+            ORDER BY
+                CASE pl.stage WHEN 'Active' THEN 1
+                              WHEN 'On Hold' THEN 2
+                              ELSE 3 END,
+                client_name, project_name
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_pipeline_source_teams() -> dict[int, str]:
+    """Return project_id → name of consultant team with most billable hours."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT te.project_id, cg.group_name, SUM(te.non_z_hours) AS hrs
+            FROM time_entries te
+            JOIN consultant_groups cg ON cg.emp_nbr = te.emp_nbr
+            WHERE te.project_id IS NOT NULL
+            GROUP BY te.project_id, cg.group_name
+        """).fetchall()
+    by_project: dict[int, dict[str, float]] = {}
+    for r in rows:
+        by_project.setdefault(r["project_id"], {})[r["group_name"]] = r["hrs"]
+    return {pid: max(groups, key=groups.__getitem__) for pid, groups in by_project.items()}
+
+
+# ---------------------------------------------------------------------------
 # Cross-project rollup (for Time Tracking "All Clients" view)
 # ---------------------------------------------------------------------------
 

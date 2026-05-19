@@ -68,23 +68,24 @@ pg = st.navigation(
             st.Page("pages/6_project_codes.py",        title="4. Project Codes",       icon="🔑"),
         ],
         "Pipeline & Reporting": [
-            st.Page("pages/4_pipeline_crm.py",         title="5. Pipeline / CRM",      icon="📊"),
-            st.Page("pages/10_project_overview.py",    title="6. Project Overview",    icon="🗂️"),
-            st.Page("pages/5_dashboard.py",             title="7. Dashboard",           icon="📈"),
+            st.Page("pages/4_pipeline_crm.py",          title="5. Pipeline / CRM",         icon="📊"),
+            st.Page("pages/16_pipeline_dashboard.py",   title="6. Pipeline Financial",     icon="💰"),
+            st.Page("pages/10_project_overview.py",     title="7. Project Overview",       icon="🗂️"),
+            st.Page("pages/5_dashboard.py",              title="8. Revenue Dashboard",      icon="📈"),
         ],
         "Time & Billing": [
-            st.Page("pages/7_time_tracking.py",        title="8. Time Tracking",       icon="⏱️"),
-            st.Page("pages/8_write_offs.py",            title="9. Write-offs",          icon="✂️"),
+            st.Page("pages/7_time_tracking.py",         title="9. Time Tracking",          icon="⏱️"),
+            st.Page("pages/8_write_offs.py",             title="10. Write-offs",            icon="✂️"),
         ],
         "Annual Review": [
-            st.Page("pages/12_billing_basis.py",       title="10. Billing Basis",      icon="💶"),
-            st.Page("pages/13_consultant_profiles.py", title="11. Consultant Profiles",icon="👤"),
-            st.Page("pages/14_annual_review.py",       title="12. Annual Review",      icon="📝"),
+            st.Page("pages/12_billing_basis.py",        title="11. Billing Basis",         icon="💶"),
+            st.Page("pages/13_consultant_profiles.py",  title="12. Consultant Profiles",   icon="👤"),
+            st.Page("pages/14_annual_review.py",        title="13. Annual Review",         icon="📝"),
         ],
         "Admin": [
-            st.Page("pages/9_data_tables.py",          title="13. Data Tables",        icon="🗄️"),
-            st.Page("pages/15_data_field_definitions.py", title="14. Field Definitions", icon="📚"),
-            st.Page("pages/1_how_to_use.py",           title="15. How to Use",         icon="📖"),
+            st.Page("pages/9_data_tables.py",           title="14. Data Tables",           icon="🗄️"),
+            st.Page("pages/15_data_field_definitions.py", title="15. Field Definitions",   icon="📚"),
+            st.Page("pages/1_how_to_use.py",            title="16. How to Use",            icon="📖"),
         ],
     }
 )
