@@ -255,6 +255,67 @@ if cur_f:
 else:
     st.info(f"No VAT data for {selected_year} matching the selected filters.")
 
+# ------------------------------------------------------------------
+# Receivables Aging
+# ------------------------------------------------------------------
+
+st.subheader("Receivables Aging")
+
+@st.cache_data(ttl=120)
+def _aging_data(today_iso: str) -> list[dict]:
+    all_inv     = db.get_invoices()
+    client_lkp  = {c.id: c.name for c in db.get_clients()}
+    today       = date_type.fromisoformat(today_iso)
+    rows = []
+    for inv in all_inv:
+        if inv.status not in ("outstanding", "partial"):
+            continue
+        due = (inv.amount + inv.vat_amount + inv.expenses_net + inv.expenses_vat) - inv.total_paid
+        if due <= 0:
+            continue
+        try:
+            days = (today - date_type.fromisoformat(inv.date)).days
+        except ValueError:
+            days = 0
+        rows.append({
+            "Client":    client_lkp.get(inv.client_id, "Unknown"),
+            "Invoice":   f"{inv.invoice_number}/{inv.year}",
+            "Date":      inv.date,
+            "Status":    inv.status,
+            "Due (€)":   round(due, 2),
+            "Days":      days,
+            "Bracket":   ("0–30 d" if days <= 30 else
+                          "31–60 d" if days <= 60 else
+                          "61–90 d" if days <= 90 else
+                          "90+ d"),
+        })
+    return sorted(rows, key=lambda r: -r["Days"])
+
+_today_iso = date_type.today().isoformat()
+aging_rows = _aging_data(_today_iso)
+
+if not aging_rows:
+    st.info("No outstanding or partial invoices.")
+else:
+    BRACKETS = ["0–30 d", "31–60 d", "61–90 d", "90+ d"]
+    _b_cols = st.columns(4)
+    for _col, _bkt in zip(_b_cols, BRACKETS):
+        _bkt_rows = [r for r in aging_rows if r["Bracket"] == _bkt]
+        _bkt_total = sum(r["Due (€)"] for r in _bkt_rows)
+        _col.metric(_bkt, f"€{_bkt_total:,.0f}", f"{len(_bkt_rows)} invoice(s)" if _bkt_rows else "—")
+
+    _age_filter = st.multiselect("Filter by age bracket", BRACKETS, key="dash_age_filter")
+    _age_rows   = [r for r in aging_rows if not _age_filter or r["Bracket"] in _age_filter]
+    df_aging = pd.DataFrame(_age_rows)
+    st.dataframe(
+        df_aging.style.format({"Due (€)": "{:,.2f}"}),
+        use_container_width=True, hide_index=True,
+    )
+    st.caption(
+        f"Total outstanding: **€{sum(r['Due (€)'] for r in _age_rows):,.0f}** "
+        f"across {len(_age_rows)} invoice(s)"
+    )
+
 st.divider()
 st.page_link("pages/1_how_to_use.py", label="New here? Read the How to Use guide", icon="📖")
 

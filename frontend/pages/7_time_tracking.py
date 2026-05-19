@@ -390,148 +390,195 @@ with tab_rollup:
         st.info("No clients match the selected Type / Country.")
         st.stop()
 
-    r_client   = pf_cols[2].selectbox("Client", [c.name for c in visible_clients], key="ru_client")
-    client_obj = next(c for c in visible_clients if c.name == r_client)
+    r_client = pf_cols[2].selectbox(
+        "Client", ["— All Clients —"] + [c.name for c in visible_clients], key="ru_client"
+    )
 
-    projects = db.get_projects(client_id=client_obj.id)
-    if not projects:
-        st.info("No projects for this client.")
-        st.stop()
+    # ==================================================================
+    # ALL CLIENTS — cross-project summary
+    # ==================================================================
+    if r_client == "— All Clients —":
+        st.caption("Showing all projects that have time charges, budgets, or invoices. "
+                   "Period filtering and per-code breakdown are available when a specific client is selected.")
 
-    r_project   = pf_cols[3].selectbox("Project", [p.name for p in projects], key="ru_project")
-    project_obj = next(p for p in projects if p.name == r_project)
+        @st.cache_data(ttl=60)
+        def _cross_proj():
+            return db.get_cross_project_time_summary()
 
-    r_period_from = pf_cols[4].text_input("Period from", placeholder="yyyymm", key="ru_pf")
-    r_period_to   = pf_cols[5].text_input("Period to",   placeholder="yyyymm", key="ru_pt")
+        xp_rows = _cross_proj()
 
-    summary  = db.get_time_summary(project_obj.id)
-    totals   = db.get_project_time_totals(project_obj.id)
-    invoices = db.get_invoices(project_id=project_obj.id)
-    invoiced = sum(i.amount for i in invoices)
+        # Apply type/country filter
+        _visible_client_names = {c.name for c in visible_clients}
+        xp_rows = [r for r in xp_rows if r["client_name"] in _visible_client_names]
 
-    # Project-level metrics (all-time)
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Billable charges (€)", f"{totals['billable_charges']:,.0f}")
-    m2.metric("Write-offs (€)",       f"{totals['write_offs']:,.0f}")
-    m3.metric("Net billable (€)",     f"{totals['net_charges']:,.0f}")
-    m4.metric("Invoiced (€)",         f"{invoiced:,.0f}")
-
-    st.divider()
-
-    # View toggle: current vs year-by-year
-    ru_view = st.radio("View", ["By Code (current)", "Year-by-Year"], horizontal=True, key="ru_view")
-
-    if not summary:
-        st.info("No project codes or time entries for this project yet.")
-    else:
-        if ru_view == "By Code (current)":
-            _ru_num = ["Budget (€)", "Billable (€)", "Write-offs (€)", "Net (€)", "Remaining (€)"]
-            ru_rows = []
-            for s in summary:
-                budget = s["budget_amount"] or 0.0
-                ru_rows.append({
-                    "Code":          s["client_code"] + " / " + s["client_suffix"],
-                    "Name":          s["name"],
-                    "Budget (€)":    float(budget),
-                    "Billable (€)":  float(s["non_z_charges"]),
-                    "Write-offs (€)":float(s["write_off_amount"]),
-                    "Net (€)":       float(s["net_charges"]),
-                    "Remaining (€)": float(budget - s["net_charges"]) if budget else 0.0,
-                })
-            ru_df = pd.DataFrame(ru_rows)
-            _tot = {c: ru_df[c].sum() if c in _ru_num else ("TOTAL" if c == "Code" else "")
-                    for c in ru_df.columns}
-            dataframe_with_total(ru_df, _tot, {c: "{:,.0f}" for c in _ru_num})
+        if not xp_rows:
+            st.info("No data found for the selected Type / Country filters.")
         else:
-            yr_data = db.get_time_summary_by_year(project_obj.id)
-            if not yr_data:
-                st.info("No time entries recorded for this project yet.")
+            _xp_num = ["Budget (€)", "Billable (€)", "Write-offs (€)", "Net (€)",
+                       "Invoiced (€)", "Remaining (€)"]
+            xp_df = pd.DataFrame([{
+                "Client":        r["client_name"],
+                "Project":       r["project_name"],
+                "Budget (€)":    float(r["budget_amount"]),
+                "Billable (€)":  float(r["billable_charges"]),
+                "Write-offs (€)":float(r["write_off_amount"]),
+                "Net (€)":       float(r["net_charges"]),
+                "Invoiced (€)":  float(r["invoiced_amount"]),
+                "Remaining (€)": float(r["budget_amount"] - r["net_charges"])
+                                  if r["budget_amount"] else 0.0,
+            } for r in xp_rows])
+
+            _xp_tot = {c: xp_df[c].sum() if c in _xp_num else ("TOTAL" if c == "Client" else "")
+                       for c in xp_df.columns}
+            from shared.ui import dataframe_with_total
+            dataframe_with_total(xp_df, _xp_tot, {c: "{:,.0f}" for c in _xp_num})
+            st.caption(f"{len(xp_df)} project(s)")
+
+    # ==================================================================
+    # SPECIFIC CLIENT — existing per-project detail view
+    # ==================================================================
+    else:
+        client_obj = next(c for c in visible_clients if c.name == r_client)
+
+        projects = db.get_projects(client_id=client_obj.id)
+        if not projects:
+            st.info("No projects for this client.")
+            st.stop()
+
+        r_project   = pf_cols[3].selectbox("Project", [p.name for p in projects], key="ru_project")
+        project_obj = next(p for p in projects if p.name == r_project)
+
+        r_period_from = pf_cols[4].text_input("Period from", placeholder="yyyymm", key="ru_pf")
+        r_period_to   = pf_cols[5].text_input("Period to",   placeholder="yyyymm", key="ru_pt")
+
+        summary  = db.get_time_summary(project_obj.id)
+        totals   = db.get_project_time_totals(project_obj.id)
+        invoices = db.get_invoices(project_id=project_obj.id)
+        invoiced = sum(i.amount for i in invoices)
+
+        # Project-level metrics (all-time)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Billable charges (€)", f"{totals['billable_charges']:,.0f}")
+        m2.metric("Write-offs (€)",       f"{totals['write_offs']:,.0f}")
+        m3.metric("Net billable (€)",     f"{totals['net_charges']:,.0f}")
+        m4.metric("Invoiced (€)",         f"{invoiced:,.0f}")
+
+        st.divider()
+
+        # View toggle: current vs year-by-year
+        ru_view = st.radio("View", ["By Code (current)", "Year-by-Year"], horizontal=True, key="ru_view")
+
+        if not summary:
+            st.info("No project codes or time entries for this project yet.")
+        else:
+            if ru_view == "By Code (current)":
+                _ru_num = ["Budget (€)", "Billable (€)", "Write-offs (€)", "Net (€)", "Remaining (€)"]
+                ru_rows = []
+                for s in summary:
+                    budget = s["budget_amount"] or 0.0
+                    ru_rows.append({
+                        "Code":          s["client_code"] + " / " + s["client_suffix"],
+                        "Name":          s["name"],
+                        "Budget (€)":    float(budget),
+                        "Billable (€)":  float(s["non_z_charges"]),
+                        "Write-offs (€)":float(s["write_off_amount"]),
+                        "Net (€)":       float(s["net_charges"]),
+                        "Remaining (€)": float(budget - s["net_charges"]) if budget else 0.0,
+                    })
+                ru_df = pd.DataFrame(ru_rows)
+                _tot = {c: ru_df[c].sum() if c in _ru_num else ("TOTAL" if c == "Code" else "")
+                        for c in ru_df.columns}
+                dataframe_with_total(ru_df, _tot, {c: "{:,.0f}" for c in _ru_num})
             else:
-                yby_df = pd.DataFrame(yr_data)
-                yby_df["Code"] = yby_df["client_code"] + " / " + yby_df["client_suffix"]
-                pivot = yby_df.pivot_table(
-                    index="Code", columns="year",
-                    values=["billable_hrs", "billable_charges"],
-                    aggfunc="sum", fill_value=0,
-                )
-                pivot.columns = [f"{v} {yr}" for v, yr in pivot.columns]
-                pivot = pivot.reset_index()
-                hr_cols  = [c for c in pivot.columns if "billable_hrs" in c]
-                chg_cols = [c for c in pivot.columns if "billable_charges" in c]
-                _tot_yby = {"Code": "TOTAL"}
-                for c in hr_cols + chg_cols:
-                    _tot_yby[c] = pivot[c].sum()
-                _yby_fmt = {c: "{:,.1f}" for c in hr_cols}
-                _yby_fmt.update({c: "{:,.0f}" for c in chg_cols})
-                dataframe_with_total(pivot, _tot_yby, _yby_fmt)
+                yr_data = db.get_time_summary_by_year(project_obj.id)
+                if not yr_data:
+                    st.info("No time entries recorded for this project yet.")
+                else:
+                    yby_df = pd.DataFrame(yr_data)
+                    yby_df["Code"] = yby_df["client_code"] + " / " + yby_df["client_suffix"]
+                    pivot = yby_df.pivot_table(
+                        index="Code", columns="year",
+                        values=["billable_hrs", "billable_charges"],
+                        aggfunc="sum", fill_value=0,
+                    )
+                    pivot.columns = [f"{v} {yr}" for v, yr in pivot.columns]
+                    pivot = pivot.reset_index()
+                    hr_cols  = [c for c in pivot.columns if "billable_hrs" in c]
+                    chg_cols = [c for c in pivot.columns if "billable_charges" in c]
+                    _tot_yby = {"Code": "TOTAL"}
+                    for c in hr_cols + chg_cols:
+                        _tot_yby[c] = pivot[c].sum()
+                    _yby_fmt = {c: "{:,.1f}" for c in hr_cols}
+                    _yby_fmt.update({c: "{:,.0f}" for c in chg_cols})
+                    dataframe_with_total(pivot, _tot_yby, _yby_fmt)
 
-        # Period-filtered sections
-        entries_all = db.get_time_entries(
-            project_id=project_obj.id, include_internal=True,
-            period_from=r_period_from.strip() or None,
-            period_to=r_period_to.strip() or None,
-        )
-        z_hours = sum(e.z_hours for e in entries_all)
-        _period_note = ""
-        if r_period_from or r_period_to:
-            _period_note = f" ({r_period_from or '…'} – {r_period_to or '…'})"
-            st.caption("*Budget vs actual above is all-time. Period filter applies to sections below.*")
-        if z_hours > 0:
-            st.caption(f"Internal (non-billable) hours{_period_note}: **{z_hours:,.1f} hrs**")
+            # Period-filtered sections
+            entries_all = db.get_time_entries(
+                project_id=project_obj.id, include_internal=True,
+                period_from=r_period_from.strip() or None,
+                period_to=r_period_to.strip() or None,
+            )
+            z_hours = sum(e.z_hours for e in entries_all)
+            _period_note = ""
+            if r_period_from or r_period_to:
+                _period_note = f" ({r_period_from or '…'} – {r_period_to or '…'})"
+                st.caption("*Budget vs actual above is all-time. Period filter applies to sections below.*")
+            if z_hours > 0:
+                st.caption(f"Internal (non-billable) hours{_period_note}: **{z_hours:,.1f} hrs**")
 
-        if entries_all:
-            from collections import defaultdict
-            _cg_map = {cg["consultant"]: cg["group_name"] for cg in db.get_consultant_groups()}
+            if entries_all:
+                from collections import defaultdict
+                _cg_map = {cg["consultant"]: cg["group_name"] for cg in db.get_consultant_groups()}
 
-            # Breakdown by Group
-            _grp_acc: dict = defaultdict(lambda: {"billable_hrs": 0.0, "billable_chg": 0.0})
-            # Breakdown by Consultant
-            _con_acc: dict = defaultdict(lambda: {"group": "Other", "billable_hrs": 0.0, "billable_chg": 0.0})
-            for _e in entries_all:
-                _g = _cg_map.get(_e.consultant, "Other")
-                _grp_acc[_g]["billable_hrs"] += _e.non_z_hours
-                _grp_acc[_g]["billable_chg"] += _e.non_z_charges
-                _con_acc[_e.consultant]["group"] = _g
-                _con_acc[_e.consultant]["billable_hrs"] += _e.non_z_hours
-                _con_acc[_e.consultant]["billable_chg"] += _e.non_z_charges
+                # Breakdown by Group
+                _grp_acc: dict = defaultdict(lambda: {"billable_hrs": 0.0, "billable_chg": 0.0})
+                # Breakdown by Consultant
+                _con_acc: dict = defaultdict(lambda: {"group": "Other", "billable_hrs": 0.0, "billable_chg": 0.0})
+                for _e in entries_all:
+                    _g = _cg_map.get(_e.consultant, "Other")
+                    _grp_acc[_g]["billable_hrs"] += _e.non_z_hours
+                    _grp_acc[_g]["billable_chg"] += _e.non_z_charges
+                    _con_acc[_e.consultant]["group"] = _g
+                    _con_acc[_e.consultant]["billable_hrs"] += _e.non_z_hours
+                    _con_acc[_e.consultant]["billable_chg"] += _e.non_z_charges
 
-            grp_rows = [
-                {"Consultant Team": grp, "Bill Hrs": v["billable_hrs"], "Bill €": v["billable_chg"]}
-                for grp, v in sorted(_grp_acc.items())
-                if v["billable_hrs"] > 0 or v["billable_chg"] > 0
-            ]
-            if grp_rows:
-                st.divider()
-                st.subheader(f"Breakdown by Consultant Team{_period_note}")
-                _grp_df = pd.DataFrame(grp_rows)
-                _tot_grp = {"Consultant Team": "TOTAL", "Bill Hrs": _grp_df["Bill Hrs"].sum(),
-                            "Bill €": _grp_df["Bill €"].sum()}
-                dataframe_with_total(_grp_df, _tot_grp, {"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"})
+                grp_rows = [
+                    {"Consultant Team": grp, "Bill Hrs": v["billable_hrs"], "Bill €": v["billable_chg"]}
+                    for grp, v in sorted(_grp_acc.items())
+                    if v["billable_hrs"] > 0 or v["billable_chg"] > 0
+                ]
+                if grp_rows:
+                    st.divider()
+                    st.subheader(f"Breakdown by Consultant Team{_period_note}")
+                    _grp_df = pd.DataFrame(grp_rows)
+                    _tot_grp = {"Consultant Team": "TOTAL", "Bill Hrs": _grp_df["Bill Hrs"].sum(),
+                                "Bill €": _grp_df["Bill €"].sum()}
+                    dataframe_with_total(_grp_df, _tot_grp, {"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"})
 
-            # Breakdown by Consultant with optional Consultant Team filter
-            con_rows = [
-                {"Consultant": con, "Consultant Team": v["group"],
-                 "Bill Hrs": v["billable_hrs"], "Bill €": v["billable_chg"]}
-                for con, v in sorted(_con_acc.items())
-                if v["billable_hrs"] > 0 or v["billable_chg"] > 0
-            ]
-            if con_rows:
-                st.divider()
-                _con_all_groups = sorted({r["Consultant Team"] for r in con_rows})
-                _con_grp_filter = st.radio(
-                    "Consultant Team filter", ["All"] + _con_all_groups,
-                    horizontal=True, key="ru_con_grp",
-                )
-                _filtered_con = [r for r in con_rows
-                                  if _con_grp_filter == "All" or r["Consultant Team"] == _con_grp_filter]
-                if _filtered_con:
-                    st.subheader(f"Breakdown by Consultant{_period_note}")
-                    _con_df = pd.DataFrame(_filtered_con)
-                    _tot_con = {"Consultant": "TOTAL", "Consultant Team": "",
-                                "Bill Hrs": _con_df["Bill Hrs"].sum(),
-                                "Bill €": _con_df["Bill €"].sum()}
-                    dataframe_with_total(_con_df, _tot_con, {"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"})
-                    st.caption("Teams assigned on the Consultant Teams tab; unassigned → 'Other'.")
+                # Breakdown by Consultant with optional Consultant Team filter
+                con_rows = [
+                    {"Consultant": con, "Consultant Team": v["group"],
+                     "Bill Hrs": v["billable_hrs"], "Bill €": v["billable_chg"]}
+                    for con, v in sorted(_con_acc.items())
+                    if v["billable_hrs"] > 0 or v["billable_chg"] > 0
+                ]
+                if con_rows:
+                    st.divider()
+                    _con_all_groups = sorted({r["Consultant Team"] for r in con_rows})
+                    _con_grp_filter = st.radio(
+                        "Consultant Team filter", ["All"] + _con_all_groups,
+                        horizontal=True, key="ru_con_grp",
+                    )
+                    _filtered_con = [r for r in con_rows
+                                      if _con_grp_filter == "All" or r["Consultant Team"] == _con_grp_filter]
+                    if _filtered_con:
+                        st.subheader(f"Breakdown by Consultant{_period_note}")
+                        _con_df = pd.DataFrame(_filtered_con)
+                        _tot_con = {"Consultant": "TOTAL", "Consultant Team": "",
+                                    "Bill Hrs": _con_df["Bill Hrs"].sum(),
+                                    "Bill €": _con_df["Bill €"].sum()}
+                        dataframe_with_total(_con_df, _tot_con, {"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"})
+                        st.caption("Teams assigned on the Consultant Teams tab; unassigned → 'Other'.")
 
 # ==================================================================
 # TAB 4 — TEAM SUMMARY

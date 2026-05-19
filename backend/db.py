@@ -1378,6 +1378,51 @@ def get_pipeline_notes(pipeline_id: int) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Cross-project rollup (for Time Tracking "All Clients" view)
+# ---------------------------------------------------------------------------
+
+def get_cross_project_time_summary() -> list[dict]:
+    """Return one row per project with aggregated billing, write-off and invoice totals."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                c.name        AS client_name,
+                c.client_type AS client_type,
+                p.name        AS project_name,
+                p.id          AS project_id,
+                COALESCE(pc_s.budget_amount,    0.0) AS budget_amount,
+                COALESCE(te_s.billable_charges, 0.0) AS billable_charges,
+                COALESCE(wo_s.write_off_amount, 0.0) AS write_off_amount,
+                COALESCE(te_s.billable_charges, 0.0) -
+                    COALESCE(wo_s.write_off_amount, 0.0) AS net_charges,
+                COALESCE(inv_s.invoiced_amount,  0.0) AS invoiced_amount
+            FROM projects p
+            JOIN clients c ON c.id = p.client_id
+            LEFT JOIN (
+                SELECT project_id, SUM(budget_amount) AS budget_amount
+                FROM project_codes GROUP BY project_id
+            ) pc_s  ON pc_s.project_id  = p.id
+            LEFT JOIN (
+                SELECT project_id, SUM(non_z_charges) AS billable_charges
+                FROM time_entries GROUP BY project_id
+            ) te_s  ON te_s.project_id  = p.id
+            LEFT JOIN (
+                SELECT project_id, SUM(amount) AS write_off_amount
+                FROM write_offs GROUP BY project_id
+            ) wo_s  ON wo_s.project_id  = p.id
+            LEFT JOIN (
+                SELECT project_id, SUM(amount) AS invoiced_amount
+                FROM invoices GROUP BY project_id
+            ) inv_s ON inv_s.project_id = p.id
+            WHERE COALESCE(te_s.billable_charges, 0) > 0
+               OR COALESCE(pc_s.budget_amount,    0) > 0
+               OR COALESCE(inv_s.invoiced_amount,  0) > 0
+            ORDER BY c.name, p.name
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
 # Analytics helpers
 # ---------------------------------------------------------------------------
 
