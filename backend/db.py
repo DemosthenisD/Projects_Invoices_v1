@@ -7,6 +7,7 @@ Tables are created on first run via init_db().
 import sqlite3
 import sys
 import os
+import calendar as _calendar
 from contextlib import contextmanager
 from datetime import datetime, timezone, date
 
@@ -16,6 +17,7 @@ from shared.models import (
     Client, Address, Project, Invoice, InvoiceAllocation, Payment, PipelineEntry,
     ProjectCode, TimeEntry, WriteOff,
     ConsultantProfile, AnnualSalaryHistory, BillingBasis, ReviewScore,
+    RecurringFee, RecurringFeeOccurrence, Receivable, ReceivablePayment,
 )
 from shared.config import DB_PATH, load_office_codes
 
@@ -559,6 +561,92 @@ def init_db() -> None:
             )
         """)
 
+    # --- Migration: projects.billing_arrangement ---
+    with get_connection() as conn:
+        try:
+            conn.execute(
+                "ALTER TABLE projects ADD COLUMN billing_arrangement TEXT NOT NULL DEFAULT 'local'"
+            )
+            conn.execute("""
+                UPDATE projects SET billing_arrangement = 'receivable'
+                WHERE client_id IN (SELECT id FROM clients WHERE client_type = 'external')
+            """)
+            conn.execute("""
+                UPDATE projects SET billing_arrangement = 'internal'
+                WHERE client_id IN (SELECT id FROM clients WHERE client_type = 'internal')
+            """)
+        except Exception:
+            pass  # column already exists
+
+    # --- Recurring fees, receivables tables ---
+    with get_connection() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS recurring_fees (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_code_id INTEGER NOT NULL REFERENCES project_codes(id) ON DELETE CASCADE,
+                description     TEXT    NOT NULL DEFAULT '',
+                fee_amount      REAL    NOT NULL DEFAULT 0.0,
+                fee_type        TEXT    NOT NULL DEFAULT 'fixed',
+                index_rate      REAL    NOT NULL DEFAULT 0.0,
+                frequency       TEXT    NOT NULL DEFAULT 'annual',
+                coverage_start  TEXT    NOT NULL DEFAULT '',
+                expected_end    TEXT    NOT NULL DEFAULT '',
+                billing_type    TEXT    NOT NULL DEFAULT 'we_bill',
+                split_party     TEXT    NOT NULL DEFAULT '',
+                split_amount    REAL    NOT NULL DEFAULT 0.0,
+                auto_invoice    INTEGER NOT NULL DEFAULT 0,
+                status          TEXT    NOT NULL DEFAULT 'Active',
+                cancelled_at    TEXT    NOT NULL DEFAULT '',
+                notes           TEXT    NOT NULL DEFAULT '',
+                created_at      TEXT    DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS recurring_fee_occurrences (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                recurring_fee_id INTEGER NOT NULL REFERENCES recurring_fees(id) ON DELETE CASCADE,
+                due_date         TEXT    NOT NULL,
+                amount           REAL    NOT NULL DEFAULT 0.0,
+                split_amount     REAL    NOT NULL DEFAULT 0.0,
+                invoice_id       INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
+                status           TEXT    NOT NULL DEFAULT 'pending',
+                notes            TEXT    NOT NULL DEFAULT '',
+                created_at       TEXT    DEFAULT (datetime('now')),
+                UNIQUE(recurring_fee_id, due_date)
+            );
+
+            CREATE TABLE IF NOT EXISTS receivables (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id       INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                project_code_id  INTEGER REFERENCES project_codes(id) ON DELETE SET NULL,
+                occurrence_id    INTEGER REFERENCES recurring_fee_occurrences(id) ON DELETE SET NULL,
+                description      TEXT    NOT NULL DEFAULT '',
+                receivable_type  TEXT    NOT NULL DEFAULT 'capped',
+                cap_amount       REAL    NOT NULL DEFAULT 0.0,
+                expected_amount  REAL    NOT NULL DEFAULT 0.0,
+                due_date         TEXT    NOT NULL DEFAULT '',
+                notes            TEXT    NOT NULL DEFAULT '',
+                created_at       TEXT    DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS receivable_payments (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                receivable_id INTEGER NOT NULL REFERENCES receivables(id) ON DELETE CASCADE,
+                amount        REAL    NOT NULL,
+                date          TEXT    NOT NULL,
+                notes         TEXT    NOT NULL DEFAULT '',
+                created_at    TEXT    DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_rfo_fee_id
+                ON recurring_fee_occurrences(recurring_fee_id);
+            CREATE INDEX IF NOT EXISTS idx_rfo_due_date
+                ON recurring_fee_occurrences(due_date);
+            CREATE INDEX IF NOT EXISTS idx_rec_project_id
+                ON receivables(project_id);
+            CREATE INDEX IF NOT EXISTS idx_recpay_receivable_id
+                ON receivable_payments(receivable_id);
+        """)
+
 
 # ---------------------------------------------------------------------------
 # Client CRUD
@@ -720,8 +808,8 @@ def get_projects_with_summary(client_id: int | None = None) -> list[dict]:
 
 
 def get_projects(client_id: int | None = None, status: str | None = None) -> list[Project]:
-    query = ("SELECT id, client_id, name, description, vat_pct, template, status, date_start "
-             "FROM projects")
+    query = ("SELECT id, client_id, name, description, vat_pct, template, status, "
+             "date_start, billing_arrangement FROM projects")
     params: list = []
     filters = []
     if client_id is not None:
@@ -740,15 +828,16 @@ def get_projects(client_id: int | None = None, status: str | None = None) -> lis
 
 def add_project(client_id: int, name: str, description: str = "",
                 vat_pct: float = 19.0, template: str = "template1_v3",
-                status: str = "Active", date_start: str = "") -> int:
+                status: str = "Active", date_start: str = "",
+                billing_arrangement: str = "local") -> int:
     _PIPELINE_STAGES = {"Active", "On Hold", "Completed", "Prospect"}
     is_new = False
     with get_connection() as conn:
         cur = conn.execute(
             "INSERT OR IGNORE INTO projects "
-            "(client_id, name, description, vat_pct, template, status, date_start) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (client_id, name, description, vat_pct, template, status, date_start)
+            "(client_id, name, description, vat_pct, template, status, date_start, billing_arrangement) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (client_id, name, description, vat_pct, template, status, date_start, billing_arrangement)
         )
         if cur.lastrowid:
             project_id = cur.lastrowid
@@ -765,15 +854,16 @@ def add_project(client_id: int, name: str, description: str = "",
 
 
 def update_project(project_id: int, description: str, vat_pct: float,
-                   template: str, status: str, date_start: str = "") -> int:
+                   template: str, status: str, date_start: str = "",
+                   billing_arrangement: str = "local") -> int:
     """Update project fields. Returns count of project codes auto-closed (0 if no auto-close)."""
     closed_count = 0
     with get_connection() as conn:
         old = conn.execute("SELECT status FROM projects WHERE id=?", (project_id,)).fetchone()
         conn.execute(
-            "UPDATE projects SET description=?, vat_pct=?, template=?, status=?, date_start=? "
-            "WHERE id=?",
-            (description, vat_pct, template, status, date_start, project_id)
+            "UPDATE projects SET description=?, vat_pct=?, template=?, status=?, "
+            "date_start=?, billing_arrangement=? WHERE id=?",
+            (description, vat_pct, template, status, date_start, billing_arrangement, project_id)
         )
         if status == "Completed" and old and old["status"] != "Completed":
             today = date.today().isoformat()
@@ -2900,6 +2990,478 @@ def get_consultant_project_hours(consultant: str, year: int) -> list[dict]:
             "teams":        project_teams.get(r["project_id"], ""),
         })
     return result
+
+
+# ---------------------------------------------------------------------------
+# Recurring fees — helpers
+# ---------------------------------------------------------------------------
+
+def _add_months(d: date, months: int) -> date:
+    """Return d + months months, clamping day to month-end as needed."""
+    month = d.month - 1 + months
+    year  = d.year + month // 12
+    month = month % 12 + 1
+    day   = min(d.day, _calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+_FREQ_MONTHS = {"monthly": 1, "quarterly": 3, "semi-annual": 6, "annual": 12}
+
+
+def _ensure_occurrences(conn, fee_id: int, horizon_years: int = 3) -> None:
+    """Generate or extend occurrences for one recurring fee.
+
+    - Stops at expected_end if set (never extends past it).
+    - Otherwise extends to today + horizon_years.
+    - Skips dates already present (UNIQUE constraint on fee_id + due_date).
+    - Amounts are indexed annually from coverage_start year.
+    """
+    row = conn.execute("SELECT * FROM recurring_fees WHERE id = ?", (fee_id,)).fetchone()
+    if not row or row["status"] == "Cancelled" or not row["coverage_start"]:
+        return
+
+    today        = date.today()
+    horizon_end  = date(today.year + horizon_years, today.month, today.day)
+    if row["expected_end"]:
+        end = min(date.fromisoformat(row["expected_end"]), horizon_end)
+    else:
+        end = horizon_end
+
+    freq_months  = _FREQ_MONTHS.get(row["frequency"], 12)
+    start        = date.fromisoformat(row["coverage_start"])
+    start_year   = start.year
+    base_amount  = float(row["fee_amount"])
+    base_split   = float(row["split_amount"])
+    index_rate   = float(row["index_rate"]) if row["fee_type"] == "indexed" else 0.0
+
+    last_row = conn.execute(
+        "SELECT MAX(due_date) AS last FROM recurring_fee_occurrences WHERE recurring_fee_id = ?",
+        (fee_id,)
+    ).fetchone()
+    last_date = date.fromisoformat(last_row["last"]) if last_row["last"] else None
+    next_date  = _add_months(last_date, freq_months) if last_date else start
+
+    if next_date > end:
+        return  # already fully generated
+
+    occurrences = []
+    current = next_date
+    while current <= end:
+        years_elapsed = current.year - start_year
+        factor  = (1 + index_rate) ** years_elapsed
+        amount  = round(base_amount * factor, 2)
+        split   = round(base_split  * factor, 2)
+        occurrences.append((fee_id, current.isoformat(), amount, split))
+        current = _add_months(current, freq_months)
+
+    conn.executemany(
+        "INSERT OR IGNORE INTO recurring_fee_occurrences "
+        "(recurring_fee_id, due_date, amount, split_amount) VALUES (?, ?, ?, ?)",
+        occurrences,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Recurring fees — CRUD
+# ---------------------------------------------------------------------------
+
+def get_recurring_fees(project_code_id: int, ensure_occurrences: bool = True) -> list[dict]:
+    with get_connection() as conn:
+        if ensure_occurrences:
+            for fee in conn.execute(
+                "SELECT id FROM recurring_fees WHERE project_code_id = ? AND status = 'Active'",
+                (project_code_id,)
+            ).fetchall():
+                _ensure_occurrences(conn, fee["id"])
+        rows = conn.execute(
+            "SELECT * FROM recurring_fees WHERE project_code_id = ? ORDER BY coverage_start",
+            (project_code_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_recurring_fees_for_project(project_id: int, ensure_occurrences: bool = True) -> list[dict]:
+    """All recurring fees across all codes of a project."""
+    with get_connection() as conn:
+        fee_ids = conn.execute(
+            "SELECT rf.id FROM recurring_fees rf "
+            "JOIN project_codes pc ON pc.id = rf.project_code_id "
+            "WHERE pc.project_id = ? AND rf.status = 'Active'",
+            (project_id,)
+        ).fetchall()
+        if ensure_occurrences:
+            for fid in fee_ids:
+                _ensure_occurrences(conn, fid["id"])
+        rows = conn.execute("""
+            SELECT rf.*, pc.client_code, pc.client_suffix, pc.name AS code_name
+            FROM recurring_fees rf
+            JOIN project_codes pc ON pc.id = rf.project_code_id
+            WHERE pc.project_id = ?
+            ORDER BY rf.coverage_start
+        """, (project_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_recurring_fee(project_code_id: int, description: str, fee_amount: float,
+                      frequency: str, coverage_start: str, billing_type: str = "we_bill",
+                      fee_type: str = "fixed", index_rate: float = 0.0,
+                      expected_end: str = "", split_party: str = "",
+                      split_amount: float = 0.0, auto_invoice: int = 0,
+                      notes: str = "") -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO recurring_fees "
+            "(project_code_id, description, fee_amount, fee_type, index_rate, frequency, "
+            "coverage_start, expected_end, billing_type, split_party, split_amount, "
+            "auto_invoice, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (project_code_id, description, fee_amount, fee_type, index_rate, frequency,
+             coverage_start, expected_end, billing_type, split_party, split_amount,
+             auto_invoice, notes)
+        )
+        fee_id = cur.lastrowid
+        _ensure_occurrences(conn, fee_id)
+    return fee_id
+
+
+def update_recurring_fee(fee_id: int, description: str, fee_amount: float,
+                         fee_type: str, index_rate: float, frequency: str,
+                         coverage_start: str, expected_end: str, billing_type: str,
+                         split_party: str, split_amount: float,
+                         auto_invoice: int, notes: str) -> None:
+    """Update fee definition. Pending occurrences are regenerated from today forward."""
+    with get_connection() as conn:
+        conn.execute("""
+            UPDATE recurring_fees
+            SET description=?, fee_amount=?, fee_type=?, index_rate=?, frequency=?,
+                coverage_start=?, expected_end=?, billing_type=?, split_party=?,
+                split_amount=?, auto_invoice=?, notes=?
+            WHERE id=?
+        """, (description, fee_amount, fee_type, index_rate, frequency,
+              coverage_start, expected_end, billing_type, split_party,
+              split_amount, auto_invoice, notes, fee_id))
+        # Drop future pending occurrences so they are recalculated with new amounts
+        conn.execute("""
+            DELETE FROM recurring_fee_occurrences
+            WHERE recurring_fee_id = ? AND status = 'pending' AND due_date >= date('now')
+        """, (fee_id,))
+        _ensure_occurrences(conn, fee_id)
+
+
+def cancel_recurring_fee(fee_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE recurring_fees SET status='Cancelled', cancelled_at=date('now') WHERE id=?",
+            (fee_id,)
+        )
+        conn.execute(
+            "DELETE FROM recurring_fee_occurrences WHERE recurring_fee_id=? AND status='pending'",
+            (fee_id,)
+        )
+
+
+# ---------------------------------------------------------------------------
+# Occurrences — queries and status transitions
+# ---------------------------------------------------------------------------
+
+def get_occurrences(recurring_fee_id: int) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM recurring_fee_occurrences WHERE recurring_fee_id=? ORDER BY due_date",
+            (recurring_fee_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_pending_occurrences(project_id: int | None = None,
+                            billing_arrangement: str | None = None,
+                            days_ahead: int = 90) -> list[dict]:
+    """Pending occurrences due within days_ahead days.
+
+    billing_arrangement filters by project.billing_arrangement (e.g. 'local').
+    """
+    cutoff = _add_months(date.today(), 0)  # today
+    cutoff_str = date(
+        date.today().year, date.today().month, date.today().day
+    ).isoformat()
+    ahead_str = date(
+        date.today().year + (days_ahead // 365),
+        date.today().month,
+        min(date.today().day, _calendar.monthrange(
+            date.today().year + (days_ahead // 365), date.today().month)[1])
+    ).isoformat()
+    # Simpler: use SQL date arithmetic
+    params: list = []
+    where  = ["rfo.status = 'pending'",
+              "rfo.due_date <= date('now', ? || ' days')",
+              "rf.status = 'Active'"]
+    params.append(str(days_ahead))
+
+    if project_id is not None:
+        where.append("pc.project_id = ?")
+        params.append(project_id)
+    if billing_arrangement:
+        where.append("p.billing_arrangement = ?")
+        params.append(billing_arrangement)
+
+    sql = f"""
+        SELECT rfo.*, rf.description AS fee_description, rf.billing_type, rf.frequency,
+               rf.split_party, pc.client_code, pc.client_suffix, pc.project_id,
+               p.name AS project_name, c.name AS client_name,
+               p.billing_arrangement
+        FROM recurring_fee_occurrences rfo
+        JOIN recurring_fees rf ON rf.id = rfo.recurring_fee_id
+        JOIN project_codes  pc ON pc.id = rf.project_code_id
+        JOIN projects        p ON p.id  = pc.project_id
+        JOIN clients         c ON c.id  = p.client_id
+        WHERE {' AND '.join(where)}
+        ORDER BY rfo.due_date
+    """
+    with get_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def invoice_occurrence(occurrence_id: int, invoice_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE recurring_fee_occurrences SET status='invoiced', invoice_id=? WHERE id=?",
+            (invoice_id, occurrence_id)
+        )
+
+
+def skip_occurrence(occurrence_id: int, note: str = "") -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE recurring_fee_occurrences SET status='skipped', notes=? WHERE id=?",
+            (note, occurrence_id)
+        )
+
+
+# ---------------------------------------------------------------------------
+# Receivables — CRUD
+# ---------------------------------------------------------------------------
+
+def get_receivables(project_id: int | None = None,
+                    outstanding_only: bool = False) -> list[dict]:
+    """Return receivables with total_paid and outstanding_amount computed."""
+    where  = []
+    params: list = []
+    if project_id is not None:
+        where.append("r.project_id = ?")
+        params.append(project_id)
+
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    rows = []
+    with get_connection() as conn:
+        rows = conn.execute(f"""
+            SELECT r.*,
+                   COALESCE(SUM(rp.amount), 0)                   AS total_paid,
+                   r.expected_amount - COALESCE(SUM(rp.amount), 0) AS outstanding,
+                   p.name  AS project_name,
+                   c.name  AS client_name,
+                   p.billing_arrangement
+            FROM receivables r
+            JOIN projects p ON p.id = r.project_id
+            JOIN clients  c ON c.id = p.client_id
+            LEFT JOIN receivable_payments rp ON rp.receivable_id = r.id
+            {where_sql}
+            GROUP BY r.id
+            ORDER BY r.due_date
+        """, params).fetchall()
+
+    result = [dict(r) for r in rows]
+    if outstanding_only:
+        result = [r for r in result if r["outstanding"] > 0.001]
+    return result
+
+
+def add_receivable(project_id: int, description: str, expected_amount: float,
+                   due_date: str, receivable_type: str = "capped",
+                   cap_amount: float = 0.0, project_code_id: int | None = None,
+                   occurrence_id: int | None = None, notes: str = "") -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO receivables "
+            "(project_id, project_code_id, occurrence_id, description, receivable_type, "
+            "cap_amount, expected_amount, due_date, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (project_id, project_code_id, occurrence_id, description, receivable_type,
+             cap_amount, expected_amount, due_date, notes)
+        )
+    return cur.lastrowid
+
+
+def update_receivable(receivable_id: int, description: str, expected_amount: float,
+                      due_date: str, receivable_type: str, cap_amount: float,
+                      notes: str) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE receivables SET description=?, expected_amount=?, due_date=?, "
+            "receivable_type=?, cap_amount=?, notes=? WHERE id=?",
+            (description, expected_amount, due_date, receivable_type, cap_amount,
+             notes, receivable_id)
+        )
+
+
+def add_receivable_payment(receivable_id: int, amount: float,
+                           payment_date: str, notes: str = "") -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO receivable_payments (receivable_id, amount, date, notes) "
+            "VALUES (?, ?, ?, ?)",
+            (receivable_id, amount, payment_date, notes)
+        )
+    return cur.lastrowid
+
+
+def get_receivable_payments(receivable_id: int) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM receivable_payments WHERE receivable_id=? ORDER BY date",
+            (receivable_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_outstanding_receivables_summary() -> list[dict]:
+    """Cross-project receivables summary for dashboard widgets."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT r.id, r.project_id, r.description, r.expected_amount, r.due_date,
+                   r.receivable_type,
+                   COALESCE(SUM(rp.amount), 0)                    AS total_paid,
+                   r.expected_amount - COALESCE(SUM(rp.amount), 0) AS outstanding,
+                   p.name  AS project_name, p.billing_arrangement,
+                   c.name  AS client_name
+            FROM receivables r
+            JOIN projects p ON p.id = r.project_id
+            JOIN clients  c ON c.id = p.client_id
+            LEFT JOIN receivable_payments rp ON rp.receivable_id = r.id
+            GROUP BY r.id
+            HAVING outstanding > 0.001
+            ORDER BY r.due_date
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Recurring revenue forecast (for Pipeline Financial dashboard)
+# ---------------------------------------------------------------------------
+
+def get_interoffice_charges(year: int) -> list[dict]:
+    """Time charges on receivable-arrangement projects for a given year.
+
+    Used by the Revenue Dashboard to show inter-office revenue separately
+    from locally invoiced revenue.
+    """
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT c.name  AS client_name,
+                   p.name  AS project_name,
+                   p.id    AS project_id,
+                   ROUND(SUM(te.non_z_hours),   1) AS billable_hours,
+                   ROUND(SUM(te.non_z_charges), 2) AS billable_charges,
+                   ROUND(SUM(te.z_hours),       1) AS overhead_hours
+            FROM time_entries te
+            JOIN projects p ON p.id = te.project_id
+            JOIN clients  c ON c.id = p.client_id
+            WHERE p.billing_arrangement = 'receivable'
+              AND te.period LIKE ?
+            GROUP BY p.id
+            HAVING billable_charges > 0
+            ORDER BY billable_charges DESC
+        """, (f"{year}%",)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_all_recurring_fees(status: str = "Active", ensure_occurrences: bool = True) -> list[dict]:
+    """All recurring fees across all projects, joined with project / client info and next due date."""
+    with get_connection() as conn:
+        if ensure_occurrences:
+            fee_ids = conn.execute(
+                "SELECT id FROM recurring_fees WHERE status = ?", (status,)
+            ).fetchall()
+            for fid in fee_ids:
+                _ensure_occurrences(conn, fid["id"])
+        rows = conn.execute("""
+            SELECT rf.*,
+                   pc.client_code, pc.client_suffix, pc.name AS code_name,
+                   pc.project_id,
+                   p.name  AS project_name,
+                   p.billing_arrangement,
+                   c.name  AS client_name,
+                   (SELECT MIN(rfo.due_date)
+                    FROM recurring_fee_occurrences rfo
+                    WHERE rfo.recurring_fee_id = rf.id AND rfo.status = 'pending'
+                   ) AS next_due,
+                   (SELECT rfo.amount
+                    FROM recurring_fee_occurrences rfo
+                    WHERE rfo.recurring_fee_id = rf.id AND rfo.status = 'pending'
+                    ORDER BY rfo.due_date LIMIT 1
+                   ) AS next_amount,
+                   (SELECT rfo.split_amount
+                    FROM recurring_fee_occurrences rfo
+                    WHERE rfo.recurring_fee_id = rf.id AND rfo.status = 'pending'
+                    ORDER BY rfo.due_date LIMIT 1
+                   ) AS next_split_amount,
+                   (SELECT COUNT(*) FROM recurring_fee_occurrences rfo
+                    WHERE rfo.recurring_fee_id = rf.id AND rfo.status = 'invoiced'
+                   ) AS invoiced_count,
+                   (SELECT COUNT(*) FROM recurring_fee_occurrences rfo
+                    WHERE rfo.recurring_fee_id = rf.id AND rfo.status = 'pending'
+                   ) AS pending_count
+            FROM recurring_fees rf
+            JOIN project_codes pc ON pc.id = rf.project_code_id
+            JOIN projects       p  ON p.id  = pc.project_id
+            JOIN clients        c  ON c.id  = p.client_id
+            WHERE rf.status = ?
+            ORDER BY c.name, p.name, rf.coverage_start
+        """, (status,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_recurring_revenue_forecast(horizon_years: int = 3) -> list[dict]:
+    """Return pending occurrences bucketed by year for the pipeline forecast.
+
+    Returns one row per (project_id, recurring_fee_id, year) with summed amounts.
+    Only includes active recurring fees on local and receivable projects.
+    """
+    # Ensure occurrences are fresh before querying
+    with get_connection() as conn:
+        fee_ids = conn.execute(
+            "SELECT id FROM recurring_fees WHERE status = 'Active'"
+        ).fetchall()
+    with get_connection() as conn:
+        for fid in fee_ids:
+            _ensure_occurrences(conn, fid["id"], horizon_years)
+
+    cutoff_year = date.today().year + horizon_years
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT CAST(SUBSTR(rfo.due_date, 1, 4) AS INTEGER) AS year,
+                   pc.project_id,
+                   p.name  AS project_name,
+                   p.billing_arrangement,
+                   c.name  AS client_name,
+                   rf.id   AS fee_id,
+                   rf.description AS fee_description,
+                   rf.billing_type,
+                   rf.split_party,
+                   SUM(rfo.amount)       AS fee_total,
+                   SUM(rfo.split_amount) AS split_total
+            FROM recurring_fee_occurrences rfo
+            JOIN recurring_fees rf ON rf.id = rfo.recurring_fee_id
+            JOIN project_codes  pc ON pc.id = rf.project_code_id
+            JOIN projects        p ON p.id  = pc.project_id
+            JOIN clients         c ON c.id  = p.client_id
+            WHERE rfo.status = 'pending'
+              AND CAST(SUBSTR(rfo.due_date, 1, 4) AS INTEGER) BETWEEN ? AND ?
+              AND p.billing_arrangement IN ('local', 'receivable')
+            GROUP BY year, rf.id
+            ORDER BY year, p.name, rf.description
+        """, (date.today().year, cutoff_year)).fetchall()
+    return [dict(r) for r in rows]
 
 
 if __name__ == "__main__":

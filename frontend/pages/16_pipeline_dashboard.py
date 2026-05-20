@@ -265,3 +265,123 @@ else:
 
     from shared.ui import dataframe_with_total
     dataframe_with_total(df_grp, _tot_grp, {c: "{:,.0f}" for c in _grp_num_cols})
+
+# ------------------------------------------------------------------
+# Recurring Revenue Forecast
+# ------------------------------------------------------------------
+
+st.divider()
+st.subheader("Recurring Revenue Forecast")
+st.caption(
+    "Future occurrences from active recurring fees on all project codes. "
+    "Amounts are indexed where applicable. "
+    "**We bill** = amounts we will invoice. "
+    "**Third-party bills** = our share we expect to receive (split amount)."
+)
+
+horizon = st.slider("Forecast horizon (years)", min_value=1, max_value=5, value=3,
+                    key="pf_horizon")
+
+@st.cache_data(ttl=120)
+def _forecast(h: int) -> list[dict]:
+    return db.get_recurring_revenue_forecast(h)
+
+forecast = _forecast(horizon)
+
+if not forecast:
+    st.info("No pending recurring fee occurrences found within the selected horizon.")
+else:
+    from datetime import date as _date
+    current_year = _date.today().year
+    all_years    = sorted({r["year"] for r in forecast})
+
+    # Split by billing type
+    we_bill_rows  = [r for r in forecast if r["billing_type"] == "we_bill"]
+    recv_rows     = [r for r in forecast if r["billing_type"] == "third_party_bills"]
+
+    # ---- Year-by-year summary metrics --------------------------------
+    fy_cols = st.columns(len(all_years))
+    for col, yr in zip(fy_cols, all_years):
+        yr_we   = sum(r["fee_total"]   for r in we_bill_rows  if r["year"] == yr)
+        yr_recv = sum(r["split_total"] for r in recv_rows     if r["year"] == yr)
+        yr_tot  = yr_we + yr_recv
+        label   = f"{yr} {'(current)' if yr == current_year else ''}"
+        col.metric(label, f"€{yr_tot:,.0f}",
+                   f"↑ €{yr_we:,.0f} billed · ↓ €{yr_recv:,.0f} received")
+
+    st.divider()
+
+    # ---- Helper: build pivot DataFrame --------------------------------
+    def _pivot(rows: list[dict], amount_col: str) -> pd.DataFrame | None:
+        if not rows:
+            return None
+        records = []
+        for r in rows:
+            records.append({
+                "client_name":   r["client_name"],
+                "project_name":  r["project_name"],
+                "fee_description": r["fee_description"],
+                "billing_arrangement": r["billing_arrangement"],
+                "year":          r["year"],
+                "amount":        r[amount_col],
+            })
+        df = pd.DataFrame(records)
+        pivot = df.pivot_table(
+            index=["client_name", "project_name", "fee_description", "billing_arrangement"],
+            columns="year",
+            values="amount",
+            aggfunc="sum",
+            fill_value=0,
+        ).reset_index()
+        pivot.columns = [
+            str(c) if isinstance(c, int) else c
+            for c in pivot.columns
+        ]
+        yr_str_cols = [str(y) for y in all_years if str(y) in pivot.columns]
+        pivot["Total (€)"] = pivot[yr_str_cols].sum(axis=1)
+        pivot = pivot.rename(columns={
+            "client_name":         "Client",
+            "project_name":        "Project",
+            "fee_description":     "Description",
+            "billing_arrangement": "Arrangement",
+        })
+        yr_display = {str(y): f"{y} (€)" for y in all_years}
+        pivot = pivot.rename(columns=yr_display)
+        return pivot.sort_values("Total (€)", ascending=False)
+
+    # ---- We-bill section --------------------------------------------
+    if we_bill_rows:
+        st.markdown("#### Amounts we will invoice")
+        df_wb = _pivot(we_bill_rows, "fee_total")
+        if df_wb is not None:
+            num_cols_wb = [f"{y} (€)" for y in all_years if f"{y} (€)" in df_wb.columns]
+            num_cols_wb.append("Total (€)")
+            fmt_wb = {c: "{:,.0f}" for c in num_cols_wb}
+
+            tot_wb = {c: df_wb[c].sum() if c in num_cols_wb
+                      else ("TOTAL" if c == "Client" else "")
+                      for c in df_wb.columns}
+            dataframe_with_total(df_wb, tot_wb, fmt_wb)
+
+    # ---- Third-party-bills section ----------------------------------
+    if recv_rows:
+        st.markdown("#### Amounts we expect to receive (our split)")
+        df_rv = _pivot(recv_rows, "split_total")
+        if df_rv is not None:
+            num_cols_rv = [f"{y} (€)" for y in all_years if f"{y} (€)" in df_rv.columns]
+            num_cols_rv.append("Total (€)")
+            fmt_rv = {c: "{:,.0f}" for c in num_cols_rv}
+
+            tot_rv = {c: df_rv[c].sum() if c in num_cols_rv
+                      else ("TOTAL" if c == "Client" else "")
+                      for c in df_rv.columns}
+            dataframe_with_total(df_rv, tot_rv, fmt_rv)
+
+    # ---- Combined total strip ---------------------------------------
+    total_we_bill  = sum(r["fee_total"]   for r in we_bill_rows)
+    total_recv     = sum(r["split_total"] for r in recv_rows)
+    st.divider()
+    ct1, ct2, ct3 = st.columns(3)
+    ct1.metric(f"Total We Bill — {horizon}yr (€)",    f"€{total_we_bill:,.0f}")
+    ct2.metric(f"Total We Receive — {horizon}yr (€)", f"€{total_recv:,.0f}")
+    ct3.metric(f"Combined — {horizon}yr (€)",         f"€{total_we_bill + total_recv:,.0f}")

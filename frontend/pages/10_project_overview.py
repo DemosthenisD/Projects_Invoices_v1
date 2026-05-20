@@ -204,3 +204,220 @@ st.download_button(
     file_name="project_overview.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
+
+# ------------------------------------------------------------------
+# Recurring Fees management
+# ------------------------------------------------------------------
+
+st.divider()
+st.subheader("Recurring Fees")
+st.caption(
+    "Manage scheduled recurring billing obligations at project-code level. "
+    "Select a project to view, add, or edit its recurring fees."
+)
+
+_FREQ_LABELS = {
+    "monthly":    "Monthly",
+    "quarterly":  "Quarterly",
+    "semi-annual":"Semi-annual",
+    "annual":     "Annual",
+}
+_BT_LABELS = {
+    "we_bill":          "We invoice the client",
+    "third_party_bills":"Third party invoices client — we receive our portion",
+}
+
+# Project selector — all non-internal projects from the full (unfiltered) dataset
+non_internal_rows = [r for r in rows if r.get("client_type") != "internal"]
+proj_labels = {
+    r["project_id"]: f"{r['client']} — {r['project']}"
+    for r in non_internal_rows
+}
+proj_labels = dict(sorted(proj_labels.items(), key=lambda x: x[1]))
+
+rf_proj_id = st.selectbox(
+    "Select project",
+    options=[None] + list(proj_labels.keys()),
+    format_func=lambda x: "— choose a project —" if x is None else proj_labels[x],
+    key="rf_proj_sel",
+)
+
+if rf_proj_id is not None:
+    codes = db.get_project_codes(project_id=rf_proj_id)
+    fees  = db.get_recurring_fees_for_project(rf_proj_id, ensure_occurrences=True)
+
+    # ---- Existing fees -----------------------------------------------
+    if fees:
+        for fee in fees:
+            occ_all      = db.get_occurrences(fee["id"])
+            occ_pending  = [o for o in occ_all if o["status"] == "pending"]
+            occ_invoiced = [o for o in occ_all if o["status"] == "invoiced"]
+
+            code_label  = f"{fee['client_code']}{fee['client_suffix']}"
+            status_icon = "🟢" if fee["status"] == "Active" else "🔴"
+            freq_label  = _FREQ_LABELS.get(fee["frequency"], fee["frequency"])
+            exp_title   = (
+                f"{status_icon} **{code_label}** — {fee['description']} "
+                f"| {freq_label} | €{fee['fee_amount']:,.0f}"
+            )
+
+            with st.expander(exp_title, expanded=False):
+                mi1, mi2, mi3, mi4 = st.columns(4)
+                mi1.metric("Billing",        _BT_LABELS.get(fee["billing_type"], "")[:22])
+                mi2.metric("Coverage start", fee["coverage_start"] or "—")
+                mi3.metric("Expected end",   fee["expected_end"]   or "Open-ended")
+                mi4.metric("Occurrences",    f"{len(occ_invoiced)} invoiced · {len(occ_pending)} pending")
+
+                if fee["split_amount"] > 0:
+                    direction = "we owe" if fee["billing_type"] == "we_bill" else "we receive"
+                    st.info(
+                        f"**Split** — {fee['split_party'] or 'Other party'}: "
+                        f"€{fee['split_amount']:,.2f} per occurrence ({direction})"
+                    )
+
+                # Next occurrences preview
+                if occ_pending:
+                    st.markdown("**Next occurrences:**")
+                    next3 = occ_pending[:3]
+                    df_occ = pd.DataFrame(next3)[["due_date", "amount", "split_amount", "status"]]
+                    df_occ.columns = ["Due Date", "Amount (€)", "Split (€)", "Status"]
+                    st.dataframe(
+                        df_occ.style.format({"Amount (€)": "{:,.2f}", "Split (€)": "{:,.2f}"}),
+                        use_container_width=True, hide_index=True,
+                    )
+
+                if fee["status"] == "Active":
+                    tab_edit, tab_cancel = st.tabs(["Edit", "Cancel Fee"])
+
+                    with tab_edit:
+                        with st.form(key=f"edit_rf_{fee['id']}"):
+                            ea1, ea2 = st.columns(2)
+                            e_desc   = ea1.text_input("Description", value=fee["description"])
+                            e_freq   = ea2.selectbox(
+                                "Frequency", options=list(_FREQ_LABELS.keys()),
+                                index=list(_FREQ_LABELS.keys()).index(fee["frequency"]),
+                                format_func=lambda x: _FREQ_LABELS[x],
+                            )
+                            eb1, eb2, eb3 = st.columns(3)
+                            e_amt    = eb1.number_input("Fee amount (€)", value=float(fee["fee_amount"]),
+                                                        min_value=0.01, step=100.0)
+                            e_ftype  = eb2.selectbox("Fee type", ["fixed", "indexed"],
+                                                     index=0 if fee["fee_type"] == "fixed" else 1,
+                                                     format_func=lambda x: "Fixed" if x == "fixed" else "Indexed")
+                            e_irate  = eb3.number_input("Index rate %",
+                                                        value=float(fee["index_rate"]) * 100,
+                                                        min_value=0.0, max_value=20.0, step=0.1)
+                            ec1, ec2 = st.columns(2)
+                            e_start_raw = date.fromisoformat(fee["coverage_start"]) if fee["coverage_start"] else date.today()
+                            e_start  = ec1.date_input("Coverage start", value=e_start_raw, key=f"es_{fee['id']}")
+                            e_end_raw = date.fromisoformat(fee["expected_end"]) if fee["expected_end"] else None
+                            e_end    = ec2.date_input("Expected end (blank = open-ended)",
+                                                      value=e_end_raw, key=f"ee_{fee['id']}")
+                            ed1, ed2, ed3 = st.columns(3)
+                            e_bt     = ed1.selectbox("Billing type",
+                                                     options=list(_BT_LABELS.keys()),
+                                                     index=0 if fee["billing_type"] == "we_bill" else 1,
+                                                     format_func=lambda x: _BT_LABELS[x])
+                            e_sparty = ed2.text_input("Split party", value=fee["split_party"])
+                            e_samt   = ed3.number_input("Split amount (€)", value=float(fee["split_amount"]),
+                                                        min_value=0.0, step=100.0)
+                            e_notes  = st.text_area("Notes", value=fee["notes"], height=80)
+
+                            if st.form_submit_button("Save Changes", type="primary"):
+                                db.update_recurring_fee(
+                                    fee["id"], e_desc.strip(), e_amt,
+                                    e_ftype, e_irate / 100 if e_ftype == "indexed" else 0.0,
+                                    e_freq,
+                                    e_start.isoformat(),
+                                    e_end.isoformat() if e_end else "",
+                                    e_bt, e_sparty, e_samt,
+                                    fee["auto_invoice"], e_notes,
+                                )
+                                st.success("Recurring fee updated — future pending occurrences recalculated.")
+                                st.cache_data.clear()
+                                st.rerun()
+
+                    with tab_cancel:
+                        st.warning(
+                            f"Cancelling will delete all **{len(occ_pending)} pending** occurrences. "
+                            "Invoiced occurrences are preserved as a historical record."
+                        )
+                        if st.button("Confirm — Cancel This Fee", key=f"cancel_rf_{fee['id']}",
+                                     type="primary"):
+                            db.cancel_recurring_fee(fee["id"])
+                            st.success("Recurring fee cancelled.")
+                            st.cache_data.clear()
+                            st.rerun()
+
+    else:
+        st.info("No recurring fees defined for this project yet.")
+
+    # ---- Add new fee -------------------------------------------------
+    st.markdown("---")
+    with st.expander("➕ Add Recurring Fee", expanded=len(fees) == 0):
+        if not codes:
+            st.warning("No project codes found for this project — add codes first.")
+        else:
+            code_opts = {
+                pc.id: f"{pc.client_code}{pc.client_suffix}"
+                       + (f" — {pc.name}" if pc.name else "")
+                for pc in codes
+            }
+
+            with st.form("add_rf_form"):
+                fa1, fa2 = st.columns(2)
+                new_code_id = fa1.selectbox(
+                    "Project code*", options=list(code_opts.keys()),
+                    format_func=lambda x: code_opts[x],
+                )
+                new_desc = fa2.text_input("Description*",
+                                          placeholder="e.g. Annual platform support fee")
+
+                fb1, fb2, fb3 = st.columns(3)
+                new_amt   = fb1.number_input("Fee amount (€)*", min_value=0.01,
+                                             step=100.0, value=1000.0)
+                new_ftype = fb2.selectbox("Fee type", ["fixed", "indexed"],
+                                          format_func=lambda x: "Fixed" if x == "fixed"
+                                                                 else "Indexed (annual %)")
+                new_irate = fb3.number_input("Index rate %", min_value=0.0, max_value=20.0,
+                                             step=0.1, value=3.0)
+
+                fc1, fc2, fc3 = st.columns(3)
+                new_freq  = fc1.selectbox("Frequency", options=list(_FREQ_LABELS.keys()),
+                                          format_func=lambda x: _FREQ_LABELS[x])
+                new_start = fc2.date_input("Coverage start*", value=date.today())
+                new_end   = fc3.date_input("Expected end (optional)", value=None)
+
+                fd1, fd2, fd3 = st.columns(3)
+                new_bt     = fd1.selectbox("Billing type", options=list(_BT_LABELS.keys()),
+                                           format_func=lambda x: _BT_LABELS[x])
+                new_sparty = fd2.text_input("Split party",
+                                            placeholder="e.g. Global actuarial team")
+                new_samt   = fd3.number_input(
+                    "Split amount (€)",
+                    min_value=0.0, step=100.0,
+                    help="Amount we owe them (if we bill) or expect from them (if they bill)",
+                )
+                new_notes = st.text_area("Notes", height=80)
+
+                if st.form_submit_button("Add Recurring Fee", type="primary"):
+                    if not new_desc.strip():
+                        st.error("Description is required.")
+                    else:
+                        db.add_recurring_fee(
+                            project_code_id=new_code_id,
+                            description=new_desc.strip(),
+                            fee_amount=new_amt,
+                            frequency=new_freq,
+                            coverage_start=new_start.isoformat(),
+                            billing_type=new_bt,
+                            fee_type=new_ftype,
+                            index_rate=new_irate / 100 if new_ftype == "indexed" else 0.0,
+                            expected_end=new_end.isoformat() if new_end else "",
+                            split_party=new_sparty,
+                            split_amount=new_samt,
+                            notes=new_notes,
+                        )
+                        st.success("Recurring fee added — occurrences generated.")
+                        st.cache_data.clear()
+                        st.rerun()

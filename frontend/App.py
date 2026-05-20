@@ -76,16 +76,18 @@ pg = st.navigation(
         "Time & Billing": [
             st.Page("pages/7_time_tracking.py",         title="9. Time Tracking",          icon="⏱️"),
             st.Page("pages/8_write_offs.py",             title="10. Write-offs",            icon="✂️"),
+            st.Page("pages/17_receivables.py",           title="11. Receivables",           icon="📥"),
+            st.Page("pages/18_recurring_fees.py",        title="12. Recurring Fees",        icon="🔁"),
         ],
         "Annual Review": [
-            st.Page("pages/12_billing_basis.py",        title="11. Billing Basis",         icon="💶"),
-            st.Page("pages/13_consultant_profiles.py",  title="12. Consultant Profiles",   icon="👤"),
-            st.Page("pages/14_annual_review.py",        title="13. Annual Review",         icon="📝"),
+            st.Page("pages/12_billing_basis.py",        title="13. Billing Basis",         icon="💶"),
+            st.Page("pages/13_consultant_profiles.py",  title="14. Consultant Profiles",   icon="👤"),
+            st.Page("pages/14_annual_review.py",        title="15. Annual Review",         icon="📝"),
         ],
         "Admin": [
-            st.Page("pages/9_data_tables.py",           title="14. Data Tables",           icon="🗄️"),
-            st.Page("pages/15_data_field_definitions.py", title="15. Field Definitions",   icon="📚"),
-            st.Page("pages/1_how_to_use.py",            title="16. How to Use",            icon="📖"),
+            st.Page("pages/9_data_tables.py",           title="16. Data Tables",           icon="🗄️"),
+            st.Page("pages/15_data_field_definitions.py", title="17. Field Definitions",   icon="📚"),
+            st.Page("pages/1_how_to_use.py",            title="18. How to Use",            icon="📖"),
         ],
     }
 )

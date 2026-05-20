@@ -44,6 +44,53 @@ selected_year = st.selectbox("Year", all_years, index=0)
 prior_year = selected_year - 1
 
 # ------------------------------------------------------------------
+# Billing reminders — recurring occurrences due within 60 days
+# ------------------------------------------------------------------
+
+@st.cache_data(ttl=300)
+def _billing_reminders() -> list[dict]:
+    return db.get_pending_occurrences(days_ahead=60)
+
+_all_pending   = _billing_reminders()
+_we_bill_due   = [o for o in _all_pending if o["billing_type"] == "we_bill"]
+_overdue       = [o for o in _we_bill_due
+                  if o["due_date"] < date_type.today().isoformat()]
+_upcoming      = [o for o in _we_bill_due
+                  if o["due_date"] >= date_type.today().isoformat()]
+
+if _overdue:
+    st.error(
+        f"⚠️ **{len(_overdue)} recurring invoice(s) overdue** — "
+        "go to Project Overview → Recurring Fees to action."
+    )
+if _upcoming:
+    st.warning(f"🔔 **{len(_upcoming)} recurring invoice(s) due within 60 days.**")
+
+if _we_bill_due:
+    with st.expander(
+        f"{'⚠️ ' if _overdue else ''}View {len(_we_bill_due)} billing reminder(s)",
+        expanded=bool(_overdue),
+    ):
+        _df_rem = pd.DataFrame([{
+            "Client":      o["client_name"],
+            "Project":     o["project_name"],
+            "Code":        f"{o['client_code']}{o['client_suffix']}",
+            "Description": o["fee_description"],
+            "Due Date":    o["due_date"],
+            "Amount (€)":  o["amount"],
+            "Split (€)":   o["split_amount"],
+            "Frequency":   o["frequency"],
+        } for o in _we_bill_due])
+        st.dataframe(
+            _df_rem.style.format({"Amount (€)": "{:,.2f}", "Split (€)": "{:,.2f}"}),
+            use_container_width=True, hide_index=True,
+        )
+        st.caption(
+            "Invoice from a pending occurrence via **Generate Invoice** "
+            "or manage fees in **Project Overview → Recurring Fees**."
+        )
+
+# ------------------------------------------------------------------
 # Load detailed invoice data for both years
 # ------------------------------------------------------------------
 
@@ -256,9 +303,80 @@ else:
     st.info(f"No VAT data for {selected_year} matching the selected filters.")
 
 # ------------------------------------------------------------------
+# Inter-office revenue (receivable-arrangement projects)
+# ------------------------------------------------------------------
+
+st.divider()
+st.subheader(f"Inter-office Revenue — {selected_year}")
+st.caption(
+    "Time charges logged on projects where another Milliman entity holds the client contract. "
+    "These do not appear in the invoice-based revenue above. "
+    "Toggle the section below to include them in your total view."
+)
+
+@st.cache_data(ttl=120)
+def _interoffice(year: int) -> list[dict]:
+    return db.get_interoffice_charges(year)
+
+io_rows      = _interoffice(selected_year)
+io_rows_prev = _interoffice(prior_year)
+
+io_total      = sum(r["billable_charges"] for r in io_rows)
+io_total_prev = sum(r["billable_charges"] for r in io_rows_prev)
+
+ioc1, ioc2, ioc3 = st.columns(3)
+ioc1.metric(
+    f"Inter-office Charges {selected_year} (€)",
+    f"€{io_total:,.0f}",
+)
+ioc2.metric(
+    f"Prior year {prior_year} (€)",
+    f"€{io_total_prev:,.0f}",
+)
+combined = ytd_net + io_total
+ioc3.metric(
+    "Combined Net + Inter-office (€)",
+    f"€{combined:,.0f}",
+    help="Local net revenue plus inter-office charges — total economic contribution",
+)
+
+if io_rows:
+    with st.expander(f"View {len(io_rows)} inter-office project(s)", expanded=False):
+        df_io = pd.DataFrame([{
+            "Client":            r["client_name"],
+            "Project":           r["project_name"],
+            "Billable Hrs":      r["billable_hours"],
+            "Billable Charges (€)": r["billable_charges"],
+            "Overhead Hrs":      r["overhead_hours"],
+        } for r in io_rows])
+        _io_tot = {
+            "Client": "TOTAL",
+            "Project": "",
+            "Billable Hrs":         df_io["Billable Hrs"].sum(),
+            "Billable Charges (€)": df_io["Billable Charges (€)"].sum(),
+            "Overhead Hrs":         df_io["Overhead Hrs"].sum(),
+        }
+        st.dataframe(
+            df_io.style.format({
+                "Billable Charges (€)": "{:,.2f}",
+                "Billable Hrs": "{:.1f}",
+                "Overhead Hrs": "{:.1f}",
+            }),
+            use_container_width=True, hide_index=True,
+        )
+        st.caption(
+            f"Total: **€{io_total:,.0f}** across {len(io_rows)} project(s). "
+            "Manage receivables for these projects in the **Receivables** section below "
+            "or via **Project Overview**."
+        )
+else:
+    st.info(f"No inter-office time charges recorded for {selected_year}.")
+
+# ------------------------------------------------------------------
 # Receivables Aging
 # ------------------------------------------------------------------
 
+st.divider()
 st.subheader("Receivables Aging")
 
 @st.cache_data(ttl=120)

@@ -30,6 +30,7 @@ class Project:
     template: str = "template1_v3"
     status: str = "Active"
     date_start: str = ""         # YYYY-MM-DD; when the project started
+    billing_arrangement: str = "local"  # local | receivable | internal
 
 
 @dataclass
@@ -266,4 +267,67 @@ class ReviewFeedback:
     area: str          # 'Professionalism' / 'Management' / 'Social Skills' / 'Other'
     comments: str = ""
     development_ideas: str = ""
+    created_at: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Recurring fees models
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RecurringFee:
+    id: int
+    project_code_id: int
+    description: str = ""
+    fee_amount: float = 0.0
+    fee_type: str = "fixed"          # fixed | indexed
+    index_rate: float = 0.0          # e.g. 0.03 for 3%; ignored when fixed
+    frequency: str = "annual"        # monthly | quarterly | semi-annual | annual
+    coverage_start: str = ""         # ISO YYYY-MM-DD
+    expected_end: str = ""           # ISO YYYY-MM-DD or '' (open-ended)
+    billing_type: str = "we_bill"    # we_bill | third_party_bills
+    split_party: str = ""            # name of other team/entity
+    split_amount: float = 0.0        # our split per occurrence (base amount)
+    auto_invoice: int = 0
+    status: str = "Active"           # Active | Cancelled
+    cancelled_at: str = ""
+    notes: str = ""
+    created_at: str = ""
+
+
+@dataclass
+class RecurringFeeOccurrence:
+    id: int
+    recurring_fee_id: int
+    due_date: str                    # ISO YYYY-MM-DD
+    amount: float = 0.0             # actual amount for this occurrence (indexed)
+    split_amount: float = 0.0       # actual split for this occurrence
+    invoice_id: int | None = None
+    status: str = "pending"          # pending | invoiced | skipped
+    notes: str = ""
+    created_at: str = ""
+
+
+@dataclass
+class Receivable:
+    id: int
+    project_id: int
+    description: str
+    expected_amount: float
+    due_date: str                    # ISO YYYY-MM-DD
+    project_code_id: int | None = None
+    occurrence_id: int | None = None
+    receivable_type: str = "capped"  # capped | time_based
+    cap_amount: float = 0.0          # pre-agreed cap (used when type = capped)
+    notes: str = ""
+    created_at: str = ""
+
+
+@dataclass
+class ReceivablePayment:
+    id: int
+    receivable_id: int
+    amount: float
+    date: str                        # ISO YYYY-MM-DD
+    notes: str = ""
     created_at: str = ""

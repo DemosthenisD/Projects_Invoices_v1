@@ -211,6 +211,52 @@ with col2:
     template_name = st.selectbox("Invoice Template", available_templates, index=template_index)
 
 # ------------------------------------------------------------------
+# Step 2b — Link to recurring fee occurrence (optional)
+# ------------------------------------------------------------------
+
+linked_occurrence_id: int | None = None
+_occ_prefill_amount: float | None = None
+
+if project and doc_type == "Invoice":
+    @st.cache_data(ttl=60)
+    def _pending_we_bill(proj_id: int) -> list[dict]:
+        all_occ = db.get_pending_occurrences(project_id=proj_id, days_ahead=1825)
+        return [o for o in all_occ if o["billing_type"] == "we_bill"]
+
+    pending_occ = _pending_we_bill(project.id)
+
+    if pending_occ:
+        with st.expander("Link to Recurring Fee Occurrence (optional)", expanded=False):
+            st.caption(
+                "Select a pending occurrence to pre-fill the amount and automatically "
+                "mark it as invoiced when this invoice is saved."
+            )
+            occ_opts: dict[str | int, str] = {"none": "— Do not link —"}
+            for o in pending_occ:
+                overdue_flag = " ⚠️ overdue" if o["due_date"] < date_type.today().isoformat() else ""
+                label = (
+                    f"{o['fee_description']}  |  Due {o['due_date']}{overdue_flag}"
+                    f"  |  €{float(o['amount']):,.2f}"
+                )
+                occ_opts[o["id"]] = label
+
+            selected_occ_key = st.selectbox(
+                "Pending occurrence",
+                options=list(occ_opts.keys()),
+                format_func=lambda x: occ_opts[x],
+                key="gen_inv_occ",
+            )
+            if selected_occ_key != "none":
+                linked_occurrence_id = int(selected_occ_key)
+                matched = next(o for o in pending_occ if o["id"] == linked_occurrence_id)
+                _occ_prefill_amount = float(matched["amount"])
+                st.info(
+                    f"Amount pre-filled from occurrence: **€{_occ_prefill_amount:,.2f}**. "
+                    "You can override it below. "
+                    "The occurrence will be marked **invoiced** when you click Generate Invoice."
+                )
+
+# ------------------------------------------------------------------
 # Step 3 — Amount, Date, Invoice ID
 # ------------------------------------------------------------------
 
@@ -222,7 +268,12 @@ with col1:
     year = invoice_date.year
 
 with col2:
-    amount = st.number_input("Amount (net, €)", min_value=0.0, step=100.0)
+    amount = st.number_input(
+        "Amount (net, €)",
+        min_value=0.0,
+        step=100.0,
+        value=float(_occ_prefill_amount) if _occ_prefill_amount is not None else 0.0,
+    )
 
 with col3:
     suggested_no = db.get_next_invoice_number(year)
@@ -367,7 +418,7 @@ if generate_clicked:
 
     # Save record to DB
     project_id = project.id if project else 0
-    db.add_invoice(
+    saved_invoice_id = db.add_invoice(
         client_id=client.id,
         invoice_number=invoice_number,
         year=year,
@@ -391,13 +442,18 @@ if generate_clicked:
     )
     st.session_state.pop("_inv_allocations", None)
 
+    # Mark the linked occurrence as invoiced
+    if linked_occurrence_id:
+        db.invoice_occurrence(linked_occurrence_id, invoice_id=saved_invoice_id)
+
     with open(output_path, "rb") as f:
         file_bytes = f.read()
 
     file_ext = "pdf" if fmt == "PDF" else "docx"
     download_name = f"{year}_{invoice_number}_{client.client_code or client.name}_Invoice.{file_ext}"
 
-    st.success(f"{doc_type} generated and saved. Invoice No {invoice_ref} (ID: {invoice_number}) — {client.name}")
+    _occ_note = " · Recurring occurrence marked as invoiced." if linked_occurrence_id else ""
+    st.success(f"{doc_type} generated and saved. Invoice No {invoice_ref} (ID: {invoice_number}) — {client.name}{_occ_note}")
     st.download_button(
         label=f"Download {fmt}",
         data=file_bytes,
