@@ -35,6 +35,11 @@ if not rows:
     st.stop()
 
 df = pd.DataFrame(rows)
+# Ensure columns added in later patches exist (handles stale Streamlit cache)
+if "has_recurring" not in df.columns:
+    df["has_recurring"] = False
+if "budget" not in df.columns:
+    df["budget"] = df["budget_code"] if "budget_code" in df.columns else 0.0
 cy = date.today().year
 years: list[int] = [cy - i for i in range(4)]
 
@@ -293,7 +298,7 @@ if rf_proj_id is not None:
             freq_label  = _FREQ_LABELS.get(fee["frequency"], fee["frequency"])
             exp_title   = (
                 f"{status_icon} **{code_label}** — {fee['description']} "
-                f"| {freq_label} | €{fee['fee_amount']:,.0f}"
+                f"| {freq_label} | €{fee['fee_amount']:,.0f}/yr"
             )
 
             with st.expander(exp_title, expanded=False):
@@ -345,8 +350,9 @@ if rf_proj_id is not None:
                                 format_func=lambda x: _FREQ_LABELS[x],
                             )
                             eb1, eb2, eb3 = st.columns(3)
-                            e_amt    = eb1.number_input("Fee amount (€)", value=float(fee["fee_amount"]),
-                                                        min_value=0.01, step=100.0)
+                            e_amt    = eb1.number_input("Annual fee (€)", value=float(fee["fee_amount"]),
+                                                        min_value=0.01, step=100.0,
+                                                        help="Total annual amount. Divided by occurrences per year for each invoice.")
                             e_ftype  = eb2.selectbox("Fee type", ["fixed", "indexed"],
                                                      index=0 if fee["fee_type"] == "fixed" else 1,
                                                      format_func=lambda x: "Fixed" if x == "fixed" else "Indexed")
@@ -455,8 +461,9 @@ if rf_proj_id is not None:
                                           placeholder="e.g. Annual platform support fee")
 
                 fb1, fb2, fb3 = st.columns(3)
-                new_amt   = fb1.number_input("Fee amount (€)*", min_value=0.01,
-                                             step=100.0, value=1000.0)
+                new_amt   = fb1.number_input("Annual fee (€)*", min_value=0.01,
+                                             step=100.0, value=1000.0,
+                                             help="Total annual amount. Divided by occurrences per year for each invoice.")
                 new_ftype = fb2.selectbox("Fee type", ["fixed", "indexed"],
                                           format_func=lambda x: "Fixed" if x == "fixed"
                                                                  else "Indexed (annual %)")

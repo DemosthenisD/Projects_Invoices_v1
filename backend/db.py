@@ -3074,8 +3074,10 @@ def _ensure_occurrences(conn, fee_id: int, horizon_years: int = 3) -> None:
     freq_months  = _FREQ_MONTHS.get(row["frequency"], 12)
     start        = date.fromisoformat(row["coverage_start"])
     start_year   = start.year
-    base_amount  = float(row["fee_amount"])
-    base_split   = float(row["split_amount"])
+    # fee_amount is the annual total; divide by occurrences-per-year to get per-period amount
+    occ_per_year = 12 / freq_months
+    base_amount  = round(float(row["fee_amount"]) / occ_per_year, 2)
+    base_split   = round(float(row["split_amount"]) / occ_per_year, 2)
     index_rate   = float(row["index_rate"]) if row["fee_type"] == "indexed" else 0.0
 
     last_row = conn.execute(
@@ -3140,7 +3142,7 @@ def get_recurring_fees_for_project(project_id: int, ensure_occurrences: bool = T
             SELECT rf.*, pc.client_code, pc.client_suffix, pc.name AS code_name
             FROM recurring_fees rf
             JOIN project_codes pc ON pc.id = rf.project_code_id
-            WHERE pc.project_id = ?
+            WHERE pc.project_id = ? AND rf.status = 'Active'
             ORDER BY rf.coverage_start
         """, (project_id,)).fetchall()
     return [dict(r) for r in rows]

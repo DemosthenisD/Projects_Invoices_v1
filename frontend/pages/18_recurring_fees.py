@@ -129,7 +129,7 @@ for fee in filtered:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Billing type",    bt_label)
         c2.metric("Frequency",       FREQ_LABELS.get(fee["frequency"], fee["frequency"]))
-        c3.metric("Base fee (€)",    f"€{float(fee['fee_amount']):,.2f}")
+        c3.metric("Base fee (€/yr)", f"€{float(fee['fee_amount']):,.2f}")
         c4.metric("Occurrences",     f"{fee['invoiced_count']} invoiced / {fee['pending_count']} pending")
 
         if fee["billing_type"] == "third_party_bills" and fee.get("split_party"):
@@ -253,7 +253,7 @@ for f in filtered:
         "Description":   f["description"],
         "Billing":       BILLING_TYPE_LABELS.get(f["billing_type"], f["billing_type"]),
         "Frequency":     FREQ_LABELS.get(f["frequency"], f["frequency"]),
-        "Base Fee (€)":  float(f["fee_amount"]),
+        "Annual Fee (€)": float(f["fee_amount"]),
         "Next Due":      f.get("next_due") or "—",
         "Next Amt (€)":  float(f.get("next_amount") or 0),
         "Invoiced":      f["invoiced_count"],
@@ -263,6 +263,6 @@ for f in filtered:
 
 df_sum = pd.DataFrame(summary_rows)
 st.dataframe(
-    df_sum.style.format({"Base Fee (€)": "{:,.0f}", "Next Amt (€)": "{:,.0f}"}),
+    df_sum.style.format({"Annual Fee (€)": "{:,.0f}", "Next Amt (€)": "{:,.0f}"}),
     use_container_width=True, hide_index=True,
 )
