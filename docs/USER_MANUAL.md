@@ -115,6 +115,34 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 
 ---
 
+### How to Set Up a Recurring Fee
+
+1. Go to **10. Project Overview**.
+2. Find the project and expand the relevant **project code**.
+3. Scroll to the **Recurring Fees** sub-section.
+4. In the **Add Fee** tab, fill in: description, base fee amount, fee type (Fixed / Indexed), frequency, coverage start date, billing type, and any split details for third-party fees.
+5. Click **Add Recurring Fee** — occurrences are generated automatically for the next 3 years (or to the expected end date).
+6. To edit the fee later, use the **Edit Fee** tab. To adjust individual occurrence amounts (e.g. after indexation), use the **Edit Occurrences** tab.
+
+---
+
+### How to Invoice a Recurring Fee Occurrence
+
+**Via Generate Invoice (recommended):**
+1. Go to **0. Generate Invoice**.
+2. Select the client and project.
+3. The **Link to recurring fee occurrence** selectbox (if shown) lists pending we-bill occurrences. Select the one to invoice — the amount pre-fills.
+4. Adjust the date and other fields as needed, then click **Generate Invoice**.
+5. The occurrence is automatically marked as invoiced.
+
+**Manually (if already invoiced outside the app):**
+1. Go to **18. Recurring Fees**.
+2. Find the fee and expand it.
+3. In the **Mark as invoiced manually** section, select the occurrence and enter the invoice reference.
+4. Click **Mark Invoiced**.
+
+---
+
 ### How to Import Monthly Time Charges
 
 1. Export the monthly time-charge report from the billing system as CSV.
@@ -221,10 +249,11 @@ A brief in-app orientation page with page summaries, a "Where to go for each edi
 2. *(Credit Notes only)* Optionally enter the original **Invoice No being credited** — this is a reference field only; it appears as a caption in the Invoice Log.
 3. **Select a client** — address and VAT number auto-fill.
 4. **Select a project** — description, VAT %, and template auto-fill. Tick **Include completed projects** to see Active, On Hold, and Completed projects.
-5. Enter the **invoice date**, **amount (net, always positive)**, and confirm the **Invoice ID** (sequential counter, auto-suggested). The **Invoice No** shown on the document is formatted as `ID/YYYY` (e.g. `12/2026`).
-6. *(Optional)* Expand **Project Code Allocation** to manually split the net amount across project codes. If you leave all at 0, the system allocates automatically using each code's budget as the weight (equal split if all budgets are zero).
-7. *(Optional)* Expand **Advanced** to choose PDF vs DOCX, and add expense lines.
-8. Click **Generate Invoice**.
+5. *(Optional — recurring projects)* If the selected project has pending **we-bill** recurring fee occurrences, a **Link to recurring fee occurrence** selectbox appears above the form. Selecting an occurrence pre-fills the invoice amount and, after the invoice is saved, automatically marks that occurrence as invoiced. Leave blank for a standalone invoice.
+6. Enter the **invoice date**, **amount (net, always positive)**, and confirm the **Invoice ID** (sequential counter, auto-suggested). The **Invoice No** shown on the document is formatted as `ID/YYYY` (e.g. `12/2026`).
+7. *(Optional)* Expand **Project Code Allocation** to manually split the net amount across project codes. If you leave all at 0, the system allocates automatically using each code's budget as the weight (equal split if all budgets are zero).
+8. *(Optional)* Expand **Advanced** to choose PDF vs DOCX, and add expense lines.
+9. Click **Generate Invoice**.
 
 **What happens when you click Generate Invoice:**
 - The DB record is saved immediately (credit notes are stored with a negative amount).
@@ -417,7 +446,13 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 **Subtotals:** A **TOTAL** row is appended at the bottom of the main table and each sub-table, aggregating all visible amounts with comma thousands separators.
 
-**Year-by-Year view:** Expands under each project to show per-code, per-year breakdown of billable hours, charges, and internal hours. Each of the three sub-tables (hours, charges, internal) has a TOTAL column and TOTAL row.
+**Recurring filter:** A radio at the top of the filter bar lets you show **All** projects (default), **Recurring only** (projects with at least one active recurring fee), or **Non-recurring only**.
+
+**Budget column:** For recurring projects, Budget shows the sum of occurrence amounts for the current calendar year (live, from the `recurring_fee_occurrences` table) rather than the static code budget. For non-recurring projects, Budget shows the sum of project code budgets.
+
+**Year-by-Year view:** Expands under each project. A **Sections to show** multiselect controls which columns are included. Available: Invoiced (€), Time Charges (€), Budget — Recurring (€), Paid (€), Write-offs (€). Each section is a per-year column set with a TOTAL column and TOTAL row.
+
+**Recurring Fees section:** Within each project code's expander, a **Recurring Fees** sub-section shows all defined recurring fees. Tabs: **Add Fee** (create a new recurring fee for the code), **Edit Fee** (update frequency, amount, dates, billing type), **Edit Occurrences** (inline mini-forms to adjust the amount/split on individual pending occurrences), **Cancel Fee** (deactivate the fee).
 
 **Export to Excel:** Downloads all visible rows.
 
@@ -622,6 +657,64 @@ Use the tabs to switch between tables. The **"Open DB"** button shows the full p
 **What it does:** In-app reference page listing all field names and their meanings across every section of the app.
 
 Organised by topic area (Invoices, Projects, Time Tracking, Billing Basis, Annual Review, etc.). Use this page when you encounter an unfamiliar field name or want to confirm the exact meaning of a billing column. No actions available — read-only reference.
+
+---
+
+### Page 16 — Pipeline Dashboard
+
+**What it does:** A financial overview dashboard anchored to pipeline and project-level data.
+
+Shows:
+- Budget vs billed charges vs invoiced amounts by pipeline stage.
+- Probability-weighted revenue forecast by client and consultant group.
+- Stage distribution summary.
+
+Read-only. Use Page 6 (Pipeline / CRM) to update pipeline entries.
+
+---
+
+### Page 17 — Receivables
+
+**What it does:** Manages inter-office income — amounts owed to Milliman Cyprus from other Milliman entities for shared projects.
+
+Receivable projects use `billing_arrangement = receivable` on the project. They have no invoices generated by this app; instead, the agreed split is tracked here and payments are recorded as they arrive.
+
+**Summary strip:** Total expected, total received, outstanding balance, overdue count.
+
+**Filters:** Project selector (multiselect); toggle to show settled receivables.
+
+**Per-receivable expander:** Shows expected amount, due date, type (capped / time-based), outstanding balance, and payment history. Actions:
+
+- **Record Payment** — enter amount, date, and optional note. Each receipt reduces the outstanding balance.
+- **Edit** — update the expected amount, due date, cap amount, or notes.
+
+**Add Receivable section** (at the bottom of the page):
+1. Select the **project** (only receivable-type projects are shown) — the selector is outside the form to allow dynamic filtering.
+2. Optionally select a **project code** and link to a **recurring fee occurrence**.
+3. Fill in: description, expected amount, due date, type (capped / time-based), cap amount, notes.
+4. Click **Add Receivable**.
+
+---
+
+### Page 18 — Recurring Fees
+
+**What it does:** A cross-project view of all active recurring fees. Use this page to monitor upcoming billing, skip occurrences, and record manual invoicing. To add or edit fees, go to **Page 10 — Project Overview**.
+
+**Summary metrics:** Active fee count, overdue occurrences, fees due within 30 days, we-bill vs third-party split.
+
+**Overdue alert:** A red banner appears when any fee has a past-due pending occurrence.
+
+**Filters:** Client (multiselect), Project (multiselect), Billing type (multiselect: We bill client / Third-party bills us).
+
+**Per-fee expander:** Expanded automatically for overdue fees. Shows:
+- Metrics: billing type, frequency, base fee, invoiced/pending occurrence counts.
+- Split info for third-party fees (split party and our share for the next period).
+- Project code, coverage start, expected end, notes.
+- **Upcoming (pending):** Next 6 pending occurrences. Each has an editable Amount (€) and Split (€) with a **💾 Save** button and a **Skip** button. A warning caption is shown for past-dated pending occurrences.
+- **History:** Last 5 non-pending occurrences (invoiced / skipped) with date, status, and amount.
+- **Mark as invoiced manually:** Select a pending occurrence and enter an invoice reference to mark it invoiced without going through the Generate Invoice flow. Use this only for invoices issued outside the app.
+
+**Summary Table:** Below all the expanders, a flat table lists every visible fee with key columns — client, project, description, billing type, frequency, base fee, next due date, next amount, invoiced count, pending count, and expected end.
 
 ---
 

@@ -57,13 +57,19 @@ with col2:
 with col3:
     source_sel = st.multiselect("Milliman Office", all_sources)
 
-col4, col5, col6 = st.columns(3)
+col4, col5, col6, col7 = st.columns(4)
 with col4:
     type_sel = st.multiselect("Client Type", all_types)
 with col5:
     group_sel = st.multiselect("Consultant Team", all_groups)
 with col6:
     consult_sel = st.multiselect("Consultant", all_consults)
+with col7:
+    recur_sel = st.radio(
+        "Recurring",
+        ["All", "Recurring only", "Non-recurring only"],
+        horizontal=False, key="po_recur_filter",
+    )
 
 filtered = df.copy()
 if client_sel:
@@ -82,6 +88,10 @@ if consult_sel:
     filtered = filtered[filtered["consultants_with_hours"].apply(
         lambda v: any(c in v.split(",") for c in consult_sel)
     )]
+if recur_sel == "Recurring only":
+    filtered = filtered[filtered["has_recurring"] == True]
+elif recur_sel == "Non-recurring only":
+    filtered = filtered[filtered["has_recurring"] == False]
 
 # ------------------------------------------------------------------
 # Summary metrics
@@ -150,21 +160,43 @@ else:
         )
         st.stop()
 
+    _ALL_SECTIONS = [
+        ("invoiced",    "invoiced",          "Invoiced (€)",           True),
+        ("charges",     "billable_charges",  "Time Charges (€)",       True),
+        ("rec_budget",  None,                "Budget — Recurring (€)", True),
+        ("paid",        "paid",              "Paid (€)",               False),
+        ("writeoffs",   "write_offs",        "Write-offs (€)",         False),
+    ]
+    _default_on = [label for _, _, label, default in _ALL_SECTIONS if default]
+    sections_on = st.multiselect(
+        "Sections to show",
+        [label for _, _, label, _ in _ALL_SECTIONS],
+        default=_default_on,
+        key="po_yby_sections",
+    )
+
     base_cols   = ["client", "project", "status"]
     base_rename = {"client": "Client", "project": "Project", "status": "Status"}
 
-    for prefix, total_col, label in [
-        ("invoiced",  "invoiced",         "Invoiced (€)"),
-        ("charges",   "billable_charges", "Time Charges (€)"),
-        ("writeoffs", "write_offs",       "Write-offs (€)"),
-    ]:
+    for prefix, total_col, label, _ in _ALL_SECTIONS:
+        if label not in sections_on:
+            continue
         yr_cols = {f"{prefix}_{yr}": str(yr) for yr in years}
-        tbl = filtered[base_cols + [total_col] + list(yr_cols)].copy().rename(columns={
-            **base_rename,
-            total_col: f"Total",
-            **yr_cols,
-        })
-        num_cols = ["Total"] + [str(yr) for yr in years]
+        # rec_budget has no all-time total column; use sum across year columns
+        if total_col and total_col in filtered.columns:
+            tbl_cols = base_cols + [total_col] + list(yr_cols)
+            rename_total = {"client": "Client", "project": "Project",
+                            "status": "Status", total_col: "Total"}
+        else:
+            tbl_cols = base_cols + list(yr_cols)
+            rename_total = {"client": "Client", "project": "Project", "status": "Status"}
+        tbl = filtered[[c for c in tbl_cols if c in filtered.columns]].copy().rename(
+            columns={**rename_total, **yr_cols}
+        )
+        if "Total" not in tbl.columns:
+            yr_str = [str(yr) for yr in years if str(yr) in tbl.columns]
+            tbl.insert(3, "Total", tbl[yr_str].sum(axis=1))
+        num_cols = ["Total"] + [str(yr) for yr in years if str(yr) in tbl.columns]
         _tot = {c: tbl[c].sum() if c in num_cols else ("TOTAL" if c == "Client" else "")
                 for c in tbl.columns}
         st.subheader(label)
@@ -227,8 +259,11 @@ _BT_LABELS = {
     "third_party_bills":"Third party invoices client — we receive our portion",
 }
 
-# Project selector — all non-internal projects from the full (unfiltered) dataset
-non_internal_rows = [r for r in rows if r.get("client_type") != "internal"]
+# Project selector — Active projects only, excluding internal
+non_internal_rows = [
+    r for r in rows
+    if r.get("client_type") != "internal" and r.get("status") == "Active"
+]
 proj_labels = {
     r["project_id"]: f"{r['client']} — {r['project']}"
     for r in non_internal_rows
@@ -275,19 +310,30 @@ if rf_proj_id is not None:
                         f"€{fee['split_amount']:,.2f} per occurrence ({direction})"
                     )
 
-                # Next occurrences preview
+                # Next occurrences preview — show upcoming only, not past pending
                 if occ_pending:
+                    today_iso = date.today().isoformat()
+                    past_pending    = [o for o in occ_pending if o["due_date"] < today_iso]
+                    upcoming        = [o for o in occ_pending if o["due_date"] >= today_iso]
+                    next3           = upcoming[:3]
                     st.markdown("**Next occurrences:**")
-                    next3 = occ_pending[:3]
-                    df_occ = pd.DataFrame(next3)[["due_date", "amount", "split_amount", "status"]]
-                    df_occ.columns = ["Due Date", "Amount (€)", "Split (€)", "Status"]
-                    st.dataframe(
-                        df_occ.style.format({"Amount (€)": "{:,.2f}", "Split (€)": "{:,.2f}"}),
-                        use_container_width=True, hide_index=True,
-                    )
+                    if past_pending:
+                        st.caption(
+                            f"⚠️ {len(past_pending)} past pending occurrence(s) — "
+                            "mark as invoiced or skip on the Recurring Fees page."
+                        )
+                    if next3:
+                        df_occ = pd.DataFrame(next3)[["due_date", "amount", "split_amount", "status"]]
+                        df_occ.columns = ["Due Date", "Amount (€)", "Split (€)", "Status"]
+                        st.dataframe(
+                            df_occ.style.format({"Amount (€)": "{:,.2f}", "Split (€)": "{:,.2f}"}),
+                            use_container_width=True, hide_index=True,
+                        )
+                        if len(upcoming) > 3:
+                            st.caption(f"… and {len(upcoming) - 3} more upcoming")
 
                 if fee["status"] == "Active":
-                    tab_edit, tab_cancel = st.tabs(["Edit", "Cancel Fee"])
+                    tab_edit, tab_occs, tab_cancel = st.tabs(["Edit Fee", "Edit Occurrences", "Cancel Fee"])
 
                     with tab_edit:
                         with st.form(key=f"edit_rf_{fee['id']}"):
@@ -336,6 +382,41 @@ if rf_proj_id is not None:
                                 st.success("Recurring fee updated — future pending occurrences recalculated.")
                                 st.cache_data.clear()
                                 st.rerun()
+
+                    with tab_occs:
+                        st.caption(
+                            "Override the amount on individual occurrences — "
+                            "useful when a specific period deviates from the standard pattern. "
+                            "Editing the fee definition above regenerates all pending amounts."
+                        )
+                        if not occ_pending:
+                            st.info("No pending occurrences.")
+                        else:
+                            today_iso = date.today().isoformat()
+                            for occ in occ_pending:
+                                past_flag = " ⚠️" if occ["due_date"] < today_iso else ""
+                                with st.form(key=f"occ_edit_{occ['id']}"):
+                                    oc1, oc2, oc3, oc4 = st.columns([2, 2, 2, 1])
+                                    oc1.markdown(f"**{occ['due_date']}**{past_flag}")
+                                    new_occ_amt = oc2.number_input(
+                                        "Amount (€)",
+                                        value=float(occ["amount"]),
+                                        min_value=0.0, step=100.0,
+                                        key=f"oamt_{occ['id']}",
+                                    )
+                                    new_occ_split = oc3.number_input(
+                                        "Split (€)",
+                                        value=float(occ["split_amount"] or 0),
+                                        min_value=0.0, step=100.0,
+                                        key=f"ospl_{occ['id']}",
+                                    )
+                                    if oc4.form_submit_button("Save"):
+                                        db.update_occurrence_amount(
+                                            occ["id"], new_occ_amt, new_occ_split
+                                        )
+                                        st.success(f"{occ['due_date']} updated.")
+                                        st.cache_data.clear()
+                                        st.rerun()
 
                     with tab_cancel:
                         st.warning(

@@ -2181,19 +2181,24 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
     """Rolled-up financials for every project, including year-by-year breakdown.
 
     years — list of calendar years to expand (default: current year + 3 prior).
+    Adds: has_recurring flag, recurring_cy_budget (current-year occurrence totals),
+    paid (total payments received), paid_{yr} and rec_budget_{yr} per year.
     """
     if years is None:
         cy = date.today().year
         years = [cy - i for i in range(4)]
 
-    # Build per-year subquery fragments (yr cast to int — aliases can't be parameterized)
-    sel, inv_j, te_j, wo_j = "", "", "", ""
+    years = [int(y) for y in years]
+    cy = date.today().year
+
+    sel, inv_j, te_j, wo_j, rec_j, pay_j = "", "", "", "", "", ""
     for yr in years:
-        yr = int(yr)
         sel += (
-            f", COALESCE(inv_{yr}.invoiced, 0) AS invoiced_{yr}"
-            f", COALESCE(te_{yr}.charges,  0) AS charges_{yr}"
-            f", COALESCE(wo_{yr}.write_offs,0) AS writeoffs_{yr}"
+            f", COALESCE(inv_{yr}.invoiced,    0) AS invoiced_{yr}"
+            f", COALESCE(te_{yr}.charges,      0) AS charges_{yr}"
+            f", COALESCE(wo_{yr}.write_offs,   0) AS writeoffs_{yr}"
+            f", COALESCE(rec_{yr}.rec_budget,  0) AS rec_budget_{yr}"
+            f", COALESCE(pay_{yr}.paid,        0) AS paid_{yr}"
         )
         inv_j += (
             f" LEFT JOIN (SELECT project_id, SUM(amount) AS invoiced"
@@ -2211,6 +2216,24 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
             f" AND strftime('%Y', created_at)='{yr}' GROUP BY project_id)"
             f" wo_{yr} ON wo_{yr}.project_id = p.id"
         )
+        rec_j += (
+            f" LEFT JOIN ("
+            f"SELECT pc2.project_id, SUM(rfo.amount) AS rec_budget"
+            f" FROM recurring_fee_occurrences rfo"
+            f" JOIN recurring_fees rf2 ON rf2.id = rfo.recurring_fee_id"
+            f" JOIN project_codes pc2 ON pc2.id = rf2.project_code_id"
+            f" WHERE SUBSTR(rfo.due_date,1,4)='{yr}'"
+            f" GROUP BY pc2.project_id"
+            f") rec_{yr} ON rec_{yr}.project_id = p.id"
+        )
+        pay_j += (
+            f" LEFT JOIN ("
+            f"SELECT i2.project_id, SUM(pay2.amount) AS paid"
+            f" FROM payments pay2 JOIN invoices i2 ON i2.id = pay2.invoice_id"
+            f" WHERE SUBSTR(pay2.date,1,4)='{yr}'"
+            f" GROUP BY i2.project_id"
+            f") pay_{yr} ON pay_{yr}.project_id = p.id"
+        )
 
     query = f"""
         SELECT
@@ -2222,10 +2245,13 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
             p.name        AS project,
             p.status,
             COUNT(DISTINCT pc.id)                       AS code_count,
-            COALESCE(SUM(DISTINCT pc.budget_amount), 0) AS budget,
+            COALESCE(SUM(DISTINCT pc.budget_amount), 0) AS budget_code,
             COALESCE(te_all.billable_charges, 0)        AS billable_charges,
             COALESCE(wo_all.write_offs,       0)        AS write_offs,
-            COALESCE(inv_all.invoiced,        0)        AS invoiced
+            COALESCE(inv_all.invoiced,        0)        AS invoiced,
+            COALESCE(pay_all.paid,            0)        AS paid,
+            COALESCE(rf_flag.has_recurring,   0)        AS has_recurring,
+            COALESCE(rec_cy.rec_budget,       0)        AS recurring_cy_budget
             {sel}
             , COALESCE(grp_info.groups_with_hours, '')       AS groups_with_hours
             , COALESCE(grp_info.consultants_with_hours, '')  AS consultants_with_hours
@@ -2238,6 +2264,20 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
                    FROM write_offs WHERE reversed=0 GROUP BY project_id) wo_all ON wo_all.project_id = p.id
         LEFT JOIN (SELECT project_id, SUM(amount) AS invoiced
                    FROM invoices GROUP BY project_id) inv_all ON inv_all.project_id = p.id
+        LEFT JOIN (SELECT i2.project_id, SUM(pay2.amount) AS paid
+                   FROM payments pay2 JOIN invoices i2 ON i2.id = pay2.invoice_id
+                   GROUP BY i2.project_id) pay_all ON pay_all.project_id = p.id
+        LEFT JOIN (SELECT pc2.project_id, 1 AS has_recurring
+                   FROM recurring_fees rf2
+                   JOIN project_codes pc2 ON pc2.id = rf2.project_code_id
+                   WHERE rf2.status = 'Active'
+                   GROUP BY pc2.project_id) rf_flag ON rf_flag.project_id = p.id
+        LEFT JOIN (SELECT pc2.project_id, SUM(rfo.amount) AS rec_budget
+                   FROM recurring_fee_occurrences rfo
+                   JOIN recurring_fees rf2 ON rf2.id = rfo.recurring_fee_id
+                   JOIN project_codes pc2 ON pc2.id = rf2.project_code_id
+                   WHERE SUBSTR(rfo.due_date,1,4)='{cy}'
+                   GROUP BY pc2.project_id) rec_cy ON rec_cy.project_id = p.id
         LEFT JOIN (
             SELECT te.project_id,
                    GROUP_CONCAT(DISTINCT COALESCE(cg.group_name, 'Other')) AS groups_with_hours,
@@ -2246,7 +2286,7 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
             LEFT JOIN consultant_groups cg ON cg.consultant = te.consultant
             GROUP BY te.project_id
         ) grp_info ON grp_info.project_id = p.id
-        {inv_j} {te_j} {wo_j}
+        {inv_j} {te_j} {wo_j} {rec_j} {pay_j}
         GROUP BY p.id
         ORDER BY c.name, p.name
     """
@@ -2256,6 +2296,10 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
     result = []
     for r in rows:
         d = dict(r)
+        d["has_recurring"] = bool(d.get("has_recurring", 0))
+        # Budget: use current-year recurring total for recurring projects,
+        # else fall back to the sum of project-code budgets.
+        d["budget"] = d["recurring_cy_budget"] if d["has_recurring"] else d["budget_code"]
         d["net_charges"] = d["billable_charges"] - d["write_offs"]
         d["remaining"]   = d["budget"] - d["invoiced"]
         prefix = (d.get("client_code") or "")[:4]
@@ -3140,10 +3184,11 @@ def update_recurring_fee(fee_id: int, description: str, fee_amount: float,
         """, (description, fee_amount, fee_type, index_rate, frequency,
               coverage_start, expected_end, billing_type, split_party,
               split_amount, auto_invoice, notes, fee_id))
-        # Drop future pending occurrences so they are recalculated with new amounts
+        # Drop ALL pending occurrences (including past ones) so every occurrence
+        # is regenerated with the updated amount/frequency from coverage_start.
         conn.execute("""
             DELETE FROM recurring_fee_occurrences
-            WHERE recurring_fee_id = ? AND status = 'pending' AND due_date >= date('now')
+            WHERE recurring_fee_id = ? AND status = 'pending'
         """, (fee_id,))
         _ensure_occurrences(conn, fee_id)
 
@@ -3227,6 +3272,17 @@ def invoice_occurrence(occurrence_id: int, invoice_id: int) -> None:
         conn.execute(
             "UPDATE recurring_fee_occurrences SET status='invoiced', invoice_id=? WHERE id=?",
             (invoice_id, occurrence_id)
+        )
+
+
+def update_occurrence_amount(occurrence_id: int, amount: float,
+                             split_amount: float, notes: str = "") -> None:
+    """Override the amount on a single pending occurrence."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE recurring_fee_occurrences "
+            "SET amount=?, split_amount=?, notes=? WHERE id=? AND status='pending'",
+            (round(amount, 2), round(split_amount, 2), notes, occurrence_id)
         )
 
 

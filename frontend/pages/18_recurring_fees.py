@@ -161,22 +161,28 @@ for fee in filtered:
                 show_occ = pending_occ[:6]
                 for occ in show_occ:
                     is_late = occ["due_date"] < today_iso
-                    flag = " 🔴" if is_late else ""
                     occ_icon = "🔴" if is_late else "⏳"
-                    oc1, oc2, oc3, oc4 = st.columns([2, 1, 1, 1])
-                    oc1.markdown(f"{occ_icon} {occ['due_date']}{flag}")
-                    oc2.markdown(f"€{float(occ['amount']):,.0f}")
-                    if fee["billing_type"] == "third_party_bills":
-                        oc3.markdown(f"split €{float(occ['split_amount'] or 0):,.0f}")
-                    else:
-                        oc3.markdown("")
-
-                    with oc4:
-                        # Skip button
-                        if st.button("Skip", key=f"skip_{occ['id']}",
-                                     help="Mark this occurrence as skipped"):
+                    with st.form(key=f"occ_rf_{occ['id']}"):
+                        oc1, oc2, oc3, oc4, oc5 = st.columns([2, 2, 2, 1, 1])
+                        oc1.markdown(f"{occ_icon} **{occ['due_date']}**")
+                        new_amt = oc2.number_input(
+                            "Amount (€)", value=float(occ["amount"]),
+                            min_value=0.0, step=100.0, key=f"ramt_{occ['id']}",
+                        )
+                        new_spl = oc3.number_input(
+                            "Split (€)", value=float(occ["split_amount"] or 0),
+                            min_value=0.0, step=100.0, key=f"rspl_{occ['id']}",
+                        )
+                        save_clicked = oc4.form_submit_button("💾")
+                        skip_clicked = oc5.form_submit_button("Skip")
+                        if save_clicked:
+                            db.update_occurrence_amount(occ["id"], new_amt, new_spl)
+                            st.success(f"{occ['due_date']} updated.")
+                            st.cache_data.clear()
+                            st.rerun()
+                        if skip_clicked:
                             db.skip_occurrence(occ["id"], note="Skipped manually")
-                            st.success(f"Occurrence {occ['due_date']} skipped.")
+                            st.success(f"{occ['due_date']} skipped.")
                             st.cache_data.clear()
                             st.rerun()
 

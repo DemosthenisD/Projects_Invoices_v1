@@ -2,6 +2,161 @@
 
 ---
 
+## V1.3 — Post-release: bug fixes and enhancements (May 2026)
+
+> **Updates on 21 May 2026** — Three bug fixes and four enhancements to the Recurring Fees and Project Overview features shipped in V1.3.
+
+### Bug Fixes
+
+**(1) Project Overview — recurring fees showed past occurrences instead of upcoming:** The "Next 3 pending occurrences" preview was taking the first 3 by row order (oldest first), so for long-running fees all three slots showed past-dated entries. Fixed: pending occurrences are now split into `past_pending` (due_date < today) and `upcoming` (due_date ≥ today). The preview shows `upcoming[:3]`; a separate caption warns when past pending entries also exist.
+
+**(2) Edit recurring fee — stale amounts on past-dated occurrences:** When editing a fee's amount, the `update_recurring_fee()` function deleted only future pending occurrences (`AND due_date >= date('now')`), leaving any past-dated occurrences with stale amounts. Fixed: the DELETE now removes **all** pending occurrences (regardless of date) before re-generating. This also corrects the ERB Cyprialife case where the first occurrence retained an old 12k amount after the fee was changed to 6k.
+
+**(3) Recurring Fees project selector showed completed projects:** The project dropdown in the "Add Recurring Fee" section filtered out internal clients but not by status. Fixed: only `Active` projects are now shown.
+
+### Enhancements
+
+**(1) Budget column reflects current-year recurring occurrence totals:** In the Project Overview table, the Budget column for projects that have at least one active recurring fee now shows the sum of occurrence amounts for the current calendar year (from `recurring_fee_occurrences`) rather than the static `budget_amount` on the project code. This gives a live, accurate picture of expected recurring revenue for the year (e.g. a fee of €8k/year shows as €8k, not the stale manual budget figure).
+
+**(2) Year-by-Year view adds Budget and Paid sections:** The year-by-year breakdown in Project Overview previously showed only Invoiced. A **Sections to show** multiselect now controls which columns are displayed. Available sections: Invoiced (€), Time Charges (€), Budget — Recurring (€), Paid (€), Write-offs (€). Invoiced, Time Charges, and Budget — Recurring are on by default.
+
+**(3) Recurring / non-recurring radio filter on Project Overview:** A new radio at the top of the Project Overview filter bar lets you show **All** projects (default), **Recurring only**, or **Non-recurring only**. Recurring projects are those with at least one Active recurring fee.
+
+**(4) Edit individual occurrences from Project Overview and Recurring Fees page:** Within the Project Overview recurring fees section, an **Edit Occurrences** tab is now available alongside the existing Edit Fee and Cancel Fee tabs. It shows all pending occurrences in inline mini-forms, each with editable Amount (€) and Split (€) fields and a Save button. The same editing capability is available from the Recurring Fees cross-project page, where each pending occurrence card has number inputs and a 💾 Save button alongside the existing Skip button.
+
+### DB Changes
+
+- New function `update_occurrence_amount(occurrence_id, amount, split_amount, notes="")` — overrides the amount on a single pending occurrence; `WHERE status='pending'` guard prevents editing non-pending rows.
+- `get_all_projects_overview()` — extended: new fixed columns `has_recurring` (bool), `recurring_cy_budget` (sum of current-year occurrence amounts), `paid` (total payments received). New per-year columns `rec_budget_{yr}` and `paid_{yr}`. Post-processing derives `budget` as `recurring_cy_budget` when `has_recurring=True`, otherwise `budget_code`.
+
+---
+
+## V1.3 — Recurring Fees, Receivables, Inter-Office Revenue, Pipeline Dashboard (May 2026)
+
+> **Built on branch `ux/improvements`; tagged `v1.3` at commit `669cb33`, 21 May 2026.**
+>
+> **(1) Recurring fees management:** Recurring fees can now be defined at project-code level (annual / quarterly / semi-annual / monthly). Two billing types: *We bill* (generates invoiced occurrences as billing reminders) and *Third-party bills us* (another Milliman entity invoices the client; our split surfaces in the receivables forecast). Indexed fees step by a configurable annual rate. Occurrences are auto-generated on a rolling 3-year horizon each time the page is loaded. Each occurrence can be skipped, manually marked as invoiced, or linked to a generated invoice.
+>
+> **(2) Receivables management:** A new Receivables page tracks inter-office income splits — amounts owed to Milliman Cyprus from other Milliman entities for work on shared projects. Each receivable has an expected amount, due date, type (capped / time-based), and cap amount. Payments against receivables are recorded individually. Outstanding balance is computed at query time.
+>
+> **(3) Inter-office revenue in Project Overview:** The Project Overview table now distinguishes between `billing_arrangement` values (`local` / `receivable` / `internal`). Receivable projects show their inter-office income and outstanding receivables alongside time charges — no invoices are generated for these projects.
+>
+> **(4) Pipeline financial dashboard:** A new Page 16 provides a cross-project financial dashboard anchored to pipeline and forecast data — budget vs billed vs invoiced comparison, stage distribution, and probability-weighted revenue forecast by client and group.
+>
+> **(5) Generate Invoice — occurrence link:** When generating an invoice for a project that has pending *we-bill* recurring fee occurrences, an optional selectbox appears above the invoice form. Selecting an occurrence pre-fills the invoice amount and, after the invoice is saved, automatically marks that occurrence as invoiced with the new invoice ID.
+>
+> **(6) Cross-project Recurring Fees overview (Page 18):** A new read-only + action page lists all active recurring fees across every project. Summary metrics: active count, overdue, due within 30 days, we-bill vs third-party split. Per-fee expanders show billing type, frequency, base fee, occurrence counts, history, upcoming occurrences with skip and manual-invoice actions.
+
+### DB Schema Changes (non-breaking, migrated automatically on startup)
+
+- **`projects`** — added `billing_arrangement TEXT NOT NULL DEFAULT 'local'`. Values: `local` (hold the contract, issue invoices), `receivable` (another entity bills the client; we track inter-office income), `internal` (overhead / cost centre, excluded from revenue reports). Existing rows default to `local`.
+- **`recurring_fees`** — new table (see schema below).
+- **`recurring_fee_occurrences`** — new table (see schema below).
+- **`receivables`** — new table (see schema below).
+- **`receivable_payments`** — new table (see schema below).
+- **`invoices`** — added `comment TEXT NOT NULL DEFAULT ''`, `type TEXT NOT NULL DEFAULT 'Invoice'`, `related_invoice_number TEXT NOT NULL DEFAULT ''`. (These columns were partially present from Sprint 13 — now fully documented.)
+
+### New Tables
+
+**`recurring_fees`** — one row per recurring fee, linked to a project code:
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| project_code_id | INTEGER FK→project_codes | Cascade delete |
+| description | TEXT | |
+| fee_amount | REAL | Base annual fee |
+| fee_type | TEXT | `fixed` / `indexed` |
+| index_rate | REAL | Annual rate as decimal (e.g. 0.03 = 3%) |
+| frequency | TEXT | `monthly` / `quarterly` / `semi-annual` / `annual` |
+| coverage_start | TEXT | ISO YYYY-MM-DD |
+| expected_end | TEXT | ISO YYYY-MM-DD; blank = rolling (no end) |
+| billing_type | TEXT | `we_bill` / `third_party_bills` |
+| split_party | TEXT | Other Milliman entity (third_party_bills only) |
+| split_amount | REAL | Our fixed share per period |
+| auto_invoice | INTEGER | Reserved; always 0 (manual only) |
+| status | TEXT | `Active` / `Cancelled` |
+| cancelled_at | TEXT | |
+| notes | TEXT | |
+
+**`recurring_fee_occurrences`** — one row per billing period per fee:
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| recurring_fee_id | INTEGER FK→recurring_fees | Cascade delete |
+| due_date | TEXT | ISO YYYY-MM-DD |
+| amount | REAL | Indexed amount for this period |
+| split_amount | REAL | Our split (third_party_bills) |
+| invoice_id | INTEGER FK→invoices NULLABLE | Set when invoiced |
+| status | TEXT | `pending` / `invoiced` / `skipped` |
+| notes | TEXT | |
+
+Unique on `(recurring_fee_id, due_date)`.
+
+**`receivables`** — expected inter-office income:
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| project_id | INTEGER FK→projects | Cascade delete |
+| project_code_id | INTEGER FK→project_codes NULLABLE | |
+| occurrence_id | INTEGER FK→recurring_fee_occurrences NULLABLE | Link to recurring fee |
+| description | TEXT | |
+| expected_amount | REAL | |
+| due_date | TEXT | ISO YYYY-MM-DD |
+| receivable_type | TEXT | `capped` / `time_based` |
+| cap_amount | REAL | |
+| notes | TEXT | |
+
+Outstanding = `expected_amount − SUM(receivable_payments.amount)` (computed at query time).
+
+**`receivable_payments`** — individual receipts against a receivable:
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| receivable_id | INTEGER FK→receivables | Cascade delete |
+| amount | REAL | |
+| date | TEXT | ISO YYYY-MM-DD |
+| notes | TEXT | |
+
+### New DB Functions
+
+| Function | Description |
+|----------|-------------|
+| `get_recurring_fees(project_code_id)` | Returns all fees for a project code. |
+| `add_recurring_fee(project_code_id, ...)` | Inserts a new fee; calls `_ensure_occurrences()` to generate the initial occurrence set. |
+| `update_recurring_fee(fee_id, ...)` | Updates fee fields; deletes all pending occurrences then regenerates. |
+| `cancel_recurring_fee(fee_id)` | Sets status=Cancelled and cancelled_at=now. |
+| `get_occurrences(fee_id)` | Returns all occurrences for a fee, ordered by due_date. |
+| `skip_occurrence(occurrence_id, note)` | Sets status=skipped. |
+| `invoice_occurrence(occurrence_id, invoice_id)` | Sets status=invoiced and links invoice_id. |
+| `update_occurrence_amount(occurrence_id, amount, split_amount, notes)` | Overrides amount on a single pending occurrence. |
+| `get_all_recurring_fees(status)` | Cross-project summary with client/project context; used by Page 18. |
+| `get_receivables(project_id)` | Returns all receivables for a project with outstanding balance computed. |
+| `add_receivable(project_id, ...)` | Inserts a new receivable. |
+| `update_receivable(receivable_id, ...)` | Updates a receivable record. |
+| `delete_receivable(receivable_id)` | Deletes a receivable and its payment records. |
+| `add_receivable_payment(receivable_id, amount, date, notes)` | Records a payment; reduces outstanding balance. |
+| `get_receivable_payments(receivable_id)` | Returns all payment records for a receivable. |
+| `_ensure_occurrences(conn, fee_id, horizon_years=3)` | Internal: generates occurrences forward to today + 3 years (or expected_end). Uses `INSERT OR IGNORE` on unique constraint. Indexed amounts computed as `base × (1 + rate) ^ (year − start_year)`. |
+| `_add_months(d, n)` | Internal: pure-Python month arithmetic (no dateutil dependency). |
+
+### Updated DB Functions
+
+- `get_all_projects_overview()` — now reads `billing_arrangement` from `projects`; new fixed columns `has_recurring`, `recurring_cy_budget`, `paid`; new per-year `rec_budget_{yr}` and `paid_{yr}` columns.
+
+### Page Changes
+
+- **Page 0 — Generate Invoice:** Optional occurrence link. `_pending_we_bill(proj_id)` loads pending *we-bill* occurrences for the selected project. Selecting one pre-fills the invoice amount. After save, `db.invoice_occurrence(occurrence_id, invoice_id)` links the invoice to the occurrence.
+- **Page 16 — Pipeline Dashboard:** New page. Cross-project financial dashboard: budget vs billed vs invoiced by stage, probability-weighted revenue forecast, breakdown by client and consultant group.
+- **Page 17 — Receivables:** New page. Manage inter-office income splits: summary metrics (total expected, total received, outstanding, overdue), filter by project, per-receivable expanders with payment history, Record Payment form, Edit form, Add Receivable section.
+- **Page 18 — Recurring Fees:** New page. Cross-project view of all active recurring fees: summary metrics (active count, overdue, due within 30d, we-bill vs third-party), filter by client/project/billing type, per-fee expanders with upcoming/history tabs, skip and manual-invoice actions, summary table.
+- **Page 10 — Project Overview:** Recurring Fees section added within each project's code expander — tabs for Add Fee, Edit Occurrences, Edit Fee, Cancel Fee. Occurrence preview shows next 3 upcoming (not oldest 3). Recurring filter radio (All / Recurring only / Non-recurring only). Budget column uses current-year recurring totals for recurring projects. Year-by-Year view adds Sections multiselect (Invoiced, Time Charges, Budget — Recurring, Paid, Write-offs).
+
+---
+
 ## V1.2 — Pipeline prospect workflow + Avg Annual Rate for bonus calculation (May 2026)
 
 > **Updates on 15 May 2026** — Two major features plus a comprehensive documentation overhaul.

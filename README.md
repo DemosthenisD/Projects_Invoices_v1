@@ -1,4 +1,4 @@
-# InvoiceApp — V1.1
+# InvoiceApp — V1.3
 
 Personal invoice and project billing management tool built with **Streamlit** and **SQLite**.
 
@@ -39,7 +39,7 @@ python -m pytest tests/ -v
 
 | # | Page | Description |
 |---|------|-------------|
-| 0 | Generate Invoice | Fill client/project details, generate DOCX or PDF; optional project-code allocation; file saved permanently to `exports/` |
+| 0 | Generate Invoice | Fill client/project details, generate DOCX or PDF; optional occurrence link; file saved permanently to `exports/` |
 | 1 | How to Use | Quick reference: page summaries (Actions vs Views), edit guide, DB Browser tip |
 | 2 | Invoice Log | Browse, filter (cascading), and download past invoices; export to Excel |
 | 3 | Clients & Projects | Manage clients, projects, addresses; per-project billing summary |
@@ -49,12 +49,15 @@ python -m pytest tests/ -v
 | 7 | Time Tracking | Import monthly time-charge CSVs; date-range aware routing; rollup with Local/ICEE/Other breakdown |
 | 8 | Write-offs | Record project-level (pro-rata) or ad-hoc write-offs; reversal log |
 | 9 | Data Tables | Direct view of all DB tables; open in DB Browser for SQLite |
-| 10 | Project Overview | Full project-level financial summary; filter by client/status/source; export to Excel |
+| 10 | Project Overview | Full project-level financial summary; filter by client/status/source/recurring; export to Excel |
 | 11 | Add New Project | Flat intake form: client + project + codes in one step; import creates only missing records |
 | 12 | Billing Basis | Annual billing summary per consultant — two independent sources (Auto from time entries, Manual entry); explicit source selection for Annual Review; computes productivity bonus % |
 | 13 | Consultant Profiles | Employment details, Milliman status/level, salary history year-by-year, billing rates |
 | 14 | Annual Review | Per-consultant annual assessment: salary chain, bonus calculation, performance scores (3 groups), project breakdown with Colleagues + Teams columns, Word Feedback Form export, Excel export |
 | 15 | Field Definitions | Reference page for all field names and their meanings across the app |
+| 16 | Pipeline Dashboard | Cross-project financial dashboard: budget vs billed vs invoiced by stage, probability-weighted revenue forecast |
+| 17 | Receivables | Manage inter-office income splits; record payments against receivables; track outstanding balances |
+| 18 | Recurring Fees | Cross-project view of all active recurring fees; skip occurrences; mark as invoiced; upcoming billing reminders |
 
 ---
 
@@ -77,7 +80,7 @@ docs/               User manual, technical reference, release notes
 
 All data lives in a single SQLite file: `data/invoiceapp.db`.
 
-**Tables:** `clients`, `addresses`, `projects`, `invoices`, `invoice_allocations`, `payments`, `pipeline`, `project_codes`, `time_entries`, `write_offs`, `consultant_groups`, `consultant_profiles`, `annual_salary_history`, `billing_basis`, `review_scores`, `review_feedback`
+**Tables:** `clients`, `addresses`, `projects`, `invoices`, `invoice_allocations`, `payments`, `pipeline`, `project_codes`, `time_entries`, `write_offs`, `consultant_groups`, `consultant_profiles`, `annual_salary_history`, `billing_basis`, `review_scores`, `review_feedback`, `recurring_fees`, `recurring_fee_occurrences`, `receivables`, `receivable_payments`
 
 To inspect or edit the database directly, use [DB Browser for SQLite](https://sqlitebrowser.org/dl/) (free, Windows). The app's **Data Tables** page (page 9) has a button that opens the file directly.
 
