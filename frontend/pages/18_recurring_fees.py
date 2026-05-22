@@ -105,6 +105,11 @@ if not filtered:
 # ------------------------------------------------------------------
 
 st.markdown(f"**{len(filtered)} active fee(s)**")
+st.caption(
+    "🔴 Overdue — due date has passed and not yet invoiced  ·  "
+    "🟡 Due within 30 days  ·  "
+    "🟢 Scheduled (more than 30 days away)"
+)
 
 for fee in filtered:
     next_due     = fee.get("next_due") or "—"
@@ -149,16 +154,21 @@ for fee in filtered:
         st.markdown("---")
 
         # ---- Upcoming occurrences --------------------------------
-        occurrences = db.get_occurrences(fee["id"])
-        pending_occ = [o for o in occurrences if o["status"] == "pending"]
-        past_occ    = [o for o in occurrences if o["status"] != "pending"]
+        occurrences  = db.get_occurrences(fee["id"])
+        # Upcoming = future pending; History = past-dated (any status, incl. overdue pending)
+        upcoming_occ = [o for o in occurrences if o["status"] == "pending" and o["due_date"] >= today_iso]
+        past_occ     = [o for o in occurrences if o["due_date"] < today_iso]
 
         col_upcoming, col_history = st.columns([2, 1])
 
         with col_upcoming:
             st.markdown("**Upcoming (pending)**")
-            if pending_occ:
-                show_occ = pending_occ[:6]
+            st.caption(
+                "💾 Save — override the amount for this period  ·  "
+                "Skip — mark this period as waived (no invoice needed)"
+            )
+            if upcoming_occ:
+                show_occ = upcoming_occ[:6]
                 for occ in show_occ:
                     is_late = occ["due_date"] < today_iso
                     occ_icon = "🔴" if is_late else "⏳"
@@ -186,10 +196,10 @@ for fee in filtered:
                             st.cache_data.clear()
                             st.rerun()
 
-                if len(pending_occ) > 6:
-                    st.caption(f"… and {len(pending_occ) - 6} more pending")
+                if len(upcoming_occ) > 6:
+                    st.caption(f"… and {len(upcoming_occ) - 6} more pending")
             else:
-                st.caption("No pending occurrences — fee may have ended.")
+                st.caption("No upcoming pending occurrences.")
 
         with col_history:
             st.markdown("**History**")
@@ -213,12 +223,12 @@ for fee in filtered:
             "For normal invoicing, use **Generate Invoice** and select this fee."
         )
 
-        first_pending = next((o for o in pending_occ), None)
+        first_pending = next((o for o in upcoming_occ), None)
         if first_pending:
             with st.form(key=f"manual_inv_{fee['id']}"):
                 mi1, mi2 = st.columns(2)
                 occ_options = {o["id"]: f"{o['due_date']}  (€{float(o['amount']):,.0f})"
-                               for o in pending_occ}
+                               for o in upcoming_occ}
                 selected_occ_id = mi1.selectbox(
                     "Occurrence",
                     options=list(occ_options.keys()),
@@ -230,8 +240,11 @@ for fee in filtered:
                     if not inv_ref.strip():
                         st.error("Please provide an invoice reference.")
                     else:
-                        # invoice_id stored as 0 for manual (no FK enforcement needed)
-                        db.invoice_occurrence(selected_occ_id, invoice_id=0)
+                        db.invoice_occurrence(
+                            selected_occ_id,
+                            invoice_id=None,
+                            notes=f"Manual ref: {inv_ref.strip()}",
+                        )
                         st.success(f"Occurrence marked as invoiced (ref: {inv_ref.strip()}).")
                         st.cache_data.clear()
                         st.rerun()
