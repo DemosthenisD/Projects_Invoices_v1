@@ -217,39 +217,62 @@ for fee in filtered:
 
         # ---- Manual invoice tab ---------------------------------
         st.markdown("---")
-        st.markdown("**Mark as invoiced manually**")
+        st.markdown("**Link occurrence to an existing invoice**")
         st.caption(
-            "Use this only if the occurrence was invoiced outside the Generate Invoice flow. "
+            "Selects a real invoice from the database and creates a proper link. "
+            "Includes overdue pending occurrences so past periods can be reconciled. "
             "For normal invoicing, use **Generate Invoice** and select this fee."
         )
 
-        first_pending = next((o for o in upcoming_occ), None)
-        if first_pending:
-            with st.form(key=f"manual_inv_{fee['id']}"):
-                mi1, mi2 = st.columns(2)
-                occ_options = {o["id"]: f"{o['due_date']}  (€{float(o['amount']):,.0f})"
-                               for o in upcoming_occ}
-                selected_occ_id = mi1.selectbox(
-                    "Occurrence",
-                    options=list(occ_options.keys()),
-                    format_func=lambda x: occ_options[x],
+        # All pending occurrences (future + overdue) are eligible for linking
+        all_pending_occ  = [o for o in occurrences if o["status"] == "pending"]
+        project_invoices = db.get_invoices(project_id=fee["project_id"])
+
+        if all_pending_occ:
+            if not project_invoices:
+                st.info(
+                    "No invoices found for this project. "
+                    "Create one via **Generate Invoice** before linking here."
                 )
-                inv_ref = mi2.text_input("Invoice reference / ID",
-                                         placeholder="e.g. INV-2026-045")
-                if st.form_submit_button("Mark Invoiced"):
-                    if not inv_ref.strip():
-                        st.error("Please provide an invoice reference.")
-                    else:
-                        db.invoice_occurrence(
-                            selected_occ_id,
-                            invoice_id=None,
-                            notes=f"Manual ref: {inv_ref.strip()}",
+            else:
+                with st.form(key=f"manual_inv_{fee['id']}"):
+                    mi1, mi2 = st.columns(2)
+                    occ_options = {
+                        o["id"]: (
+                            f"{o['due_date']}  (€{float(o['amount']):,.0f})"
+                            + ("  🔴 overdue" if o["due_date"] < today_iso else "")
                         )
-                        st.success(f"Occurrence marked as invoiced (ref: {inv_ref.strip()}).")
+                        for o in all_pending_occ
+                    }
+                    inv_labels = {
+                        inv.id: (
+                            f"{fee['client_name']}  ·  "
+                            f"{inv.project_name or fee['project_name']}  ·  "
+                            f"{inv.invoice_number}  ·  {inv.date}  ·  "
+                            f"€{inv.amount:,.0f}  ·  {inv.status.capitalize()}"
+                        )
+                        for inv in project_invoices
+                    }
+                    inv_numbers = {inv.id: inv.invoice_number for inv in project_invoices}
+                    selected_occ_id = mi1.selectbox(
+                        "Occurrence",
+                        options=list(occ_options.keys()),
+                        format_func=lambda x: occ_options[x],
+                    )
+                    selected_inv_id = mi2.selectbox(
+                        "Invoice to link",
+                        options=list(inv_labels.keys()),
+                        format_func=lambda x: inv_labels[x],
+                    )
+                    if st.form_submit_button("Mark Invoiced"):
+                        db.invoice_occurrence(selected_occ_id, invoice_id=selected_inv_id)
+                        st.success(
+                            f"Occurrence linked to invoice {inv_numbers[selected_inv_id]}."
+                        )
                         st.cache_data.clear()
                         st.rerun()
         else:
-            st.info("No pending occurrences to mark as invoiced.")
+            st.info("No pending occurrences to link.")
 
 # ------------------------------------------------------------------
 # Summary table
