@@ -2,6 +2,39 @@
 
 ---
 
+## V1.4 — Project Close-out (May 2026)
+
+> **Released 26 May 2026** — New Project Close-out panel on the Project Overview page, enabling structured financial reconciliation of completed and on-hold projects.
+
+### New Feature — Project Close-out (Page 8 — Project Overview)
+
+A **Project Close-out** section is now available at the bottom of the Project Overview page, positioned between the Export button and the Recurring Fees section. It provides a structured workflow for verifying, adjusting, and closing the financial records of any project.
+
+**Reconciliation summary:** Selecting a project shows five key metrics — Budget, Time Charges (total non-Z charges), Invoiced (net, excl. cancelled and credit notes), Write-offs (active only), and the **Unrecovered Gap** (= Time Charges − Invoiced − Write-offs). A green banner confirms "fully reconciled" when the gap ≤ 0.
+
+**Three resolution paths:**
+
+| Tab | What it does |
+|---|---|
+| **Add Invoice (full flow)** | Shows which client/project to select on Generate Invoice and provides a direct page link — use when you need a real PDF invoice with a document number. |
+| **Lump-sum Settlement** | Quick form (amount, date, description, optional comment) that creates an invoice record with `template_used = 'settlement'` and `format = 'Manual'` — no PDF generated. Amount pre-filled with the current gap. Invoice number auto-assigned from the sequential counter for the year. |
+| **Write Off Remainder** | Form pre-filled with the gap amount. Creates a write-off record at project level (no pro-rata or consultant allocation required). Reason defaults to "Project close-out" and is editable. |
+
+After any action, metrics and gap recalculate automatically on page reload.
+
+### New DB Functions
+
+| Function | Description |
+|---|---|
+| `get_project_closeout_summary(project_id)` | Returns budget (sum of `project_codes.budget_amount`), time charges (sum of `non_z_charges` via project_codes join), invoiced net (sum of `invoices.amount` excl. cancelled and credit notes), active write-offs, and computed gap as a single dict. Also returns `client_id`, `client_name`, `vat_pct`, project `name` and `status` for use by the form. |
+| `add_write_off_simple(project_id, amount, reason, notes)` | Inserts a single write-off row at project level (`project_code_id = NULL`, `allocation_type = 'project'`, `emp_nbr = ''`). No time-entry lookup or pro-rata calculation required — suitable for close-out write-offs where granular allocation is not needed. |
+
+### Page Changes
+
+- **Page 8 — Project Overview:** New "Project Close-out" section added between the Export button and the Recurring Fees section. Project selector covers all non-internal projects at any status (Active, On Hold, Completed, Prospect). Metrics row: Budget, Time Charges, Invoiced, Write-offs, Unrecovered Gap. Three tabs: Add Invoice, Lump-sum Settlement, Write Off Remainder.
+
+---
+
 ## V1.3 — Post-release: bug fixes and enhancements (May 2026)
 
 > **Updates on 21 May 2026** — Three bug fixes and four enhancements to the Recurring Fees and Project Overview features shipped in V1.3.

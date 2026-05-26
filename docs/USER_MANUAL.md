@@ -12,6 +12,7 @@ InvoiceApp is a personal billing management tool for Milliman Cyprus. It lets yo
 - Manage the sales pipeline — track prospects from first contact through conversion to a live project.
 - View a dashboard of key financial metrics.
 - Run annual consultant reviews with bonus calculation and performance scoring.
+- Close out completed projects — reconcile invoiced amounts against time charges and write off or settle any gap.
 
 ---
 
@@ -200,6 +201,36 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 4. In **Sub-section B**, fill in Assessment Comments and Development Ideas for each performance area.
 5. In **Sub-section C**, write any general narrative or additional comments.
 6. Click **Save & Generate Feedback Form** — the Word document is saved to `exports/` and a Download button appears.
+
+---
+
+### How to Close Out a Project
+
+Use this workflow when a project is finished and you want to ensure the financial record is clean before archiving it.
+
+1. Go to **8. Project Overview**.
+2. Scroll down to the **Project Close-out** section (below the Export button).
+3. Select the project from the dropdown — any status (Active, On Hold, Completed) can be selected.
+4. Review the five metrics: **Budget**, **Time Charges**, **Invoiced**, **Write-offs**, and **Unrecovered Gap**.
+   - If the gap is ≤ 0, a green banner confirms the project is fully reconciled — no action needed.
+   - If the gap is positive, choose one of the three resolution options below.
+
+**Option A — Add Invoice (full flow):**
+- Use when the missing invoice has a real document (PDF/DOCX).
+- Click **Open Generate Invoice →** and select the same client and project on that page.
+- The new invoice will be reflected in the close-out panel on your next visit.
+
+**Option B — Lump-sum Settlement:**
+- Use for quick reconciliation of old projects where paperwork already exists externally.
+- In the **Lump-sum Settlement** tab, confirm the amount (pre-filled with the current gap), set the date, adjust the description if needed, and optionally add an internal comment.
+- Click **Create Settlement Invoice** — a record is created with `format = Manual` (no PDF generated) and the next sequential invoice number for the year.
+
+**Option C — Write Off Remainder:**
+- Use when time charges genuinely exceeded what was billed and you accept the loss.
+- In the **Write Off Remainder** tab, confirm the amount (pre-filled with the gap), adjust the reason if needed, and add any notes.
+- Click **Record Write-off** — the write-off is added and the gap recalculates to zero.
+
+After any action, the metrics update automatically on the next page reload.
 
 ---
 
@@ -453,6 +484,13 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 **Year-by-Year view:** Expands under each project. A **Sections to show** multiselect controls which columns are included. Available: Invoiced (€), Time Charges (€), Budget — Recurring (€), Paid (€), Write-offs (€). Each section is a per-year column set with a TOTAL column and TOTAL row.
 
 **Recurring Fees section:** Within each project code's expander, a **Recurring Fees** sub-section shows all defined recurring fees. Tabs: **Add Fee** (create a new recurring fee for the code), **Edit Fee** (update frequency, amount, dates, billing type), **Edit Occurrences** (inline mini-forms to adjust the amount/split on individual pending occurrences), **Cancel Fee** (deactivate the fee).
+
+**Project Close-out section:** Below the Recurring Fees section. Select any non-internal project (any status) to see a reconciliation summary: Budget, Time Charges, Invoiced (net), Write-offs, and Unrecovered Gap. Three tabs for resolution:
+- **Add Invoice (full flow)** — links to the Generate Invoice page for a full document workflow.
+- **Lump-sum Settlement** — creates a manual invoice record without generating a PDF (amount, date, description, comment; invoice number auto-assigned).
+- **Write Off Remainder** — creates a project-level write-off (amount pre-filled with the gap; reason editable; no consultant allocation required).
+
+A green "fully reconciled" banner appears when the gap reaches zero or below.
 
 **Export to Excel:** Downloads all visible rows.
 

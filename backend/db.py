@@ -2177,6 +2177,70 @@ def get_project_time_totals(project_id: int) -> dict:
     }
 
 
+def get_project_closeout_summary(project_id: int) -> dict:
+    """Financial reconciliation snapshot for the project close-out panel.
+
+    Returns budget, time charges, invoiced net, write-offs, and the
+    unrecovered gap (time_charges - invoiced - write_offs).
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                p.id, p.name, p.status, p.billing_arrangement,
+                p.client_id,
+                c.name                                          AS client_name,
+                c.vat_number,
+                p.vat_pct,
+                COALESCE((
+                    SELECT SUM(pc.budget_amount)
+                    FROM project_codes pc WHERE pc.project_id = p.id
+                ), 0)                                           AS budget,
+                COALESCE((
+                    SELECT SUM(i.amount)
+                    FROM invoices i
+                    WHERE i.project_id = p.id
+                      AND i.status != 'cancelled'
+                      AND i.type = 'Invoice'
+                ), 0)                                           AS invoiced,
+                COALESCE((
+                    SELECT SUM(te.non_z_charges)
+                    FROM time_entries te
+                    JOIN project_codes pc ON pc.id = te.project_code_id
+                    WHERE pc.project_id = p.id
+                ), 0)                                           AS time_charges,
+                COALESCE((
+                    SELECT SUM(wo.amount)
+                    FROM write_offs wo
+                    WHERE wo.project_id = p.id AND wo.reversed = 0
+                ), 0)                                           AS write_offs
+            FROM projects p
+            JOIN clients c ON c.id = p.client_id
+            WHERE p.id = ?
+            """,
+            (project_id,),
+        ).fetchone()
+    if not row:
+        return {}
+    d = dict(row)
+    d["gap"] = round(d["time_charges"] - d["invoiced"] - d["write_offs"], 2)
+    return d
+
+
+def add_write_off_simple(
+    project_id: int, amount: float, reason: str, notes: str = ""
+) -> int:
+    """Single project-level write-off row — no pro-rata, no consultant required."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO write_offs "
+            "(project_id, project_code_id, emp_nbr, consultant, amount, reason, notes, allocation_type) "
+            "VALUES (?, NULL, '', '', ?, ?, ?, 'project')",
+            (project_id, amount, reason, notes),
+        )
+        return cur.lastrowid
+
+
 def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
     """Rolled-up financials for every project, including year-by-year breakdown.
 
@@ -3269,11 +3333,12 @@ def get_pending_occurrences(project_id: int | None = None,
     return [dict(r) for r in rows]
 
 
-def invoice_occurrence(occurrence_id: int, invoice_id: int) -> None:
+def invoice_occurrence(occurrence_id: int, invoice_id: int | None = None,
+                        notes: str = "") -> None:
     with get_connection() as conn:
         conn.execute(
-            "UPDATE recurring_fee_occurrences SET status='invoiced', invoice_id=? WHERE id=?",
-            (invoice_id, occurrence_id)
+            "UPDATE recurring_fee_occurrences SET status='invoiced', invoice_id=?, notes=? WHERE id=?",
+            (invoice_id, notes, occurrence_id)
         )
 
 

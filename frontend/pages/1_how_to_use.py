@@ -195,6 +195,18 @@ how_tos = [
         ],
     ),
     (
+        "Close Out a Project",
+        [
+            "Go to **8. Project Overview** and scroll to the **Project Close-out** section (below the Export button).",
+            "Select the project from the dropdown — any status (Active, On Hold, Completed) is available.",
+            "Review the five metrics: **Budget**, **Time Charges**, **Invoiced**, **Write-offs**, and **Unrecovered Gap**.",
+            "If the gap is ≤ 0, a green banner confirms the project is fully reconciled — no action needed.",
+            "**Option A — Add Invoice (full flow):** Click *Open Generate Invoice →* and raise the invoice from that page. Best when a real PDF document is needed.",
+            "**Option B — Lump-sum Settlement:** In the *Lump-sum Settlement* tab, confirm amount (pre-filled with gap), set date and description, click *Create Settlement Invoice* — creates a record without a PDF.",
+            "**Option C — Write Off Remainder:** In the *Write Off Remainder* tab, confirm amount and reason, click *Record Write-off* — gap recalculates to zero.",
+        ],
+    ),
+    (
         "Back Up Your Data",
         [
             "Copy `data/invoiceapp.db` — the complete database (all clients, projects, invoices, time entries, HR data).",
@@ -349,12 +361,15 @@ groups = {
             "8. Project Overview",
             [
                 "Export the full project table to Excel",
+                "**Project Close-out:** select a project → review Budget / Time Charges / Invoiced / Write-offs / Gap → resolve via Add Invoice, Lump-sum Settlement, or Write Off",
+                "**Recurring Fees:** add, edit, or cancel recurring fees per project code; adjust individual occurrence amounts",
             ],
             [
                 "One row per project: Client, Type, Project, Source, Codes, Budget, Billable, Write-offs, Net, Invoiced, Remaining, Status",
                 "Six multiselect filters: Client, Status, Source / Office, Type, Consultant Team, Consultant",
-                "Sortable columns (amounts sort numerically); pinned TOTAL row",
-                "Year-by-Year sub-table per project with TOTAL row and column",
+                "Recurring / non-recurring radio filter; sortable columns (amounts sort numerically); pinned TOTAL row",
+                "Year-by-Year view with Sections multiselect (Invoiced, Time Charges, Budget — Recurring, Paid, Write-offs)",
+                "Close-out panel: Budget, Time Charges, Invoiced, Write-offs, and Unrecovered Gap per project; green 'reconciled' badge when gap ≤ 0",
             ],
         ),
     ],
@@ -507,6 +522,7 @@ st.markdown("""
 | Convert a prospect to a live project | **6. Pipeline / CRM** → Prospect Actions → Convert to Project → |
 | Delete a standalone prospect | **6. Pipeline / CRM** → Prospect Actions → 🗑 Delete Prospect |
 | Consultant group (Local / ICEE / Other) | **9. Time Tracking** → Consultant Groups tab |
+| Close out a project (verify + settle gap) | **8. Project Overview** → Project Close-out section |
 | Write-off reason / reversal | **10. Write-offs** → Log tab → Reverse button |
 | Annual billing amounts for bonus calc (auto) | **11. Billing Basis** → Auto tab → Load from Time Tracking → Save |
 | Annual billing amounts for bonus calc (manual) | **11. Billing Basis** → Manual Entry tab → fill amounts → Save |

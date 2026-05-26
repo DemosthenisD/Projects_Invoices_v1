@@ -243,6 +243,147 @@ st.download_button(
 )
 
 # ------------------------------------------------------------------
+# Project Close-out
+# ------------------------------------------------------------------
+
+st.divider()
+st.subheader("Project Close-out")
+st.caption(
+    "Reconcile a project's invoiced amounts against its time charges. "
+    "Use this panel to add missing invoices, record a settlement, or write off "
+    "any unrecoverable gap before archiving the project."
+)
+
+co_all_rows = [r for r in rows if r.get("billing_arrangement") != "internal"]
+co_labels = {
+    r["project_id"]: f"{r['client']} — {r['project']} ({r['status']})"
+    for r in co_all_rows
+}
+co_labels = dict(sorted(co_labels.items(), key=lambda x: x[1]))
+
+co_proj_id = st.selectbox(
+    "Select project",
+    options=[None] + list(co_labels.keys()),
+    format_func=lambda x: "— choose a project —" if x is None else co_labels[x],
+    key="co_proj_sel",
+)
+
+if co_proj_id is not None:
+    co = db.get_project_closeout_summary(co_proj_id)
+    gap = co["gap"]
+
+    mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+    mc1.metric("Budget (€)",        f"{co['budget']:,.0f}")
+    mc2.metric("Time Charges (€)",  f"{co['time_charges']:,.0f}")
+    mc3.metric("Invoiced (€)",      f"{co['invoiced']:,.0f}")
+    mc4.metric("Write-offs (€)",    f"{co['write_offs']:,.0f}")
+    mc5.metric("Unrecovered Gap (€)", f"{gap:,.0f}",
+               help="Time charges − invoiced − write-offs. Positive = unrecovered costs.")
+
+    if gap <= 0:
+        st.success("Project is fully reconciled — time charges are covered by invoiced amounts and write-offs.")
+    else:
+        st.warning(
+            f"Unrecovered gap of **€{gap:,.0f}**. "
+            "Use one of the options below to close it out."
+        )
+
+    tab_inv, tab_settle, tab_wo = st.tabs(
+        ["Add Invoice (full flow)", "Lump-sum Settlement", "Write Off Remainder"]
+    )
+
+    with tab_inv:
+        st.info(
+            "To create a full invoice with a PDF document, use the **Generate Invoice** page "
+            f"and select **{co['client_name']} — {co['name']}** as the project."
+        )
+        st.page_link("pages/0_generate_invoice.py", label="Open Generate Invoice →", icon="📄")
+
+    with tab_settle:
+        st.caption(
+            "Creates an invoice record without generating a PDF document. "
+            "Useful for quickly tidying historical projects where the paperwork already exists."
+        )
+        with st.form("co_settle_form"):
+            sa1, sa2 = st.columns(2)
+            s_amount = sa1.number_input(
+                "Amount (€, net excl. VAT)*",
+                min_value=0.01,
+                value=float(max(gap, 0.01)),
+                step=100.0,
+            )
+            s_date = sa2.date_input("Invoice date*", value=date.today())
+            s_desc = st.text_input(
+                "Description*",
+                value=f"Settlement — {co['name']}",
+                placeholder="e.g. Settlement — IFRS17 Main project",
+            )
+            s_comment = st.text_area(
+                "Internal comment",
+                placeholder="e.g. Close-out adjustment — covers unbilled 2022 charges",
+                height=70,
+            )
+            if st.form_submit_button("Create Settlement Invoice", type="primary"):
+                if not s_desc.strip():
+                    st.error("Description is required.")
+                else:
+                    inv_year = s_date.year
+                    inv_num  = str(db.get_next_invoice_number(inv_year))
+                    vat_pct  = co.get("vat_pct") or 19.0
+                    db.add_invoice(
+                        client_id=co["client_id"],
+                        invoice_number=inv_num,
+                        year=inv_year,
+                        date=s_date.isoformat(),
+                        amount=round(s_amount, 2),
+                        vat_amount=round(s_amount * vat_pct / 100, 2),
+                        vat_pct=vat_pct,
+                        project_id=co_proj_id,
+                        description=s_desc.strip(),
+                        template_used="settlement",
+                        fmt="Manual",
+                        comment=s_comment.strip() or "Close-out settlement entry",
+                    )
+                    st.success(f"Settlement invoice #{inv_num} created for €{s_amount:,.2f}.")
+                    st.cache_data.clear()
+                    st.rerun()
+
+    with tab_wo:
+        st.caption(
+            "Write off costs that will not be recovered. "
+            "The amount is recorded in the Write-offs table and reduces the net charges on the project."
+        )
+        with st.form("co_wo_form"):
+            wa1, wa2 = st.columns(2)
+            w_amount = wa1.number_input(
+                "Write-off amount (€)*",
+                min_value=0.01,
+                value=float(max(gap, 0.01)),
+                step=100.0,
+                help="Pre-filled with the current unrecovered gap.",
+            )
+            w_reason = wa2.text_input(
+                "Reason*",
+                value="Project close-out",
+                placeholder="e.g. Project close-out — unrecovered time charges",
+            )
+            w_notes = st.text_area("Notes", height=70,
+                                   placeholder="e.g. TC exceeded fixed-fee budget; gap written off at project close.")
+            if st.form_submit_button("Record Write-off", type="primary"):
+                if not w_reason.strip():
+                    st.error("Reason is required.")
+                else:
+                    db.add_write_off_simple(
+                        project_id=co_proj_id,
+                        amount=round(w_amount, 2),
+                        reason=w_reason.strip(),
+                        notes=w_notes.strip(),
+                    )
+                    st.success(f"Write-off of €{w_amount:,.2f} recorded.")
+                    st.cache_data.clear()
+                    st.rerun()
+
+# ------------------------------------------------------------------
 # Recurring Fees management
 # ------------------------------------------------------------------
 
