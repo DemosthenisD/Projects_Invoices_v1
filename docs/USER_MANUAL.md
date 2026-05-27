@@ -24,7 +24,7 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 
 ### How to Issue an Invoice
 
-1. Go to **1. Generate Invoice**.
+1. Go to **Generate Invoice**.
 2. Ensure **Document type** is set to **Invoice** (default).
 3. Select the **client** — address and VAT number auto-fill.
 4. Select the **project** — description, VAT %, and template auto-fill. Tick **Include completed projects** if the project is marked Completed.
@@ -37,7 +37,7 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 
 ### How to Issue a Credit Note
 
-1. Go to **1. Generate Invoice**.
+1. Go to **Generate Invoice**.
 2. Toggle **Document type** to **Credit Note**.
 3. *(Optional)* Enter the **Invoice No being credited** (reference only — appears as a caption in the log).
 4. Select client and project as normal.
@@ -50,11 +50,11 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 ### How to Record a Payment on an Invoice
 
 **Full payment:**
-1. Go to **2. Invoice Log**.
+1. Go to **1. Invoice Log**.
 2. Find the invoice and click **✓ Pay** — records a full payment for the remaining balance with today's date.
 
 **Partial payment:**
-1. Go to **2. Invoice Log**.
+1. Go to **1. Invoice Log**.
 2. Find the invoice and click **± Part.** to open the inline payment form.
 3. Enter the **amount received**, the **date**, and an optional **note**.
 4. Click **Record Payment** — invoice status changes to Partial and the Balance updates.
@@ -68,14 +68,14 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 ### How to Add a New Client and Project
 
 **Option A — Add New Project page (recommended for new engagements):**
-1. Go to **4. Add New Project**.
+1. Go to **3. Add New Project**.
 2. In **Section 1 — Client**, toggle to **Create new client** and fill in: name, billing name, client code, VAT number, client type, and country.
 3. In **Section 2 — Project**, fill in: project name, description, VAT %, template, and status.
 4. In **Section 3 — Project Codes**, enter at least one billing code row (suffix, budget, status). Click **+ Add row** for additional codes.
 5. Click **Import to Database** — creates only missing records (safe to re-run).
 
 **Option B — Clients & Projects page (for editing existing data):**
-1. Go to **3. Clients & Projects**.
+1. Go to **2. Clients & Projects**.
 2. Use the **Clients tab** to add or edit client details.
 3. Use the **Projects tab** to add or edit projects within a client.
 
@@ -83,7 +83,7 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 
 ### How to Add a Project Code to an Existing Project
 
-1. Go to **5. Project Codes**.
+1. Go to **4. Project Codes**.
 2. Select the **client** and **project**.
 3. Fill in the **suffix**, budget, optional date range, and status.
 4. Click **Add Project Code**.
@@ -97,7 +97,7 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 
 ### How to Add a Prospect to the Pipeline
 
-1. Go to **6. Pipeline / CRM**.
+1. Go to **5. Pipeline / CRM**.
 2. Click **➕ Add Prospect** to expand the form.
 3. Fill in: **Company name** (required), opportunity name, description, country, stage, budget min/est/max, and probability %.
 4. Click **Add Prospect** — the entry appears in the pipeline table immediately.
@@ -107,7 +107,7 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 
 ### How to Convert a Prospect to a Project (When Won)
 
-1. Go to **6. Pipeline / CRM**.
+1. Go to **5. Pipeline / CRM**.
 2. Scroll to **Prospect Actions** at the bottom.
 3. Select the prospect from the dropdown.
 4. Click **Convert to Project →** — the app navigates to **4. Add New Project** with the company name, opportunity name, and description pre-filled.
@@ -118,7 +118,7 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 
 ### How to Set Up a Recurring Fee
 
-1. Go to **10. Project Overview**.
+1. Go to **7. Project Overview**.
 2. Find the project and expand the relevant **project code**.
 3. Scroll to the **Recurring Fees** sub-section.
 4. In the **Add Fee** tab, fill in: description, base fee amount, fee type (Fixed / Indexed), frequency, coverage start date, billing type, and any split details for third-party fees.
@@ -130,14 +130,14 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 ### How to Invoice a Recurring Fee Occurrence
 
 **Via Generate Invoice (recommended):**
-1. Go to **0. Generate Invoice**.
+1. Go to **Generate Invoice**.
 2. Select the client and project.
 3. The **Link to recurring fee occurrence** selectbox (if shown) lists pending we-bill occurrences. Select the one to invoice — the amount pre-fills.
 4. Adjust the date and other fields as needed, then click **Generate Invoice**.
 5. The occurrence is automatically marked as invoiced.
 
 **Manually (if already invoiced outside the app):**
-1. Go to **18. Recurring Fees**.
+1. Go to **12. Recurring Fees**.
 2. Find the fee and expand it.
 3. In the **Mark as invoiced manually** section, select the occurrence and enter the invoice reference.
 4. Click **Mark Invoiced**.
@@ -157,7 +157,7 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 ### How to Prepare the Annual Billing Basis
 
 **Auto (from imported time entries):**
-1. Go to **11. Billing Basis**.
+1. Go to **13. Billing Basis**.
 2. Select the **Financial Year** and filter by **Consultant Team** (defaults to Local).
 3. Click **Load from Time Tracking** — preview table and monthly rate breakdown appear.
 4. Review the **Avg Annual Rate** pre-filled from the weighted average of NonZ Rate across all periods. Edit if needed — this rate is used for the Productivity Bonus % calculation.
@@ -165,7 +165,7 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 6. Click **Save Auto Basis**.
 
 **Manual entry:**
-1. Go to **11. Billing Basis → Manual Entry tab**.
+1. Go to **13. Billing Basis → Manual Entry tab**.
 2. Fill in billing amounts for each consultant: Billed, Capped Paid Prebill, Capped Unpaid Prebill, Charged Off, Paid, Unbilled.
 3. Enter **Avg Annual Rate €/hr** (from the Auto tab monthly breakdown, or from an external source) and **Hourly Rate (reference)**.
 4. The computed summary updates live — verify Grand Total, Basis for Bonus, and Productivity Bonus %.
@@ -181,10 +181,10 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 ### How to Run the Annual Review for a Consultant
 
 1. Complete the billing basis first (see above). The review reads from the saved basis automatically.
-2. Go to **11. Billing Basis → Saved Basis tab** and confirm the correct source has ✓ for the consultant.
-3. Go to **12. Consultant Profiles**. Select the consultant and confirm the profile is up to date (employment date, status, level, tools).
+2. Go to **13. Billing Basis → Saved Basis tab** and confirm the correct source has ✓ for the consultant.
+3. Go to **14. Consultant Profiles**. Select the consultant and confirm the profile is up to date (employment date, status, level, tools).
 4. In the **Salary History tab**, add or edit the year record: starting salary (auto-carried from prior year), exams passed, discretionary raise, objective bonus %, proposed rate.
-5. Go to **13. Annual Review**. Select the consultant and review year.
+5. Go to **15. Annual Review**. Select the consultant and review year.
 6. **Section 1 — Compensation**: review the auto-computed productivity bonus %, adjust inputs if needed, click **Save Compensation**.
 7. **Section 2 — Performance Scores**: enter scores 1.0–4.0 for each item across the three groups. Click **Save All Scores**.
 8. **Section 3 — Summary**: review the formatted summary card. Click **Export Review to Excel** if needed.
@@ -193,7 +193,7 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 
 ### How to Generate the ICEE Feedback Form
 
-1. Complete Section 1 (Compensation) and Section 2 (Scores) for the consultant on **13. Annual Review** first.
+1. Complete Section 1 (Compensation) and Section 2 (Scores) for the consultant on **15. Annual Review** first.
 2. Expand **Section 4 — Feedback Form Export**.
 3. In **Sub-section A**, review the project breakdown auto-filled from time entries:
    - Adjust **Colleagues involved** and **Teams involved** fields if needed.
@@ -208,7 +208,7 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 
 Use this workflow when a project is finished and you want to ensure the financial record is clean before archiving it.
 
-1. Go to **8. Project Overview**.
+1. Go to **7. Project Overview**.
 2. Scroll down to the **Project Close-out** section (below the Export button).
 3. Select the project from the dropdown — any status (Active, On Hold, Completed) can be selected.
 4. Review the five metrics: **Budget**, **Time Charges**, **Invoiced**, **Write-offs**, and **Unrecovered Gap**.
@@ -248,7 +248,7 @@ That is everything. No other data needs to be backed up.
 
 For corrections not covered by the UI (wrong invoice number, duplicate row, typo in a name):
 1. Download **DB Browser for SQLite** from [sqlitebrowser.org](https://sqlitebrowser.org/dl/) — free Windows installer.
-2. Go to **14. Data Tables** in the app and note the full database file path shown there.
+2. Go to **16. Data Tables** in the app and note the full database file path shown there.
 3. Open the `.db` file in DB Browser → browse to the relevant table → double-click any cell to edit.
 4. Click **Write Changes** when done. The app reflects the change immediately on next page load.
 
@@ -264,13 +264,13 @@ The landing page after sign-in. Use the **left sidebar** to navigate between pag
 
 ---
 
-### How to Use
+### 18. How to Use
 
 A brief in-app orientation page with page summaries, a "Where to go for each edit" quick-reference table, and step-by-step How To guides for all major activities.
 
 ---
 
-### Page 1 — Generate Invoice
+### Generate Invoice
 
 **What it does:** Fills a Word template with invoice details, saves it to the `exports/` folder, and offers a download button. Also supports Credit Notes.
 
@@ -297,7 +297,7 @@ A brief in-app orientation page with page summaries, a "Where to go for each edi
 
 ---
 
-### Page 2 — Invoice Log
+### 1. Invoice Log
 
 **What it does:** Shows all recorded invoices and credit notes with sorting, filters, payment tracking, and per-row file download. A second tab lets you bulk-upload historical invoices.
 
@@ -342,7 +342,7 @@ Use this when you need to load several historical invoices at once.
 
 ---
 
-### Page 3 — Clients & Projects
+### 2. Clients & Projects
 
 **What it does:** Manages client and project master data.
 
@@ -361,7 +361,7 @@ Use this when you need to load several historical invoices at once.
 
 ---
 
-### Page 4 — Add New Project
+### 3. Add New Project
 
 **What it does:** A single flat form that creates a client (if new), a project, and any number of project codes in one step.
 
@@ -373,11 +373,11 @@ Use this when you need to load several historical invoices at once.
 
 **Click Import to Database** — the app creates only what is missing. It is safe to run multiple times; no duplicates are created.
 
-**When to use instead of Page 3:** Use Page 4 when you are setting up an entirely new engagement, or when converting a pipeline prospect to a live project. Use Page 3 when you need to edit an existing client or project's details.
+**When to use instead of 2. Clients & Projects:** Use **3. Add New Project** when you are setting up an entirely new engagement, or when converting a pipeline prospect to a live project. Use **2. Clients & Projects** when you need to edit an existing client or project's details.
 
 ---
 
-### Page 5 — Project Codes
+### 4. Project Codes
 
 **What it does:** Manages billing codes (client suffix) for each project. Each code has its own budget, date range, and status.
 
@@ -391,7 +391,7 @@ The `client_code` portion (e.g. `0478EUR30`) is set automatically from the clien
 
 ---
 
-### Page 6 — Pipeline / CRM
+### 5. Pipeline / CRM
 
 **What it does:** Tracks prospects and active business opportunities from first contact through to a live project. Prospects can be added with minimal information — no client record or project setup is required until the engagement is won.
 
@@ -434,7 +434,7 @@ When at least one standalone prospect exists, a **Prospect Actions** section app
 
 **Convert to Project →**
 1. Select the prospect from the dropdown.
-2. Click **Convert to Project →** — the app navigates to **Page 4 — Add New Project** with the company name, opportunity name, and description pre-filled.
+2. Click **Convert to Project →** — the app navigates to **3. Add New Project** with the company name, opportunity name, and description pre-filled.
 3. Complete the remaining details (client code, VAT, project codes, etc.) and click **Import to Database**.
 4. The pipeline entry is automatically linked to the new project and its stage advances to Active if it was previously Prospect.
 
@@ -443,15 +443,20 @@ When at least one standalone prospect exists, a **Prospect Actions** section app
 
 ---
 
-### Page 7 — Dashboard
+### 6. Pipeline Financial
 
-**What it does:** High-level financial overview.
+**What it does:** A financial overview dashboard anchored to pipeline and project-level data.
 
-Shows metrics for the current year: invoiced total, VAT, gross, and pipeline forecast (probability-weighted min/est/max).
+Shows:
+- Budget vs billed charges vs invoiced amounts by pipeline stage.
+- Probability-weighted revenue forecast by client and consultant group.
+- Stage distribution summary.
+
+Read-only. Use **5. Pipeline / CRM** to update pipeline entries.
 
 ---
 
-### Page 8 — Project Overview
+### 7. Project Overview
 
 **What it does:** Full project-level financial summary across all clients.
 
@@ -496,7 +501,15 @@ A green "fully reconciled" banner appears when the gap reaches zero or below.
 
 ---
 
-### Page 9 — Time Tracking
+### 8. Revenue Dashboard
+
+**What it does:** High-level financial overview.
+
+Shows metrics for the current year: invoiced total, VAT, gross, and pipeline forecast (probability-weighted min/est/max).
+
+---
+
+### 9. Time Tracking
 
 **What it does:** Imports monthly time-charge reports and provides rollup views.
 
@@ -544,7 +557,7 @@ A green "fully reconciled" banner appears when the gap reaches zero or below.
 
 ---
 
-### Page 10 — Write-offs
+### 10. Write-offs
 
 **What it does:** Records write-offs against projects (reductions in billable amount).
 
@@ -557,7 +570,52 @@ A green "fully reconciled" banner appears when the gap reaches zero or below.
 
 ---
 
-### Page 11 — Billing Basis
+### 11. Receivables
+
+**What it does:** Manages inter-office income — amounts owed to Milliman Cyprus from other Milliman entities for shared projects.
+
+Receivable projects use `billing_arrangement = receivable` on the project. They have no invoices generated by this app; instead, the agreed split is tracked here and payments are recorded as they arrive.
+
+**Summary strip:** Total expected, total received, outstanding balance, overdue count.
+
+**Filters:** Project selector (multiselect); toggle to show settled receivables.
+
+**Per-receivable expander:** Shows expected amount, due date, type (capped / time-based), outstanding balance, and payment history. Actions:
+
+- **Record Payment** — enter amount, date, and optional note. Each receipt reduces the outstanding balance.
+- **Edit** — update the expected amount, due date, cap amount, or notes.
+
+**Add Receivable section** (at the bottom of the page):
+1. Select the **project** (only receivable-type projects are shown) — the selector is outside the form to allow dynamic filtering.
+2. Optionally select a **project code** and link to a **recurring fee occurrence**.
+3. Fill in: description, expected amount, due date, type (capped / time-based), cap amount, notes.
+4. Click **Add Receivable**.
+
+---
+
+### 12. Recurring Fees
+
+**What it does:** A cross-project view of all active recurring fees. Use this page to monitor upcoming billing, skip occurrences, and record manual invoicing. To add or edit fees, go to **7. Project Overview**.
+
+**Summary metrics:** Active fee count, overdue occurrences, fees due within 30 days, we-bill vs third-party split.
+
+**Overdue alert:** A red banner appears when any fee has a past-due pending occurrence.
+
+**Filters:** Client (multiselect), Project (multiselect), Billing type (multiselect: We bill client / Third-party bills us).
+
+**Per-fee expander:** Expanded automatically for overdue fees. Shows:
+- Metrics: billing type, frequency, base fee, invoiced/pending occurrence counts.
+- Split info for third-party fees (split party and our share for the next period).
+- Project code, coverage start, expected end, notes.
+- **Upcoming (pending):** Next 6 pending occurrences. Each has an editable Amount (€) and Split (€) with a **💾 Save** button and a **Skip** button. A warning caption is shown for past-dated pending occurrences.
+- **History:** Last 5 non-pending occurrences (invoiced / skipped) with date, status, and amount.
+- **Mark as invoiced manually:** Select a pending occurrence and enter an invoice reference to mark it invoiced without going through the Generate Invoice flow. Use this only for invoices issued outside the app.
+
+**Summary Table:** Below all the expanders, a flat table lists every visible fee with key columns — client, project, description, billing type, frequency, base fee, next due date, next amount, invoiced count, pending count, and expected end.
+
+---
+
+### 13. Billing Basis
 
 **What it does:** Annual billing summary per consultant, used as the basis for productivity-bonus calculation. Two independent sources can be stored per consultant per year — Auto (from imported time entries) and Manual (hand-entered). Only one source is used for the Annual Review; you choose which one explicitly.
 
@@ -610,7 +668,7 @@ Using the Avg Annual Rate instead of a fixed Hourly Rate accounts for mid-year b
 
 ---
 
-### Page 12 — Consultant Profiles
+### 14. Consultant Profiles
 
 **What it does:** Extended master data and salary history per consultant.
 
@@ -625,15 +683,15 @@ Using the Avg Annual Rate instead of a fixed Hourly Rate accounts for mid-year b
 
 - **Rates by Year:** Side-by-side view of two rates per year:
   - **Proposed Rate for following year (€/hr)** — the rate entered in Salary History, intended as the proposed billing rate for the *next* year.
-  - **Billing Basis Rate (€/hr)** — the hourly rate saved on the Billing Basis record for that year (used to convert billing amounts into Equivalent Hours). This is populated when you save a billing basis entry on Page 11.
+  - **Billing Basis Rate (€/hr)** — the hourly rate saved on the Billing Basis record for that year (used to convert billing amounts into Equivalent Hours). This is populated when you save a billing basis entry on **13. Billing Basis**.
 
 ---
 
-### Page 13 — Annual Review
+### 15. Annual Review
 
 **What it does:** Per-consultant annual assessment form combining compensation, performance scores, and a formatted review summary.
 
-**Scope:** This page is restricted to **Local + Active** consultants only. To make a consultant visible here, ensure they are in the Local group and have Status = Active in the Consultant Groups tab (Page 9). Inactive Local consultants and all non-Local consultants are excluded.
+**Scope:** This page is restricted to **Local + Active** consultants only. To make a consultant visible here, ensure they are in the Local group and have Status = Active in the Consultant Groups tab (**9. Time Tracking**). Inactive Local consultants and all non-Local consultants are excluded.
 
 **Selector:** Consultant selectbox showing all active Local employees.
 
@@ -682,7 +740,7 @@ Using the Avg Annual Rate instead of a fixed Hourly Rate accounts for mid-year b
 
 ---
 
-### Page 14 — Data Tables
+### 16. Data Tables
 
 **What it does:** Direct view of all underlying database tables for inspection and editing.
 
@@ -690,71 +748,11 @@ Use the tabs to switch between tables. The **"Open DB"** button shows the full p
 
 ---
 
-### Page 15 — Field Definitions
+### 17. Field Definitions
 
 **What it does:** In-app reference page listing all field names and their meanings across every section of the app.
 
 Organised by topic area (Invoices, Projects, Time Tracking, Billing Basis, Annual Review, etc.). Use this page when you encounter an unfamiliar field name or want to confirm the exact meaning of a billing column. No actions available — read-only reference.
-
----
-
-### Page 16 — Pipeline Dashboard
-
-**What it does:** A financial overview dashboard anchored to pipeline and project-level data.
-
-Shows:
-- Budget vs billed charges vs invoiced amounts by pipeline stage.
-- Probability-weighted revenue forecast by client and consultant group.
-- Stage distribution summary.
-
-Read-only. Use Page 6 (Pipeline / CRM) to update pipeline entries.
-
----
-
-### Page 17 — Receivables
-
-**What it does:** Manages inter-office income — amounts owed to Milliman Cyprus from other Milliman entities for shared projects.
-
-Receivable projects use `billing_arrangement = receivable` on the project. They have no invoices generated by this app; instead, the agreed split is tracked here and payments are recorded as they arrive.
-
-**Summary strip:** Total expected, total received, outstanding balance, overdue count.
-
-**Filters:** Project selector (multiselect); toggle to show settled receivables.
-
-**Per-receivable expander:** Shows expected amount, due date, type (capped / time-based), outstanding balance, and payment history. Actions:
-
-- **Record Payment** — enter amount, date, and optional note. Each receipt reduces the outstanding balance.
-- **Edit** — update the expected amount, due date, cap amount, or notes.
-
-**Add Receivable section** (at the bottom of the page):
-1. Select the **project** (only receivable-type projects are shown) — the selector is outside the form to allow dynamic filtering.
-2. Optionally select a **project code** and link to a **recurring fee occurrence**.
-3. Fill in: description, expected amount, due date, type (capped / time-based), cap amount, notes.
-4. Click **Add Receivable**.
-
----
-
-### Page 18 — Recurring Fees
-
-**What it does:** A cross-project view of all active recurring fees. Use this page to monitor upcoming billing, skip occurrences, and record manual invoicing. To add or edit fees, go to **Page 10 — Project Overview**.
-
-**Summary metrics:** Active fee count, overdue occurrences, fees due within 30 days, we-bill vs third-party split.
-
-**Overdue alert:** A red banner appears when any fee has a past-due pending occurrence.
-
-**Filters:** Client (multiselect), Project (multiselect), Billing type (multiselect: We bill client / Third-party bills us).
-
-**Per-fee expander:** Expanded automatically for overdue fees. Shows:
-- Metrics: billing type, frequency, base fee, invoiced/pending occurrence counts.
-- Split info for third-party fees (split party and our share for the next period).
-- Project code, coverage start, expected end, notes.
-- **Upcoming (pending):** Next 6 pending occurrences. Each has an editable Amount (€) and Split (€) with a **💾 Save** button and a **Skip** button. A warning caption is shown for past-dated pending occurrences.
-- **History:** Last 5 non-pending occurrences (invoiced / skipped) with date, status, and amount.
-- **Mark as invoiced manually:** Select a pending occurrence and enter an invoice reference to mark it invoiced without going through the Generate Invoice flow. Use this only for invoices issued outside the app.
-
-**Summary Table:** Below all the expanders, a flat table lists every visible fee with key columns — client, project, description, billing type, frequency, base fee, next due date, next amount, invoiced count, pending count, and expected end.
-
----
 
 ## Frequently Asked Questions
 
@@ -774,10 +772,10 @@ Copy `data/invoiceapp.db` and the `exports/` folder to a safe location. That is 
 Yes — set a **Date Start** on the new project code (YYYY-MM-DD). Time entries whose period falls on or after that date are automatically routed to the new project; earlier entries stay with the original. Leave Date End blank on both codes unless you want an explicit end date. Only one code per suffix may have a blank Date Start (the original first use).
 
 **How do I record a partial payment on an invoice?**
-In the Invoice Log (Page 2), click the **± Part.** button on the invoice row to open an inline form. Enter the amount received, the date, and an optional note. Click **Record Payment**. The invoice status changes to Partial, and the Balance € column updates to show the remaining amount. Repeat for subsequent receipts. Click **↩ Reset** to clear all payment records and revert to Outstanding.
+In **1. Invoice Log**, click the **± Part.** button on the invoice row to open an inline form. Enter the amount received, the date, and an optional note. Click **Record Payment**. The invoice status changes to Partial, and the Balance € column updates to show the remaining amount. Repeat for subsequent receipts. Click **↩ Reset** to clear all payment records and revert to Outstanding.
 
 **How do I issue a Credit Note?**
-On Page 1 — Generate Invoice, toggle **Document type** to Credit Note. Enter the net amount as a positive number (it is stored as negative automatically). Optionally enter the original Invoice No being credited. Click Generate. The credit note appears in the Invoice Log with a 🔄 icon and the referenced invoice number shown as a caption.
+On **Generate Invoice**, toggle **Document type** to Credit Note. Enter the net amount as a positive number (it is stored as negative automatically). Optionally enter the original Invoice No being credited. Click Generate. The credit note appears in the Invoice Log with a 🔄 icon and the referenced invoice number shown as a caption.
 
 **What do the client types mean?**
 - **managed** — standard consulting clients with full project tracking, budgets, and invoices.
@@ -785,19 +783,19 @@ On Page 1 — Generate Invoice, toggle **Document type** to Credit Note. Enter t
 - **internal** — non-billable overhead codes (e.g. internal projects, admin time). Project codes optional.
 
 **How do I add a prospect to the pipeline without creating a client or project first?**
-Go to **6. Pipeline / CRM** and click **➕ Add Prospect** at the top of the page. Fill in company name (required), opportunity name, description, country, stage, budgets, and probability. No client record, project, or billing codes are needed — these are created later when the prospect converts to a live engagement.
+Go to **5. Pipeline / CRM** and click **➕ Add Prospect** at the top of the page. Fill in company name (required), opportunity name, description, country, stage, budgets, and probability. No client record, project, or billing codes are needed — these are created later when the prospect converts to a live engagement.
 
 **How do I convert a pipeline prospect to a live project?**
-In the **Prospect Actions** section at the bottom of Page 6, select the prospect and click **Convert to Project →**. The app navigates to Page 4 — Add New Project with the company name, opportunity name, and description pre-filled. Complete the remaining fields and click **Import to Database** — the pipeline entry links back to the new project automatically and advances to Active stage.
+In the **Prospect Actions** section at the bottom of **5. Pipeline / CRM**, select the prospect and click **Convert to Project →**. The app navigates to **3. Add New Project** with the company name, opportunity name, and description pre-filled. Complete the remaining fields and click **Import to Database** — the pipeline entry links back to the new project automatically and advances to Active stage.
 
 **Why can't I see a consultant in the Billing Basis or Consultant Profiles page?**
 These pages default to the Local group filter. Use the Group radio at the top to switch to ICEE, Other, or All.
 
 **Why is a consultant missing from the Annual Review page?**
-The Annual Review only shows **Local + Active** consultants. Check two things: (1) the consultant is in the **Local** group, and (2) their **Status** is **Active**. Both are set in Page 9 — Time Tracking → Consultant Groups tab. Open the consultant's expander and confirm Group = Local and Status = Active, then Save.
+The Annual Review only shows **Local + Active** consultants. Check two things: (1) the consultant is in the **Local** group, and (2) their **Status** is **Active**. Both are set in **9. Time Tracking** → Consultant Groups tab. Open the consultant's expander and confirm Group = Local and Status = Active, then Save.
 
 **How do I mark a consultant as inactive without losing their data?**
-In Page 9 — Time Tracking → Consultant Groups tab, select the Local view, open the consultant's expander, change Status to **Inactive**, and click Save. Their data, time entries, billing history, and scores are fully preserved — they simply no longer appear in the Annual Review consultant dropdown.
+In **9. Time Tracking** → Consultant Groups tab, select the Local view, open the consultant's expander, change Status to **Inactive**, and click Save. Their data, time entries, billing history, and scores are fully preserved — they simply no longer appear in the Annual Review consultant dropdown.
 
 **Time-charge CSV import fails with a Unicode error — what do I do?**
 The importer automatically tries UTF-8, UTF-8-BOM, Windows-1252, and Latin-1 encodings in sequence. If your file was exported from Excel on Windows (common for files containing special characters such as en-dashes), it is likely Windows-1252 and will be handled automatically. If the import still fails, open the file in Excel and re-save it as CSV UTF-8.
@@ -812,7 +810,7 @@ Yes. Amount columns are stored as numbers internally and displayed with comma th
 The `billing_basis` table stores amounts at the consultant level, not per project. For all project-centric view modes (By Project and below), the app uses time-entry charges aggregated per project. This is noted in the UI. The consultant-level modes (By Consultant, By Group) use the saved Billing Basis amounts.
 
 **How does the Feedback Form Export work, and where is the file saved?**
-Section 4 on Page 13 (Annual Review) fills the ICEE Feedback Form Word template with data from the app: profile details, time entries for the year (for the project breakdown), saved performance scores (group averages), and the comments/development ideas you enter. The file is saved permanently to `exports/feedback_<Name>_<Year>.docx` and a download button is offered immediately. Comments and development ideas are also persisted in the database so they reload on the next visit.
+Section 4 on **15. Annual Review** fills the ICEE Feedback Form Word template with data from the app: profile details, time entries for the year (for the project breakdown), saved performance scores (group averages), and the comments/development ideas you enter. The file is saved permanently to `exports/feedback_<Name>_<Year>.docx` and a download button is offered immediately. Comments and development ideas are also persisted in the database so they reload on the next visit.
 
 **The Colleagues column in the Feedback Form shows too many names — can I edit it?**
 Yes. Section 4A shows all other consultants who billed to the same project in the same year. The app filters strictly: only consultants billing to project codes that actually belong to the specific project are included — consultants billing to the same client code under a different project are excluded. Names are shown as "Firstname Lastname", deduplicated, and the reviewed consultant's own name is removed automatically. The field is still editable before you click Save & Generate — trim or rewrite it as needed.

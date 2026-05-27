@@ -75,7 +75,7 @@ how_tos = [
     (
         "Issue an Invoice",
         [
-            "Go to **1. Generate Invoice**.",
+            "Go to **Generate Invoice**.",
             "Ensure **Document type** is set to **Invoice** (default).",
             "Select the **client** — address and VAT number auto-fill.",
             "Select the **project** — description, VAT %, and template auto-fill. Tick **Include completed projects** if needed.",
@@ -88,7 +88,7 @@ how_tos = [
     (
         "Issue a Credit Note",
         [
-            "Go to **1. Generate Invoice**.",
+            "Go to **Generate Invoice**.",
             "Toggle **Document type** to **Credit Note**.",
             "*(Optional)* Enter the **Invoice No being credited** — reference only, appears as a caption in the log.",
             "Select client and project as normal.",
@@ -100,7 +100,7 @@ how_tos = [
     (
         "Record a Payment on an Invoice",
         [
-            "Go to **2. Invoice Log**.",
+            "Go to **1. Invoice Log**.",
             "**Full payment:** click **✓ Pay** — records the full remaining balance with today's date.",
             "**Partial payment:** click **± Part.** → enter amount, date, and optional note → click **Record Payment**.",
             "Repeat partial payments for each subsequent receipt — each appears in the payment history below the row.",
@@ -110,7 +110,7 @@ how_tos = [
     (
         "Add a New Client and Project",
         [
-            "Go to **4. Add New Project**.",
+            "Go to **3. Add New Project**.",
             "**Section 1 — Client:** toggle to **Create new client** and fill in: name, billing name, client code, VAT number, client type (managed / external / internal), country.",
             "**Section 2 — Project:** fill in project name, description, VAT %, template, and status.",
             "**Section 3 — Project Codes:** add at least one billing code row (suffix, budget, status). Click **+ Add row** for additional codes. Codes are optional for external/internal clients.",
@@ -120,7 +120,7 @@ how_tos = [
     (
         "Add a Project Code to an Existing Project",
         [
-            "Go to **5. Project Codes**.",
+            "Go to **4. Project Codes**.",
             "Select the **client** and **project**.",
             "Fill in the **suffix**, budget, optional date range, and status.",
             "Click **Add Project Code**.",
@@ -130,7 +130,7 @@ how_tos = [
     (
         "Add a Prospect to the Pipeline",
         [
-            "Go to **6. Pipeline / CRM**.",
+            "Go to **5. Pipeline / CRM**.",
             "Click **➕ Add Prospect** to expand the form.",
             "Fill in: **Company name** (required), opportunity name, description, country, stage, budget min/est/max, probability %.",
             "Click **Add Prospect** — the entry appears in the pipeline table immediately.",
@@ -141,10 +141,10 @@ how_tos = [
     (
         "Convert a Prospect to a Project (When Won)",
         [
-            "Go to **6. Pipeline / CRM**.",
+            "Go to **5. Pipeline / CRM**.",
             "Scroll to **Prospect Actions** at the bottom of the page.",
             "Select the prospect from the dropdown.",
-            "Click **Convert to Project →** — navigates to **4. Add New Project** with company name, opportunity name, and description pre-filled.",
+            "Click **Convert to Project →** — navigates to **3. Add New Project** with company name, opportunity name, and description pre-filled.",
             "Complete the remaining fields: client code, VAT, client type, project codes, etc.",
             "Click **Import to Database** — the pipeline entry is automatically linked to the new project and its stage advances to Active.",
         ],
@@ -162,7 +162,7 @@ how_tos = [
     (
         "Prepare the Annual Billing Basis",
         [
-            "Go to **11. Billing Basis**. Select the **Financial Year** and filter by **Consultant Team** (defaults to Local).",
+            "Go to **13. Billing Basis**. Select the **Financial Year** and filter by **Consultant Team** (defaults to Local).",
             "**Auto tab:** click **Load from Time Tracking** → preview table and monthly rate breakdown appear.",
             "Review the **Avg Annual Rate** pre-filled from the weighted average NonZ Rate across all periods. Edit if needed — this rate drives the Productivity Bonus % calculation.",
             "Enter a **Hourly Rate (reference)** if different from the avg rate (used on Rates by Year view only).",
@@ -175,9 +175,9 @@ how_tos = [
         "Run the Annual Review for a Consultant",
         [
             "Confirm the billing basis is saved (see guide above) and the correct source has ✓ in **Saved Basis tab**.",
-            "Go to **12. Consultant Profiles**. Confirm profile is up to date (employment date, status, level, tools, languages).",
+            "Go to **14. Consultant Profiles**. Confirm profile is up to date (employment date, status, level, tools, languages).",
             "In **Salary History tab**, add or edit the year record: starting salary, exams passed, discretionary raise, objective bonus %, proposed rate.",
-            "Go to **13. Annual Review**. Select the consultant and review year.",
+            "Go to **15. Annual Review**. Select the consultant and review year.",
             "**Section 1 — Compensation:** review auto-computed productivity bonus %; adjust inputs if needed → **Save Compensation**.",
             "**Section 2 — Performance Scores:** score each item (1.0–4.0) across Professionalism, Management, Social Skills → **Save All Scores**.",
             "**Section 3 — Summary:** review the formatted card. **Export Review to Excel** if needed.",
@@ -186,7 +186,7 @@ how_tos = [
     (
         "Generate the ICEE Feedback Form",
         [
-            "Complete Section 1 (Compensation) and Section 2 (Scores) on **13. Annual Review** first.",
+            "Complete Section 1 (Compensation) and Section 2 (Scores) on **15. Annual Review** first.",
             "Expand **Section 4 — Feedback Form Export**.",
             "In **Sub-section A:** review the auto-filled project breakdown from time entries. Adjust Colleagues and Teams fields as needed. Set each project row to Include, Aggregate, or Exclude.",
             "In **Sub-section B:** fill Assessment Comments and Development Ideas for each performance area.",
@@ -197,7 +197,7 @@ how_tos = [
     (
         "Close Out a Project",
         [
-            "Go to **8. Project Overview** and scroll to the **Project Close-out** section (below the Export button).",
+            "Go to **7. Project Overview** and scroll to the **Project Close-out** section (below the Export button).",
             "Select the project from the dropdown — any status (Active, On Hold, Completed) is available.",
             "Review the five metrics: **Budget**, **Time Charges**, **Invoiced**, **Write-offs**, and **Unrecovered Gap**.",
             "If the gap is ≤ 0, a green banner confirms the project is fully reconciled — no action needed.",
@@ -212,14 +212,14 @@ how_tos = [
             "Copy `data/invoiceapp.db` — the complete database (all clients, projects, invoices, time entries, HR data).",
             "Copy the `exports/` folder — all generated invoice and feedback form files.",
             "That is everything. No other data needs to be backed up.",
-            "Tip: the full database path is shown on **14. Data Tables** for easy navigation.",
+            "Tip: the full database path is shown on **16. Data Tables** for easy navigation.",
         ],
     ),
     (
         "Fix a Data Error Directly",
         [
             "Download **DB Browser for SQLite** from sqlitebrowser.org — free Windows installer.",
-            "Go to **14. Data Tables** and note the full database file path shown there.",
+            "Go to **16. Data Tables** and note the full database file path shown there.",
             "Open the `.db` file in DB Browser → browse to the relevant table → double-click any cell to edit.",
             "Click **Write Changes** when done. The app reflects the change immediately on next page load.",
             "Note: editing CSV files in `DB_Tbls_Structure/` has **no effect** on the live database — those are export snapshots only.",
@@ -243,7 +243,7 @@ st.header("Page Overview")
 groups = {
     "Invoices": [
         (
-            "1. Generate Invoice",
+            "Generate Invoice",
             [
                 "Toggle **Document type**: Invoice (default) or **Credit Note** — credit notes store a negative amount and negate a previously issued invoice",
                 "For Credit Notes: optionally enter the original Invoice No being credited (reference only)",
@@ -263,7 +263,7 @@ groups = {
             ],
         ),
         (
-            "2. Invoice Log",
+            "1. Invoice Log",
             [
                 "**Sort** the table by Date, Invoice ID, Amount, Client, Status, or Type (asc / desc)",
                 "Filter by Year, Client, Project, Status, and free-text search",
@@ -286,7 +286,7 @@ groups = {
     ],
     "Clients & Projects": [
         (
-            "3. Clients & Projects",
+            "2. Clients & Projects",
             [
                 "**Clients tab**: add, edit, or delete clients — name, billing name, VAT number, client type, country, addresses",
                 "**Projects tab**: add, edit, or delete projects — description, VAT %, template, status, start date",
@@ -299,7 +299,7 @@ groups = {
             ],
         ),
         (
-            "4. Add New Project",
+            "3. Add New Project",
             [
                 "Fill in client (select existing or **create new**), project details, and project code rows in a single form",
                 "**Create new client** includes: name, billing name, client code, VAT number, **Client Type** (managed / external / internal), and **Country**",
@@ -315,7 +315,7 @@ groups = {
             ],
         ),
         (
-            "5. Project Codes",
+            "4. Project Codes",
             [
                 "Add a billing code (client_suffix) to a project — client_code derived from the client automatically",
                 "Set per-code budget, status, and optional Date Start / Date End for time-range scoping",
@@ -329,7 +329,7 @@ groups = {
     ],
     "Pipeline & Reporting": [
         (
-            "6. Pipeline / CRM",
+            "5. Pipeline / CRM",
             [
                 "**➕ Add Prospect**: enter company name, opportunity name, description, country, stage, budget min/est/max, probability — no client or project record required",
                 "Edit stage, value, budgets, probability, Opp. Country, and notes inline in the table → **Save changes**",
@@ -346,19 +346,17 @@ groups = {
             ],
         ),
         (
-            "7. Dashboard",
+            "6. Pipeline Financial",
             [],
             [
-                "Year selector; multiselect filters: Client Type, Country, Client",
-                "YTD revenue vs prior year (net, VAT, gross) with % change",
-                "Monthly revenue bar chart (net vs gross)",
-                "Revenue by client bar chart (with client-level multiselect filter)",
-                "VAT summary table by month with totals row",
-                "Pipeline forecast: probability-weighted min / est / max",
+                "Budget vs billed charges vs invoiced amounts by pipeline stage",
+                "Probability-weighted revenue forecast by client and consultant group",
+                "Stage distribution summary",
+                "Read-only — use **5. Pipeline / CRM** to update pipeline entries",
             ],
         ),
         (
-            "8. Project Overview",
+            "7. Project Overview",
             [
                 "Export the full project table to Excel",
                 "**Project Close-out:** select a project → review Budget / Time Charges / Invoiced / Write-offs / Gap → resolve via Add Invoice, Lump-sum Settlement, or Write Off",
@@ -370,6 +368,18 @@ groups = {
                 "Recurring / non-recurring radio filter; sortable columns (amounts sort numerically); pinned TOTAL row",
                 "Year-by-Year view with Sections multiselect (Invoiced, Time Charges, Budget — Recurring, Paid, Write-offs)",
                 "Close-out panel: Budget, Time Charges, Invoiced, Write-offs, and Unrecovered Gap per project; green 'reconciled' badge when gap ≤ 0",
+            ],
+        ),
+        (
+            "8. Revenue Dashboard",
+            [],
+            [
+                "Year selector; multiselect filters: Client Type, Country, Client",
+                "YTD revenue vs prior year (net, VAT, gross) with % change",
+                "Monthly revenue bar chart (net vs gross)",
+                "Revenue by client bar chart (with client-level multiselect filter)",
+                "VAT summary table by month with totals row",
+                "Pipeline forecast: probability-weighted min / est / max",
             ],
         ),
     ],
@@ -401,10 +411,39 @@ groups = {
                 "Log tab: all write-offs filterable by client/project, with reversed entries optionally shown",
             ],
         ),
+        (
+            "11. Receivables",
+            [
+                "Record a payment against a receivable (amount, date, optional note)",
+                "Edit receivable details — expected amount, due date, cap amount, notes",
+                "Add a new receivable — select project and code, link to recurring fee occurrence, set description/amount/due date/type",
+            ],
+            [
+                "Summary strip: total expected, total received, outstanding balance, overdue count",
+                "Per-receivable expander: expected amount, due date, type (capped / time-based), outstanding balance, payment history",
+                "Filter by project; toggle to show settled receivables",
+            ],
+        ),
+        (
+            "12. Recurring Fees",
+            [
+                "Skip individual occurrences",
+                "Mark an occurrence as invoiced manually (for invoices raised outside the app)",
+                "Edit individual occurrence amounts and splits inline",
+            ],
+            [
+                "Summary metrics: active fee count, overdue occurrences, fees due within 30 days, we-bill vs third-party split",
+                "Overdue alert banner for past-due pending occurrences",
+                "Filter by Client, Project, Billing type",
+                "Per-fee expander: upcoming (next 6 pending) and history (last 5) occurrences",
+                "Summary table: all visible fees with key columns (client, project, billing type, frequency, base fee, next due, next amount)",
+                "To add or edit fees, use **7. Project Overview** → Recurring Fees section per project code",
+            ],
+        ),
     ],
     "Annual Review": [
         (
-            "11. Billing Basis",
+            "13. Billing Basis",
             [
                 "Select **Financial Year** and filter by **Consultant Team** (Local / ICEE / Other / All) — defaults to Local",
                 "**Auto tab**: click **Load from Time Tracking** → preview table appears; expand **Monthly rate breakdown** to see NonZ Rate per period and the computed weighted **Avg Annual Rate**",
@@ -423,7 +462,7 @@ groups = {
             ],
         ),
         (
-            "12. Consultant Profiles",
+            "14. Consultant Profiles",
             [
                 "Filter by **Consultant Team** (Local / ICEE / Other / All) and **Employment Status** (Active / Inactive / All) — defaults to Local + Active",
                 "Record employment start date, prior experience, Milliman status, external level, languages, and tools",
@@ -438,7 +477,7 @@ groups = {
             ],
         ),
         (
-            "13. Annual Review",
+            "15. Annual Review",
             [
                 "Consultant dropdown shows only **Local + Active** consultants",
                 "Section 1 — Compensation: enter exams passed, other raise, objective bonus %, proposed rate → computed fields update live; productivity bonus uses Avg Annual Rate when set",
@@ -458,7 +497,7 @@ groups = {
     ],
     "Admin": [
         (
-            "14. Data Tables",
+            "16. Data Tables",
             [
                 "Open the database directly in **DB Browser for SQLite** (for edits not covered by the UI)",
                 "Open the database folder in File Explorer",
@@ -470,7 +509,7 @@ groups = {
             ],
         ),
         (
-            "15. Field Definitions",
+            "17. Field Definitions",
             [],
             [
                 "In-app reference for all field names and their meanings",
@@ -505,34 +544,34 @@ st.header("Where to Go for Each Edit")
 st.markdown("""
 | What you want to do | Where to go |
 |---|---|
-| Generate an invoice or credit note | **1. Generate Invoice** |
-| See completed projects in the invoice form | **1. Generate Invoice** → tick *Include completed projects* |
-| Record a full payment on an invoice | **2. Invoice Log** → **✓** button on the invoice row |
-| Record a partial payment | **2. Invoice Log** → **±** button → enter amount, date, note |
-| Clear payments and reset to Outstanding | **2. Invoice Log** → **↩ Reset** button |
-| Add a completely new project with client and codes | **4. Add New Project** |
-| Add a new external or internal client (no codes needed) | **4. Add New Project** → Create new client → set Client Type |
-| Client name / VAT / billing name / type / country | **3. Clients & Projects** → Clients tab → Edit |
-| Project description / VAT % / template / status | **3. Clients & Projects** → Projects tab → Edit |
-| Project code budget / date range | **5. Project Codes** → expand code → Edit |
-| Auto-set budgets for completed projects from invoiced amounts | **3. Clients & Projects** → Projects tab → *Admin: sync completed project budgets* expander |
-| Invoice allocation to project codes | **1. Generate Invoice** → Project Code Allocation expander |
-| Add a prospect (no client/project needed) | **6. Pipeline / CRM** → ➕ Add Prospect expander |
-| Update pipeline stage / estimated value / probability | **6. Pipeline / CRM** → edit row inline → Save changes |
-| Convert a prospect to a live project | **6. Pipeline / CRM** → Prospect Actions → Convert to Project → |
-| Delete a standalone prospect | **6. Pipeline / CRM** → Prospect Actions → 🗑 Delete Prospect |
+| Generate an invoice or credit note | **Generate Invoice** |
+| See completed projects in the invoice form | **Generate Invoice** → tick *Include completed projects* |
+| Record a full payment on an invoice | **1. Invoice Log** → **✓** button on the invoice row |
+| Record a partial payment | **1. Invoice Log** → **±** button → enter amount, date, note |
+| Clear payments and reset to Outstanding | **1. Invoice Log** → **↩ Reset** button |
+| Add a completely new project with client and codes | **3. Add New Project** |
+| Add a new external or internal client (no codes needed) | **3. Add New Project** → Create new client → set Client Type |
+| Client name / VAT / billing name / type / country | **2. Clients & Projects** → Clients tab → Edit |
+| Project description / VAT % / template / status | **2. Clients & Projects** → Projects tab → Edit |
+| Project code budget / date range | **4. Project Codes** → expand code → Edit |
+| Auto-set budgets for completed projects from invoiced amounts | **2. Clients & Projects** → Projects tab → *Admin: sync completed project budgets* expander |
+| Invoice allocation to project codes | **Generate Invoice** → Project Code Allocation expander |
+| Add a prospect (no client/project needed) | **5. Pipeline / CRM** → ➕ Add Prospect expander |
+| Update pipeline stage / estimated value / probability | **5. Pipeline / CRM** → edit row inline → Save changes |
+| Convert a prospect to a live project | **5. Pipeline / CRM** → Prospect Actions → Convert to Project → |
+| Delete a standalone prospect | **5. Pipeline / CRM** → Prospect Actions → 🗑 Delete Prospect |
 | Consultant group (Local / ICEE / Other) | **9. Time Tracking** → Consultant Groups tab |
-| Close out a project (verify + settle gap) | **8. Project Overview** → Project Close-out section |
+| Close out a project (verify + settle gap) | **7. Project Overview** → Project Close-out section |
 | Write-off reason / reversal | **10. Write-offs** → Log tab → Reverse button |
-| Annual billing amounts for bonus calc (auto) | **11. Billing Basis** → Auto tab → Load from Time Tracking → Save |
-| Annual billing amounts for bonus calc (manual) | **11. Billing Basis** → Manual Entry tab → fill amounts → Save |
-| Choose which billing basis source the Annual Review uses | **11. Billing Basis** → Saved Basis tab → source radio buttons at bottom → Save preferences |
-| Consultant employment / experience / tools | **12. Consultant Profiles** → Profile tab |
-| Salary record for a specific year | **12. Consultant Profiles** → Salary History tab → Add / Edit Year Record |
-| Performance scores for a review year | **13. Annual Review** → Section 2 — Performance Scores |
-| Generate the Feedback Form Word document | **13. Annual Review** → Section 4 → Save & Generate Feedback Form |
-| Look up what a field name means | **15. Field Definitions** |
-| Anything else (direct DB edit) | **14. Data Tables** → Open in DB Browser for SQLite |
+| Annual billing amounts for bonus calc (auto) | **13. Billing Basis** → Auto tab → Load from Time Tracking → Save |
+| Annual billing amounts for bonus calc (manual) | **13. Billing Basis** → Manual Entry tab → fill amounts → Save |
+| Choose which billing basis source the Annual Review uses | **13. Billing Basis** → Saved Basis tab → source radio buttons at bottom → Save preferences |
+| Consultant employment / experience / tools | **14. Consultant Profiles** → Profile tab |
+| Salary record for a specific year | **14. Consultant Profiles** → Salary History tab → Add / Edit Year Record |
+| Performance scores for a review year | **15. Annual Review** → Section 2 — Performance Scores |
+| Generate the Feedback Form Word document | **15. Annual Review** → Section 4 → Save & Generate Feedback Form |
+| Look up what a field name means | **17. Field Definitions** |
+| Anything else (direct DB edit) | **16. Data Tables** → Open in DB Browser for SQLite |
 """)
 
 st.info(
@@ -565,7 +604,7 @@ st.markdown("""
 | **internal client** | Non-billable overhead codes (e.g. internal projects, admin time). |
 | **Local group** | The Cyprus local team. Default filter on Billing Basis, Consultant Profiles, and Annual Review pages. |
 | **Prospect** | A pipeline entry with no linked client or project — added with minimal info when an engagement is not yet won. Converted to a project when won. |
-| **Active for Review** | The billing basis source (Auto or Manual) designated for use in the Annual Review for a given consultant and year. Set explicitly in the Saved Basis tab on Page 11. |
+| **Active for Review** | The billing basis source (Auto or Manual) designated for use in the Annual Review for a given consultant and year. Set explicitly in the Saved Basis tab on **13. Billing Basis**. |
 | **Avg Annual Rate** | Weighted average billing rate for the year: SUM(non_z_charges) / SUM(non_z_hours) from time entries. Used for the Productivity Bonus % calculation in preference to Hourly Rate. |
 | **Hourly Rate** | A reference/proposed billing rate stored on the billing basis record. Used for the bonus calc only when Avg Annual Rate is not set. Also shown on the Rates by Year view. |
 | **Effective Rate** | The rate actually used in the bonus calculation: Avg Annual Rate if set (> 0), otherwise Hourly Rate. |
