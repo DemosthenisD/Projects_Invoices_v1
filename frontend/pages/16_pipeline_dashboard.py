@@ -21,7 +21,7 @@ import pandas as pd
 from collections import defaultdict
 
 import backend.db as db
-from shared.ui import require_auth
+from shared.ui import require_auth, dataframe_with_total
 
 require_auth()
 
@@ -263,7 +263,6 @@ else:
     _tot_grp[group_by] = "TOTAL"
     _tot_grp["Entries"] = df_grp["Entries"].sum()
 
-    from shared.ui import dataframe_with_total
     dataframe_with_total(df_grp, _tot_grp, {c: "{:,.0f}" for c in _grp_num_cols})
 
 # ------------------------------------------------------------------
