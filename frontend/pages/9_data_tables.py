@@ -62,6 +62,47 @@ with btn2:
 st.divider()
 
 # ------------------------------------------------------------------
+# Backup
+# ------------------------------------------------------------------
+
+st.subheader("Backup")
+from backend.backup import create_backup, list_backups
+from shared.config import BACKUP_DIR
+
+st.caption(
+    "Creates a dated folder containing a consistent copy of the database (safe while the app is running) "
+    "and, optionally, the generated invoice files. Keeps the newest 30 backups. "
+    "Restoring means copying `invoiceapp.db` from a backup folder over `data/invoiceapp.db` with the app closed."
+)
+st.code(BACKUP_DIR)
+if "dropbox" in BACKUP_DIR.lower() or "dropbox" in DB_PATH.lower():
+    st.warning(
+        "The database lives inside Dropbox. Dropbox syncing a SQLite file while the app writes can create "
+        "conflicted copies. Consider setting `backup_dir` in `.streamlit/secrets.toml` to a folder outside "
+        "Dropbox so backups are not synced mid-write."
+    )
+b1, b2 = st.columns([1, 3])
+inc_exports = b2.checkbox("Include generated invoice files (exports/)", value=True, key="bk_exports")
+if b1.button("Backup now", type="primary", key="bk_go"):
+    try:
+        res = create_backup(include_exports=inc_exports)
+        ok = res["integrity"] == "ok"
+        (st.success if ok else st.error)(
+            f"Backup {'created' if ok else 'created but FAILED the integrity check'}: `{res['path']}` — "
+            f"database {res['db_bytes'] / 1e6:.1f} MB, {res['exports_files']} invoice file(s)"
+            + (f", removed {res['pruned']} old backup(s)" if res["pruned"] else "")
+        )
+    except Exception as e:
+        st.error(f"Backup failed: {e}")
+_bk = list_backups()
+if _bk:
+    st.caption(f"{len(_bk)} backup(s) stored. Latest: **{_bk[0]['name']}** ({_bk[0]['size'] / 1e6:.1f} MB)")
+else:
+    st.caption("No backups yet.")
+
+st.divider()
+
+# ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
 

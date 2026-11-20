@@ -57,6 +57,7 @@ st.sidebar.button("Sign out", on_click=_logout, use_container_width=True)
 pg = st.navigation(
     {
         "": [
+            st.Page("pages/19_action_centre.py",       title="Action Centre",          icon="🎯", default=True),
             st.Page("pages/0_generate_invoice.py",     title="Generate Invoice",       icon="📄"),
         ],
         "Invoices": [

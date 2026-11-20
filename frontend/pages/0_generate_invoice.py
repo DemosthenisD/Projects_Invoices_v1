@@ -9,6 +9,7 @@ Flow:
 """
 import sys
 import os
+from contextlib import nullcontext
 from datetime import date as date_type
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -67,6 +68,24 @@ def _invoices():
 
 
 # ------------------------------------------------------------------
+# Pre-fill coming from another page (e.g. "Invoice this" on a billing reminder)
+# ------------------------------------------------------------------
+
+_pf = st.session_state.pop("gi_prefill", None)
+_pf_expand = False
+if _pf:
+    _pf_proj = next((x for x in db.get_projects() if x.id == _pf["project_id"]), None)
+    _pf_client = next((x for x in _clients() if _pf_proj and x.id == _pf_proj.client_id), None)
+    if _pf_proj and _pf_client:
+        st.session_state["gi_doc_type"] = "Invoice"
+        st.session_state["gi_mode"] = "Quick search"
+        st.session_state["gi_incl"] = _pf_proj.status != "Active"
+        st.session_state["gi_quick_sel"] = f"{_pf_client.name} — {_pf_proj.name}"
+        if _pf.get("occurrence_id"):
+            st.session_state["gen_inv_occ"] = int(_pf["occurrence_id"])
+            _pf_expand = True
+
+# ------------------------------------------------------------------
 # Selection mode
 # ------------------------------------------------------------------
 
@@ -76,16 +95,20 @@ doc_type = col_type.radio(
     ["Invoice", "Credit Note"],
     horizontal=True,
     help="Credit Notes are stored with negative amounts and negate a previously issued invoice.",
+    key="gi_doc_type",
 )
 selection_mode = col_mode.radio(
     "Start from:",
-    ["Client → Project", "Project → Client"],
+    ["Client → Project", "Project → Client", "Quick search"],
     horizontal=True,
+    key="gi_mode",
+    help="Quick search: one searchable Client — Project box, recent projects, and collapsed details.",
 )
 include_completed = col_comp.checkbox(
     "Include completed projects",
     value=False,
     help="Show Active, On Hold, and Completed projects (not just Active).",
+    key="gi_incl",
 )
 
 if doc_type == "Credit Note":
@@ -118,7 +141,41 @@ if not all_clients:
 # Step 1 — Client or Project (depending on mode)
 # ------------------------------------------------------------------
 
-if selection_mode == "Project → Client":
+_quick = selection_mode == "Quick search"
+
+if _quick:
+    all_projs = _all_projects(include_completed)
+    if not all_projs:
+        st.error("No active projects found.")
+        st.stop()
+    client_by_id = {c.id: c for c in all_clients}
+
+    def _plabel(p):
+        return f"{client_by_id[p.client_id].name} — {p.name}" if p.client_id in client_by_id else p.name
+
+    by_label = {_plabel(p): p for p in all_projs}
+    proj_labels = sorted(by_label)
+
+    _recent: list[str] = []
+    for _i in sorted(_invoices(), key=lambda x: x.id, reverse=True):
+        _rp = next((p for p in all_projs if p.id == _i.project_id), None)
+        if _rp and _plabel(_rp) not in _recent:
+            _recent.append(_plabel(_rp))
+        if len(_recent) == 5:
+            break
+    if _recent:
+        st.caption("Recently invoiced - click to select:")
+        for _col, _lab in zip(st.columns(len(_recent)), _recent):
+            if _col.button(_lab, key=f"gi_recent_{_lab}", use_container_width=True):
+                st.session_state["gi_quick_sel"] = _lab
+    if st.session_state.get("gi_quick_sel") not in by_label:
+        st.session_state.pop("gi_quick_sel", None)
+    selected_label = st.selectbox("Client — Project (click and type to search)", proj_labels, key="gi_quick_sel")
+    project = by_label[selected_label]
+    client = client_by_id[project.client_id]
+    selected_project_name = project.name
+
+elif selection_mode == "Project → Client":
     all_projs = _all_projects(include_completed)
     if not all_projs:
         st.error("No active projects found.")
@@ -165,50 +222,58 @@ else:
         selected_project_name = st.text_input("Project name", value="")
         project = None
 
-col1, col2 = st.columns(2)
+_details = (st.expander("Invoice details (auto-filled from client & project) - click to review or edit")
+            if _quick else nullcontext())
+with _details:
+    col1, col2 = st.columns(2)
 
-with col1:
-    addresses = _addresses(client.id)
-    address_options = [
-        "\n".join(line.rstrip() for line in a.address.splitlines())
-        for a in addresses
-    ]
-    if address_options:
-        address = st.selectbox("Address", address_options)
+    with col1:
+        addresses = _addresses(client.id)
+        address_options = [
+            "\n".join(line.rstrip() for line in a.address.splitlines())
+            for a in addresses
+        ]
+        if address_options:
+            address = st.selectbox("Address", address_options)
+        else:
+            address = st.text_input("Address", placeholder="Enter billing address")
+
+    with col2:
+        vat_no = st.text_input("Client VAT No", value=client.vat_number or "")
+
+    # ------------------------------------------------------------------
+    # Step 2 — Defaults from project
+    # ------------------------------------------------------------------
+
+    if project:
+        default_description = project.description
+        default_vat_pct = project.vat_pct
+        default_template = project.template
     else:
-        address = st.text_input("Address", placeholder="Enter billing address")
+        default_description = ""
+        default_vat_pct = 0.0
+        default_template = "template1_v3"
 
-with col2:
-    vat_no = st.text_input("Client VAT No", value=client.vat_number or "")
+    description = st.text_area("Description (shown on invoice)", value=default_description, height=80)
+    comment = st.text_input("Internal comment (not shown on invoice)", placeholder="e.g. PO reference, notes for accounting…")
 
-# ------------------------------------------------------------------
-# Step 2 — Defaults from project
-# ------------------------------------------------------------------
-
-if project:
-    default_description = project.description
-    default_vat_pct = project.vat_pct
-    default_template = project.template
-else:
-    default_description = ""
-    default_vat_pct = 0.0
-    default_template = "template1_v3"
-
-description = st.text_area("Description (shown on invoice)", value=default_description, height=80)
-comment = st.text_input("Internal comment (not shown on invoice)", placeholder="e.g. PO reference, notes for accounting…")
-
-col1, col2 = st.columns(2)
-with col1:
-    vat_pct = st.number_input("VAT %", min_value=0.0, max_value=100.0,
-                               value=float(default_vat_pct or 0.0), step=1.0)
-with col2:
-    available_templates = list_templates()
-    template_index = (
-        available_templates.index(default_template)
-        if default_template and default_template in available_templates
-        else 0
+    col1, col2 = st.columns(2)
+    with col1:
+        vat_pct = st.number_input("VAT %", min_value=0.0, max_value=100.0,
+                                   value=float(default_vat_pct or 0.0), step=1.0)
+    with col2:
+        available_templates = list_templates()
+        template_index = (
+            available_templates.index(default_template)
+            if default_template and default_template in available_templates
+            else 0
+        )
+        template_name = st.selectbox("Invoice Template", available_templates, index=template_index)
+if _quick:
+    st.caption(
+        f"Using: VAT {vat_pct:.0f}% · template **{template_name}** · "
+        f"address: {(address or '—').splitlines()[0] if address else '—'}"
     )
-    template_name = st.selectbox("Invoice Template", available_templates, index=template_index)
 
 # ------------------------------------------------------------------
 # Step 2b — Link to recurring fee occurrence (optional)
@@ -226,7 +291,7 @@ if project and doc_type == "Invoice":
     pending_occ = _pending_we_bill(project.id)
 
     if pending_occ:
-        with st.expander("Link to Recurring Fee Occurrence (optional)", expanded=False):
+        with st.expander("Link to Recurring Fee Occurrence (optional)", expanded=_pf_expand):
             st.caption(
                 "Select a pending occurrence to pre-fill the amount and automatically "
                 "mark it as invoiced when this invoice is saved."
@@ -290,6 +355,13 @@ with col4:
         value=invoice_ref,
         disabled=True,
         help="This is how the Invoice No will appear on the invoice document.",
+    )
+
+_dup_id = bool(invoice_number.strip()) and db.invoice_number_exists(year, invoice_number)
+if _dup_id:
+    st.error(
+        f"Invoice ID {invoice_number.strip()}/{year} is already used by another invoice. "
+        f"Next free ID: {db.get_next_invoice_number(year)}."
     )
 
 vat_amount = round(amount * vat_pct / 100, 2)
@@ -364,6 +436,9 @@ st.caption(
 if generate_clicked:
     if not amount:
         st.error("Amount must be greater than zero.")
+        st.stop()
+    if _dup_id:
+        st.error("Invoice ID already in use - change it before generating.")
         st.stop()
 
     # Credit notes: flip sign so stored amounts are negative

@@ -6,6 +6,9 @@ data/invoiceapp.db
 
 # Generated invoice files
 exports/
+
+# Database backups (contain all sensitive data)
+backups/
 __pycache__/
 *.pyc
 *.pyo

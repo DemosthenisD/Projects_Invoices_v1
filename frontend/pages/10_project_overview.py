@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import streamlit as st
 import pandas as pd
 import backend.db as db
-from shared.ui import dataframe_with_total, require_auth
+from shared.ui import dataframe_with_total, faceted_filters, require_auth
 
 require_auth()
 
@@ -47,52 +47,29 @@ years: list[int] = [cy - i for i in range(4)]
 # Filters — row 1: Client, Status, Source
 # ------------------------------------------------------------------
 
-all_clients  = sorted(df["client"].unique())
-all_statuses = sorted(df["status"].unique())
-all_sources  = sorted(df["project_source"].unique())
-all_types    = sorted(df["client_type"].unique())
-all_groups   = sorted({g for cell in df["groups_with_hours"] for g in cell.split(",") if g})
-all_consults = sorted({c for cell in df["consultants_with_hours"] for c in cell.split(",") if c})
-
-col1, col2, col3 = st.columns(3)
-with col1:
-    client_sel = st.multiselect("Client", all_clients)
-with col2:
-    status_sel = st.multiselect("Status", all_statuses, default=["Active"])
-with col3:
-    source_sel = st.multiselect("Milliman Office", all_sources)
-
-col4, col5, col6, col7 = st.columns(4)
-with col4:
-    type_sel = st.multiselect("Client Type", all_types)
-with col5:
-    group_sel = st.multiselect("Consultant Team", all_groups)
-with col6:
-    consult_sel = st.multiselect("Consultant", all_consults)
-with col7:
+_split = lambda v: [x for x in v.split(",") if x]
+_fcols = st.columns(3)
+_fcols2 = st.columns(4)
+_match = faceted_filters(
+    df.to_dict("records"),
+    [
+        {"key": "po_client", "label": "Client",          "get": lambda r: r["client"]},
+        {"key": "po_status", "label": "Status",          "get": lambda r: r["status"], "default": ["Active"]},
+        {"key": "po_source", "label": "Milliman Office", "get": lambda r: r["project_source"]},
+        {"key": "po_type",   "label": "Client Type",     "get": lambda r: r["client_type"]},
+        {"key": "po_group",  "label": "Consultant Team", "get": lambda r: _split(r["groups_with_hours"])},
+        {"key": "po_consult","label": "Consultant",      "get": lambda r: _split(r["consultants_with_hours"])},
+    ],
+    cols=[_fcols[0], _fcols[1], _fcols[2], _fcols2[0], _fcols2[1], _fcols2[2]],
+)
+with _fcols2[3]:
     recur_sel = st.radio(
         "Recurring",
         ["All", "Recurring only", "Non-recurring only"],
         horizontal=False, key="po_recur_filter",
     )
 
-filtered = df.copy()
-if client_sel:
-    filtered = filtered[filtered["client"].isin(client_sel)]
-if status_sel:
-    filtered = filtered[filtered["status"].isin(status_sel)]
-if source_sel:
-    filtered = filtered[filtered["project_source"].isin(source_sel)]
-if type_sel:
-    filtered = filtered[filtered["client_type"].isin(type_sel)]
-if group_sel:
-    filtered = filtered[filtered["groups_with_hours"].apply(
-        lambda v: any(g in v.split(",") for g in group_sel)
-    )]
-if consult_sel:
-    filtered = filtered[filtered["consultants_with_hours"].apply(
-        lambda v: any(c in v.split(",") for c in consult_sel)
-    )]
+filtered = df[[_match(r) for r in df.to_dict("records")]].copy()
 if recur_sel == "Recurring only":
     filtered = filtered[filtered["has_recurring"] == True]
 elif recur_sel == "Non-recurring only":
@@ -369,6 +346,10 @@ if co_proj_id is not None:
             )
             w_notes = st.text_area("Notes", height=70,
                                    placeholder="e.g. TC exceeded fixed-fee budget; gap written off at project close.")
+            w_date = st.date_input(
+                "Effective date*", value=date.today(),
+                help="The date this write-off relates to; period reports include it only when it falls in the range reviewed.",
+            )
             if st.form_submit_button("Record Write-off", type="primary"):
                 if not w_reason.strip():
                     st.error("Reason is required.")
@@ -378,6 +359,7 @@ if co_proj_id is not None:
                         amount=round(w_amount, 2),
                         reason=w_reason.strip(),
                         notes=w_notes.strip(),
+                        effective_date=w_date.isoformat(),
                     )
                     st.success(f"Write-off of €{w_amount:,.2f} recorded.")
                     st.cache_data.clear()

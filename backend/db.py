@@ -269,6 +269,18 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_inv_project_id  ON invoices(project_id);
             CREATE INDEX IF NOT EXISTS idx_inv_client_id   ON invoices(client_id);
             CREATE INDEX IF NOT EXISTS idx_pay_invoice_id  ON payments(invoice_id);
+
+            CREATE TABLE IF NOT EXISTS invoice_audit (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                invoice_id  INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+                changed_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+                action      TEXT    NOT NULL DEFAULT 'edit',   -- edit | cancel | restore
+                field       TEXT    NOT NULL DEFAULT '',
+                old_value   TEXT    NOT NULL DEFAULT '',
+                new_value   TEXT    NOT NULL DEFAULT '',
+                reason      TEXT    NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_inv_audit_invoice ON invoice_audit(invoice_id);
             CREATE INDEX IF NOT EXISTS idx_pc_project_id   ON project_codes(project_id);
             CREATE INDEX IF NOT EXISTS idx_wo_project_id   ON write_offs(project_id);
         """)
@@ -536,6 +548,14 @@ def init_db() -> None:
         finally:
             _mig_conn.close()
 
+    # --- Migration: prospect follow-up columns (after any legacy table rebuild above) ---
+    with get_connection() as conn:
+        for col in ("prospect_step", "expected_close", "next_action", "next_action_date", "lost_reason"):
+            try:
+                conn.execute(f"ALTER TABLE pipeline ADD COLUMN {col} TEXT DEFAULT ''")
+            except Exception:
+                pass
+
     # --- Bootstrap: give every existing project a pipeline entry (idempotent) ---
     with get_connection() as conn:
         conn.execute("""
@@ -575,6 +595,14 @@ def init_db() -> None:
                 UPDATE projects SET billing_arrangement = 'internal'
                 WHERE client_id IN (SELECT id FROM clients WHERE client_type = 'internal')
             """)
+        except Exception:
+            pass  # column already exists
+
+    # --- Migration: write_offs.effective_date (the date a write-off relates to) ---
+    with get_connection() as conn:
+        try:
+            conn.execute("ALTER TABLE write_offs ADD COLUMN effective_date TEXT NOT NULL DEFAULT ''")
+            conn.execute("UPDATE write_offs SET effective_date = substr(created_at, 1, 10)")
         except Exception:
             pass  # column already exists
 
@@ -800,7 +828,7 @@ def get_projects_with_summary(client_id: int | None = None) -> list[dict]:
             LEFT JOIN (SELECT project_id, SUM(amount) AS write_offs
                        FROM write_offs WHERE reversed=0 GROUP BY project_id) wo ON wo.project_id = p.id
             LEFT JOIN (SELECT project_id, SUM(amount) AS invoiced
-                       FROM invoices GROUP BY project_id) inv ON inv.project_id = p.id
+                       FROM invoices WHERE status != 'cancelled' GROUP BY project_id) inv ON inv.project_id = p.id
             {where}
             ORDER BY c.name, p.name
         """, params).fetchall()
@@ -1065,6 +1093,156 @@ def delete_payments(invoice_id: int) -> None:
         )
 
 
+# Fields of an invoice that may be corrected after creation.
+EDITABLE_INVOICE_FIELDS = (
+    "invoice_number", "date", "amount", "vat_pct", "vat_amount", "expenses_net", "expenses_vat",
+    "description", "comment", "client_id", "project_id", "project_name", "address",
+    "file_path", "format",
+)
+
+
+def invoice_number_exists(year: int, invoice_number: str, exclude_id: int | None = None) -> bool:
+    """True if another invoice already uses this Invoice ID in the given year."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM invoices WHERE year=? AND invoice_number=? AND id != ? LIMIT 1",
+            (year, str(invoice_number).strip(), exclude_id or 0),
+        ).fetchone()
+    return row is not None
+
+
+def _audit(conn, invoice_id: int, action: str, field: str, old, new, reason: str) -> None:
+    conn.execute(
+        "INSERT INTO invoice_audit (invoice_id, action, field, old_value, new_value, reason) "
+        "VALUES (?,?,?,?,?,?)",
+        (invoice_id, action, field, "" if old is None else str(old), "" if new is None else str(new), reason),
+    )
+
+
+def get_invoice_audit(invoice_id: int) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT changed_at, action, field, old_value, new_value, reason "
+            "FROM invoice_audit WHERE invoice_id=? ORDER BY id DESC", (invoice_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_invoice(invoice_id: int, changes: dict, reason: str = "",
+                   allocations: list[dict] | None = None) -> dict:
+    """Correct an existing invoice record and write an audit trail.
+
+    changes: {field: new_value} limited to EDITABLE_INVOICE_FIELDS. Unchanged values are ignored.
+    The year follows the date. Raises ValueError for unknown fields, an empty or duplicate
+    Invoice ID. Side effects (reported in the returned dict):
+      - payment status is recomputed when amounts change;
+      - allocations are recalculated pro-rata when amount or project changes (or set to
+        `allocations` if given);
+      - a linked recurring-fee occurrence is released when the project changes;
+      - credit notes pointing at the old Invoice ID are re-pointed to the new one.
+    Returns {"changed": [fields], "warnings": [str]}.
+    """
+    bad = set(changes) - set(EDITABLE_INVOICE_FIELDS)
+    if bad:
+        raise ValueError(f"Fields not editable: {sorted(bad)}")
+
+    warnings: list[str] = []
+    with get_connection() as conn:
+        old = conn.execute("SELECT * FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+        if not old:
+            raise ValueError("Invoice not found")
+        old = dict(old)
+
+        new = {k: v for k, v in changes.items() if (v or None) != (old[k] or None)}
+        if "invoice_number" in new:
+            new["invoice_number"] = str(new["invoice_number"]).strip()
+            if not new["invoice_number"]:
+                raise ValueError("Invoice ID cannot be empty")
+        if "date" in new and int(str(new["date"])[:4]) != old["year"]:
+            new["year"] = int(str(new["date"])[:4])
+        if not new:
+            return {"changed": [], "warnings": []}
+
+        number = new.get("invoice_number", old["invoice_number"])
+        year = new.get("year", old["year"])
+        if ("invoice_number" in new or "year" in new) and conn.execute(
+            "SELECT 1 FROM invoices WHERE year=? AND invoice_number=? AND id != ?",
+            (year, number, invoice_id),
+        ).fetchone():
+            raise ValueError(f"Invoice ID {number}/{year} is already used by another invoice")
+
+        sets = ", ".join(f"{k}=?" for k in new)
+        conn.execute(f"UPDATE invoices SET {sets} WHERE id=?", (*new.values(), invoice_id))
+        for k, v in new.items():
+            _audit(conn, invoice_id, "edit", k, old[k], v, reason)
+
+        if "invoice_number" in new or "year" in new:
+            moved = conn.execute(
+                "UPDATE invoices SET related_invoice_number=? "
+                "WHERE type='Credit Note' AND related_invoice_number=? AND year=?",
+                (number, old["invoice_number"], old["year"]),
+            ).rowcount
+            if moved:
+                warnings.append(f"{moved} credit note(s) re-pointed to the new Invoice ID.")
+
+        if {"amount", "vat_amount", "expenses_net", "expenses_vat"} & set(new):
+            _recompute_invoice_status(invoice_id, conn)
+            paid = conn.execute(
+                "SELECT COALESCE(SUM(amount),0) AS p FROM payments WHERE invoice_id=?", (invoice_id,)
+            ).fetchone()["p"]
+            gross = sum(new.get(k, old[k]) or 0 for k in ("amount", "vat_amount", "expenses_net", "expenses_vat"))
+            if gross > 0 and paid > gross + 0.01:
+                warnings.append(f"Payments recorded (EUR {paid:,.2f}) exceed the new gross (EUR {gross:,.2f}).")
+
+        if "project_id" in new:
+            freed = conn.execute(
+                "UPDATE recurring_fee_occurrences SET invoice_id=NULL, status='pending' WHERE invoice_id=?",
+                (invoice_id,),
+            ).rowcount
+            if freed:
+                _audit(conn, invoice_id, "edit", "recurring_occurrence", "linked", "released", reason)
+                warnings.append("Linked recurring-fee occurrence was released (back to pending).")
+
+    project_id = new.get("project_id", old["project_id"])
+    if allocations is not None or "amount" in new or "project_id" in new:
+        net = new.get("amount", old["amount"])
+        if allocations is None:
+            allocations = compute_prorata_allocations(project_id, net) if project_id else []
+            if allocations:
+                warnings.append("Project-code allocations were recalculated pro-rata by budget.")
+        upsert_invoice_allocations(invoice_id, allocations)
+        with get_connection() as conn:
+            _audit(conn, invoice_id, "edit", "allocations", "", f"{len(allocations)} code(s)", reason)
+
+    return {"changed": list(new), "warnings": warnings}
+
+
+def cancel_invoice(invoice_id: int, reason: str) -> None:
+    """Void an invoice: keeps the record and its Invoice ID, removes it from all revenue totals.
+
+    Refused when payments are recorded (reset them first). Releases a linked recurring occurrence.
+    """
+    with get_connection() as conn:
+        inv = conn.execute("SELECT status FROM invoices WHERE id=?", (invoice_id,)).fetchone()
+        if not inv:
+            raise ValueError("Invoice not found")
+        if conn.execute("SELECT 1 FROM payments WHERE invoice_id=? LIMIT 1", (invoice_id,)).fetchone():
+            raise ValueError("Invoice has payments recorded - use Reset first.")
+        conn.execute("UPDATE invoices SET status='cancelled', paid_date='' WHERE id=?", (invoice_id,))
+        conn.execute(
+            "UPDATE recurring_fee_occurrences SET invoice_id=NULL, status='pending' WHERE invoice_id=?",
+            (invoice_id,),
+        )
+        _audit(conn, invoice_id, "cancel", "status", inv["status"], "cancelled", reason)
+
+
+def restore_invoice(invoice_id: int, reason: str = "") -> None:
+    """Undo a cancel: status goes back to outstanding."""
+    with get_connection() as conn:
+        conn.execute("UPDATE invoices SET status='outstanding' WHERE id=? AND status='cancelled'", (invoice_id,))
+        _audit(conn, invoice_id, "restore", "status", "cancelled", "outstanding", reason)
+
+
 def _parse_date_str(val) -> str:
     """Normalise a date value from Excel to YYYY-MM-DD string.
 
@@ -1185,7 +1363,7 @@ def sync_completed_project_budgets() -> dict:
 
             # Sum invoiced net amount (credit notes already stored negative)
             inv_row = conn.execute(
-                "SELECT COALESCE(SUM(amount), 0) AS total FROM invoices WHERE project_id = ?",
+                "SELECT COALESCE(SUM(amount), 0) AS total FROM invoices WHERE project_id = ? AND status != 'cancelled'",
                 (proj_id,)
             ).fetchone()
             total_invoiced = inv_row["total"]
@@ -1321,6 +1499,8 @@ def get_pipeline() -> list[dict]:
                    pl.notes, pl.updated_at,
                    pl.date_entered_pipeline, pl.date_entered_stage,
                    pl.opportunity_country,
+                   pl.prospect_step, pl.expected_close, pl.next_action,
+                   pl.next_action_date, pl.lost_reason,
                    pr.name        AS project_name,
                    pr.status      AS project_status,
                    c.name         AS client_name,
@@ -1380,7 +1560,8 @@ def add_prospect(company_name: str, prospect_name: str = "", description: str = 
                  country: str = "", stage: str = "Prospect", value: float = 0.0,
                  budget_min: float = 0.0, budget_est: float = 0.0,
                  budget_max: float = 0.0, probability: float = 0.5,
-                 notes: str = "") -> int:
+                 notes: str = "", prospect_step: str = "", expected_close: str = "",
+                 next_action: str = "", next_action_date: str = "") -> int:
     """Insert a standalone prospect row (project_id=NULL, is_prospect=1). Returns new id."""
     now   = datetime.now(timezone.utc).isoformat()
     today = datetime.now(timezone.utc).date().isoformat()
@@ -1388,11 +1569,13 @@ def add_prospect(company_name: str, prospect_name: str = "", description: str = 
         cur = conn.execute(
             "INSERT INTO pipeline (project_id, is_prospect, company_name, prospect_name, "
             "description, stage, value, budget_min, budget_est, budget_max, probability, "
-            "notes, updated_at, date_entered_pipeline, date_entered_stage, opportunity_country) "
-            "VALUES (NULL,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "notes, updated_at, date_entered_pipeline, date_entered_stage, opportunity_country, "
+            "prospect_step, expected_close, next_action, next_action_date) "
+            "VALUES (NULL,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (company_name, prospect_name, description, stage, value,
              budget_min, budget_est, budget_max, probability, notes,
-             now, today, today, "")
+             now, today, today, country,
+             prospect_step, expected_close, next_action, next_action_date)
         )
         return cur.lastrowid
 
@@ -1401,8 +1584,15 @@ def update_prospect(pipeline_id: int, company_name: str, prospect_name: str = ""
                     description: str = "", stage: str = "Prospect", value: float = 0.0,
                     budget_min: float = 0.0, budget_est: float = 0.0,
                     budget_max: float = 0.0, probability: float = 0.5,
-                    notes: str = "", opportunity_country: str = "") -> None:
-    """Update an existing standalone prospect row."""
+                    notes: str = "", opportunity_country: str = "",
+                    prospect_step: str | None = None, expected_close: str | None = None,
+                    next_action: str | None = None, next_action_date: str | None = None,
+                    lost_reason: str | None = None) -> None:
+    """Update an existing standalone prospect row.
+
+    The follow-up fields (prospect_step ... lost_reason) are only written when not None,
+    so callers that do not know about them leave the stored values untouched.
+    """
     now   = datetime.now(timezone.utc).isoformat()
     today = datetime.now(timezone.utc).date().isoformat()
     with get_connection() as conn:
@@ -1413,15 +1603,37 @@ def update_prospect(pipeline_id: int, company_name: str, prospect_name: str = ""
         if old is None:
             return
         stage_date = today if old["stage"] != stage else old["date_entered_stage"]
+        extra = {k: v for k, v in (
+            ("prospect_step", prospect_step), ("expected_close", expected_close),
+            ("next_action", next_action), ("next_action_date", next_action_date),
+            ("lost_reason", lost_reason)) if v is not None}
+        extra_sql = "".join(f", {k}=?" for k in extra)
         conn.execute(
             "UPDATE pipeline SET company_name=?, prospect_name=?, description=?, stage=?, "
             "value=?, budget_min=?, budget_est=?, budget_max=?, probability=?, notes=?, "
-            "updated_at=?, date_entered_stage=?, opportunity_country=? "
+            f"updated_at=?, date_entered_stage=?, opportunity_country=?{extra_sql} "
             "WHERE id=? AND is_prospect=1",
             (company_name, prospect_name, description, stage, value,
              budget_min, budget_est, budget_max, probability, notes,
-             now, stage_date, opportunity_country, pipeline_id)
+             now, stage_date, opportunity_country, *extra.values(), pipeline_id)
         )
+
+
+def mark_prospect_lost(pipeline_id: int, reason: str) -> None:
+    """Move a standalone prospect to stage 'Lost', keeping the record and logging the reason."""
+    now   = datetime.now(timezone.utc).isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
+    with get_connection() as conn:
+        cur = conn.execute(
+            "UPDATE pipeline SET stage='Lost', lost_reason=?, updated_at=?, date_entered_stage=? "
+            "WHERE id=? AND is_prospect=1",
+            (reason.strip(), now, today, pipeline_id),
+        )
+        if cur.rowcount:
+            conn.execute(
+                "INSERT INTO pipeline_activity_log (pipeline_id, note) VALUES (?, ?)",
+                (pipeline_id, f"Marked Lost: {reason.strip() or 'no reason given'}"),
+            )
 
 
 def convert_prospect_to_project(pipeline_id: int, project_id: int) -> None:
@@ -1516,6 +1728,7 @@ def get_pipeline_financial_summary() -> list[dict]:
                     SELECT invoice_id, SUM(amount) AS total_paid
                     FROM payments GROUP BY invoice_id
                 ) py ON py.invoice_id = i.id
+                WHERE i.status != 'cancelled'
                 GROUP BY i.project_id
             ) inv_s ON inv_s.project_id = pl.project_id
             WHERE pl.stage IN ('Prospect', 'Active', 'On Hold')
@@ -1579,7 +1792,7 @@ def get_cross_project_time_summary() -> list[dict]:
             ) wo_s  ON wo_s.project_id  = p.id
             LEFT JOIN (
                 SELECT project_id, SUM(amount) AS invoiced_amount
-                FROM invoices GROUP BY project_id
+                FROM invoices WHERE status != 'cancelled' GROUP BY project_id
             ) inv_s ON inv_s.project_id = p.id
             WHERE COALESCE(te_s.billable_charges, 0) > 0
                OR COALESCE(pc_s.budget_amount,    0) > 0
@@ -1600,10 +1813,11 @@ def get_monthly_revenue(year: int | None = None) -> list[dict]:
                SUM(vat_amount) AS vat,
                SUM(amount + vat_amount) AS gross
         FROM invoices
+        WHERE status != 'cancelled'
     """
     params = []
     if year:
-        query += " WHERE year = ?"
+        query += " AND year = ?"
         params.append(year)
     query += " GROUP BY month ORDER BY month"
     with get_connection() as conn:
@@ -1616,10 +1830,11 @@ def get_revenue_by_client(year: int | None = None) -> list[dict]:
         SELECT c.name AS client, SUM(i.amount) AS net, SUM(i.vat_amount) AS vat
         FROM invoices i
         JOIN clients c ON c.id = i.client_id
+        WHERE i.status != 'cancelled'
     """
     params = []
     if year:
-        query += " WHERE i.year = ?"
+        query += " AND i.year = ?"
         params.append(year)
     query += " GROUP BY c.name ORDER BY net DESC"
     with get_connection() as conn:
@@ -1637,10 +1852,11 @@ def get_invoices_detailed(year: int | None = None) -> list[dict]:
                c.name AS client, c.client_type, c.country
         FROM invoices i
         JOIN clients c ON c.id = i.client_id
+        WHERE i.status != 'cancelled'
     """
     params = []
     if year:
-        query += " WHERE i.year = ?"
+        query += " AND i.year = ?"
         params.append(year)
     query += " ORDER BY i.date"
     with get_connection() as conn:
@@ -1934,6 +2150,45 @@ def add_time_entries_bulk(entries: list[dict]) -> dict:
     return {"inserted": inserted, "skipped": skipped, "unmatched": unmatched}
 
 
+_TE_NUM_FIELDS = ("total_hours", "non_z_hours", "z_hours", "total_charges", "non_z_charges", "z_charges")
+
+
+def find_time_entry_conflicts(entries: list[dict]) -> list[dict]:
+    """Rows in `entries` whose key (period+emp_nbr+client_code+client_suffix) already exists
+    in time_entries with different figures.
+
+    Returns [{"new": <entry dict>, "existing": {field: value}}]. Identical duplicates are not
+    conflicts (they are simply skipped by add_time_entries_bulk).
+    """
+    conflicts = []
+    with get_connection() as conn:
+        for e in entries:
+            row = conn.execute(
+                "SELECT total_hours, non_z_hours, z_hours, total_charges, non_z_charges, z_charges "
+                "FROM time_entries WHERE period=? AND emp_nbr=? AND client_code=? AND client_suffix=?",
+                (str(e["period"]), str(e["emp_nbr"]), e["client_code"], e["client_suffix"]),
+            ).fetchone()
+            if row and any(abs((row[f] or 0) - float(e.get(f, 0))) > 0.005 for f in _TE_NUM_FIELDS):
+                conflicts.append({"new": e, "existing": dict(row)})
+    return conflicts
+
+
+def replace_time_entries(entries: list[dict]) -> int:
+    """Overwrite the figures of existing time entries (matched by key) with the given rows."""
+    replaced = 0
+    with get_connection() as conn:
+        for e in entries:
+            cur = conn.execute(
+                "UPDATE time_entries SET total_hours=?, non_z_hours=?, z_hours=?, "
+                "total_charges=?, non_z_charges=?, z_charges=?, batch_ref=? "
+                "WHERE period=? AND emp_nbr=? AND client_code=? AND client_suffix=?",
+                (*(float(e.get(f, 0)) for f in _TE_NUM_FIELDS), e.get("batch_ref", ""),
+                 str(e["period"]), str(e["emp_nbr"]), e["client_code"], e["client_suffix"]),
+            )
+            replaced += cur.rowcount
+    return replaced
+
+
 def get_time_entries(
     project_id: int | None = None,
     project_code_id: int | None = None,
@@ -2165,7 +2420,7 @@ def get_project_time_totals(project_id: int) -> dict:
         ).fetchone()
         inv = conn.execute(
             "SELECT COALESCE(SUM(amount), 0) AS invoiced "
-            "FROM invoices WHERE project_id = ?", (project_id,)
+            "FROM invoices WHERE project_id = ? AND status != 'cancelled'", (project_id,)
         ).fetchone()
     billable = te["billable"]
     write_offs = wo["write_offs"]
@@ -2228,15 +2483,18 @@ def get_project_closeout_summary(project_id: int) -> dict:
 
 
 def add_write_off_simple(
-    project_id: int, amount: float, reason: str, notes: str = ""
+    project_id: int, amount: float, reason: str, notes: str = "", effective_date: str = ""
 ) -> int:
-    """Single project-level write-off row — no pro-rata, no consultant required."""
+    """Single project-level write-off row — no pro-rata, no consultant required.
+
+    effective_date (YYYY-MM-DD) is the date the write-off relates to; defaults to today.
+    """
     with get_connection() as conn:
         cur = conn.execute(
             "INSERT INTO write_offs "
-            "(project_id, project_code_id, emp_nbr, consultant, amount, reason, notes, allocation_type) "
-            "VALUES (?, NULL, '', '', ?, ?, ?, 'project')",
-            (project_id, amount, reason, notes),
+            "(project_id, project_code_id, emp_nbr, consultant, amount, reason, notes, allocation_type, effective_date) "
+            "VALUES (?, NULL, '', '', ?, ?, ?, 'project', ?)",
+            (project_id, amount, reason, notes, effective_date or date.today().isoformat()),
         )
         return cur.lastrowid
 
@@ -2266,7 +2524,7 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
         )
         inv_j += (
             f" LEFT JOIN (SELECT project_id, SUM(amount) AS invoiced"
-            f" FROM invoices WHERE year={yr} GROUP BY project_id)"
+            f" FROM invoices WHERE year={yr} AND status != 'cancelled' GROUP BY project_id)"
             f" inv_{yr} ON inv_{yr}.project_id = p.id"
         )
         te_j += (
@@ -2327,7 +2585,7 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
         LEFT JOIN (SELECT project_id, SUM(amount) AS write_offs
                    FROM write_offs WHERE reversed=0 GROUP BY project_id) wo_all ON wo_all.project_id = p.id
         LEFT JOIN (SELECT project_id, SUM(amount) AS invoiced
-                   FROM invoices GROUP BY project_id) inv_all ON inv_all.project_id = p.id
+                   FROM invoices WHERE status != 'cancelled' GROUP BY project_id) inv_all ON inv_all.project_id = p.id
         LEFT JOIN (SELECT i2.project_id, SUM(pay2.amount) AS paid
                    FROM payments pay2 JOIN invoices i2 ON i2.id = pay2.invoice_id
                    GROUP BY i2.project_id) pay_all ON pay_all.project_id = p.id
@@ -2382,7 +2640,7 @@ def get_all_projects_overview(years: list[int] | None = None) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def add_write_off_project(project_id: int, amount: float,
-                          reason: str, notes: str = "") -> list[int]:
+                          reason: str, notes: str = "", effective_date: str = "") -> list[int]:
     """Allocate a project-level write-off pro-rata across (project_code, consultant) pairs."""
     with get_connection() as conn:
         groups = conn.execute(
@@ -2402,10 +2660,10 @@ def add_write_off_project(project_id: int, amount: float,
             share = round(amount * g["charges"] / total_charges, 2)
             cur = conn.execute(
                 "INSERT INTO write_offs "
-                "(project_id, project_code_id, emp_nbr, consultant, amount, reason, notes, allocation_type) "
-                "VALUES (?,?,?,?,?,?,?,'project')",
+                "(project_id, project_code_id, emp_nbr, consultant, amount, reason, notes, allocation_type, effective_date) "
+                "VALUES (?,?,?,?,?,?,?,'project',?)",
                 (project_id, g["project_code_id"], g["emp_nbr"], g["consultant"],
-                 share, reason, notes)
+                 share, reason, notes, effective_date or date.today().isoformat())
             )
             ids.append(cur.lastrowid)
     return ids
@@ -2413,13 +2671,15 @@ def add_write_off_project(project_id: int, amount: float,
 
 def add_write_off_adhoc(project_id: int, project_code_id: int,
                         emp_nbr: str, consultant: str,
-                        amount: float, reason: str, notes: str = "") -> int:
+                        amount: float, reason: str, notes: str = "",
+                        effective_date: str = "") -> int:
     with get_connection() as conn:
         cur = conn.execute(
             "INSERT INTO write_offs "
-            "(project_id, project_code_id, emp_nbr, consultant, amount, reason, notes, allocation_type) "
-            "VALUES (?,?,?,?,?,?,?,'adhoc')",
-            (project_id, project_code_id, emp_nbr, consultant, amount, reason, notes)
+            "(project_id, project_code_id, emp_nbr, consultant, amount, reason, notes, allocation_type, effective_date) "
+            "VALUES (?,?,?,?,?,?,?,'adhoc',?)",
+            (project_id, project_code_id, emp_nbr, consultant, amount, reason, notes,
+             effective_date or date.today().isoformat())
         )
         return cur.lastrowid
 
@@ -2427,7 +2687,7 @@ def add_write_off_adhoc(project_id: int, project_code_id: int,
 def get_write_offs(project_id: int | None = None, include_reversed: bool = False) -> list[WriteOff]:
     query = (
         "SELECT id, project_id, project_code_id, emp_nbr, consultant, amount, reason, notes, "
-        "allocation_type, reversed, reversed_reason, reversed_at, created_at FROM write_offs"
+        "allocation_type, reversed, reversed_reason, reversed_at, created_at, effective_date FROM write_offs"
     )
     params: list = []
     filters = []
@@ -2443,6 +2703,11 @@ def get_write_offs(project_id: int | None = None, include_reversed: bool = False
         rows = conn.execute(query, params).fetchall()
     return [WriteOff(**{k: (v or 0 if k in ("project_code_id",) else v)
                         for k, v in dict(r).items()}) for r in rows]
+
+
+def update_write_off_date(write_off_id: int, effective_date: str) -> None:
+    with get_connection() as conn:
+        conn.execute("UPDATE write_offs SET effective_date=? WHERE id=?", (effective_date, write_off_id))
 
 
 def reverse_write_off(write_off_id: int, reason: str) -> None:
@@ -2832,6 +3097,16 @@ def get_billing_basis_from_time_entries(year: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Review Scores CRUD (Sprint 10)
 # ---------------------------------------------------------------------------
+
+def get_consultant_periods(emp_nbr: str, year: int) -> list[str]:
+    """Distinct YYYYMM periods with time entries for this consultant in the year."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT period FROM time_entries WHERE emp_nbr=? AND period LIKE ? ORDER BY period",
+            (emp_nbr, f"{int(year)}%"),
+        ).fetchall()
+    return [r["period"] for r in rows]
+
 
 def get_review_scores(emp_nbr: str, year: int) -> dict[str, dict[str, float]]:
     """Returns {group: {item: score}} for the given consultant and year."""

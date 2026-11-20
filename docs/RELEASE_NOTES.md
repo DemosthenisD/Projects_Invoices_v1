@@ -2,6 +2,72 @@
 
 ---
 
+## V1.6 — Time charge analysis (November 2026)
+
+> A new Analysis tab to reconcile time charges against invoices and write-offs by period, dated write-offs, and safer time-sheet re-imports.
+
+### New — Time Tracking → Analysis tab
+Select client(s), project(s), a period range, consultant team and consultants, grouped by month, quarter or year. Shows *By project* (billable, invoiced, unbilled before write-offs, write-offs, unbilled after write-offs), *By period*, *Time detail* (period / person / team / project / code / suffix, Excel export), *Write-offs counted* and *Invoices in the period* (by invoice date; credit notes and cancelled invoices excluded).
+
+### New — Write-off effective date
+Every write-off now carries an **effective date** (the date it relates to), set when recording it (Write-offs page and Project Close-out) and editable in the Write-off Log. Period reports count a write-off only if its effective date falls inside the range reviewed. Existing write-offs were given their recording date.
+
+### New — Time-sheet import conflicts
+When an import contains a row that already exists (same period / employee / code) with **different figures**, a comparison of existing vs new values is shown. The default is unchanged — keep the existing record — but each row can be ticked **Replace**.
+
+### Documentation
+The monthly report to export is now documented: **Charges By Employee Report** (billing system), with a screenshot of the settings (see Time Tracking in the manual).
+
+### Fixes
+- An early exit in the Time Tracking Import, Entries or Rollup tab (e.g. a client with no projects) no longer hides the tabs after it.
+- Unit tests updated for the current `add_project_code` signature (9 previously failing tests now pass).
+
+### Database changes
+New column `write_offs.effective_date` (added and back-filled automatically on start-up). **Restart the app after updating.** See TECHNICAL.md → *V1.6 Additions*.
+
+---
+
+## V1.5 — Daily-use efficiency (November 2026)
+
+> **Released 12 November 2026** — A new landing page, invoice correction with an audit trail, cascading filters, faster invoicing, a backup button, and pipeline follow-up tracking.
+
+### New — Action Centre (landing page)
+One page for "what needs my attention today": overdue invoices (default 30 days from invoice date), recurring invoices to raise, overdue receivables, prospects to chase, and active projects with time charged but not invoiced (default threshold €5,000). Thresholds are adjustable in a Settings expander. Recurring items and unbilled projects have **Invoice this →** buttons that open Generate Invoice pre-filled.
+
+### New — Correct or void an invoice (Invoice Log)
+**✏️ Edit / void** on each row: change Invoice ID, date, amounts, client, project, description, address and comment; replace the stored file with the formally issued PDF/DOCX; every change needs a reason and is kept in a **Change history** (new `invoice_audit` table). Duplicate IDs are blocked, payment status is recomputed, allocations are recalculated when the project or amount changes, linked recurring occurrences are released, and credit notes follow an Invoice ID change. **Void** keeps the record and ID but removes it from all revenue, project and pipeline totals; **Restore** undoes it.
+
+### New — Generate Invoice
+- **Quick search** start mode: one searchable "Client — Project" box, your 5 most recent projects as buttons, and the auto-filled details collapsed into one expander. Classic modes are unchanged.
+- **Duplicate Invoice ID protection** in all modes (shows the next free ID and blocks generation).
+- Opens pre-filled from **Invoice this →** on the Revenue Dashboard billing reminders, Recurring Fees, and the Action Centre.
+
+### New — Cascading filters
+Filters on Project Overview, Pipeline Financial, Recurring Fees, Clients & Projects, Invoice Log, Pipeline / CRM and Time Tracking now narrow each other in both directions, and drop selections that no longer apply.
+
+### New — Annual Review readiness checklist
+Shows what is still missing for the selected consultant and year (time entries and missing months, billing basis and source, profile, salary record, proposed rate, scores, feedback comments) with links to fix each item.
+
+### New — Backup now (16. Data Tables)
+Creates a dated, integrity-checked snapshot of the database (safe while running) and optionally `exports/`; keeps the newest 30. Set `backup_dir` in `secrets.toml` to store backups outside Dropbox.
+
+### New — Pipeline follow-up
+- New stage **Lost**, with a **Mark as Lost** action that keeps the record, stores a reason and logs it. Lost entries are excluded from forecasts.
+- Optional **prospect step** (Lead / Proposal sent / Negotiation), **expected close**, **next action** and **next action date**; a **Flag** column marks overdue actions and prospects more than 60 days in stage; a **Prospect funnel** summarises prospects by step.
+
+### Documentation
+- **How to Use** now renders `docs/USER_MANUAL.md` directly (single source of truth) with search across all guides, pages, terms and FAQ.
+- Manual corrections: page numbers, Consultant Teams naming, manual invoice-link wording, Revenue Dashboard description; new guides for correcting invoices, write-offs, receivable payments and backups.
+
+### Fixes
+- Adding a prospect now saves its **Country** (previously the field was ignored).
+- Cancelled invoices are now excluded consistently from revenue and project totals.
+
+### Database changes
+New table `invoice_audit`; new `pipeline` columns `prospect_step`, `expected_close`, `next_action`, `next_action_date`, `lost_reason` (added automatically on start-up). See TECHNICAL.md → *V1.5 Additions*.
+
+---
+
 ## V1.4 — Project Close-out (May 2026)
 
 > **Released 26 May 2026** — New Project Close-out panel on the Project Overview page, enabling structured financial reconciliation of completed and on-hold projects.

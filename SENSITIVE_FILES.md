@@ -12,7 +12,7 @@ update the bonus template, or add a new time-charge CSV).
 
 | What | Local Path |
 |------|-----------|
-| All app data (SQLite) | `C:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp\data\invoiceapp.db` |
+| All app data (SQLite) | `C:\Users\d.demosthenous\Dropbox (Personal)\_Team_AI_Tasks\GitProject\InvoiceApp\data\invoiceapp.db` |
 
 ---
 
@@ -20,8 +20,8 @@ update the bonus template, or add a new time-charge CSV).
 
 | What | Local Path |
 |------|-----------|
-| Bonus Calculation Template (Excel) | `C:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp\Review\Bonus_Calc_Template v1.xlsx` |
-| Annual Review forms (per consultant) | `C:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp\Review\` |
+| Bonus Calculation Template (Excel) | `C:\Users\d.demosthenous\Dropbox (Personal)\_Team_AI_Tasks\GitProject\InvoiceApp\Review\Bonus_Calc_Template v1.xlsx` |
+| Annual Review forms (per consultant) | `C:\Users\d.demosthenous\Dropbox (Personal)\_Team_AI_Tasks\GitProject\InvoiceApp\Review\` |
 
 ---
 
@@ -32,8 +32,8 @@ Place new CSVs here before importing:
 
 | What | Local Path |
 |------|-----------|
-| Time charge CSV folder | `C:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp\data\time_charges\` |
-| Sample / reference CSV | `C:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp\sample_time_sheet.csv` |
+| Time charge CSV folder | `C:\Users\d.demosthenous\Dropbox (Personal)\_Team_AI_Tasks\GitProject\InvoiceApp\data\time_charges\` |
+| Sample / reference CSV | `C:\Users\d.demosthenous\Dropbox (Personal)\_Team_AI_Tasks\GitProject\InvoiceApp\sample_time_sheet.csv` |
 
 ---
 
@@ -43,7 +43,7 @@ Generated PDF and DOCX invoices. Never committed.
 
 | What | Local Path |
 |------|-----------|
-| Invoice files (PDF/DOCX) | `C:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp\exports\` |
+| Invoice files (PDF/DOCX) | `C:\Users\d.demosthenous\Dropbox (Personal)\_Team_AI_Tasks\GitProject\InvoiceApp\exports\` |
 
 ---
 
@@ -51,9 +51,9 @@ Generated PDF and DOCX invoices. Never committed.
 
 | What | Local Path |
 |------|-----------|
-| Original invoice log (Excel) | `C:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp\Updated_Invoice_v2\InvoiceLogTemplate_DD_28062024.xlsx` |
-| ICEE Plan CY (consultant seeding) | `C:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp\data\` |
-| CONSULTANTS.csv (group seeding) | `C:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp\data\CONSULTANTS.csv` |
+| Original invoice log (Excel) | `C:\Users\d.demosthenous\Dropbox (Personal)\_Team_AI_Tasks\GitProject\InvoiceApp\Updated_Invoice_v2\InvoiceLogTemplate_DD_28062024.xlsx` |
+| ICEE Plan CY (consultant seeding) | `C:\Users\d.demosthenous\Dropbox (Personal)\_Team_AI_Tasks\GitProject\InvoiceApp\data\` |
+| CONSULTANTS.csv (group seeding) | `C:\Users\d.demosthenous\Dropbox (Personal)\_Team_AI_Tasks\GitProject\InvoiceApp\data\CONSULTANTS.csv` |
 
 ---
 
@@ -61,7 +61,7 @@ Generated PDF and DOCX invoices. Never committed.
 
 | What | Local Path |
 |------|-----------|
-| App login credentials | `C:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp\.streamlit\secrets.toml` |
+| App login credentials | `C:\Users\d.demosthenous\Dropbox (Personal)\_Team_AI_Tasks\GitProject\InvoiceApp\.streamlit\secrets.toml` |
 
 ---
 

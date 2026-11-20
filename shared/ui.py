@@ -102,3 +102,84 @@ def dataframe_with_total(
         use_container_width=True,
         hide_index=True,
     )
+
+
+def faceted_filters(rows, facets, cols=None):
+    """
+    Render filter widgets whose options narrow each other (faceted search).
+
+    Each facet's options are the distinct values found in the rows that pass
+    every OTHER facet's current selection. Selections that are no longer
+    available are dropped before the widgets are drawn.
+
+    Args:
+        rows:   iterable of dicts / objects / DataFrame records to filter.
+        facets: list of dicts with keys
+                  key     - unique session_state key
+                  label   - widget label
+                  get     - fn(row) -> value or list of values for this facet
+                  single  - True for a selectbox with an "All" entry (default: multiselect)
+                  default - initial multiselect selection (optional)
+                  help    - optional help text
+                  reverse - True to list options in descending order
+                  extra   - values always offered even if no row has them
+                            (e.g. a client with no projects yet)
+        cols:   optional list of st containers (one per facet); defaults to
+                st.columns(len(facets)).
+
+    Returns:
+        match(row) -> bool predicate applying all current selections.
+    """
+    rows = list(rows)
+
+    def vals(f, r):
+        v = f["get"](r)
+        v = list(v) if isinstance(v, (list, set, tuple)) else [v]
+        return [x for x in v if x not in (None, "")]
+
+    def selected(f):
+        v = st.session_state.get(f["key"], [] if not f.get("single") else "All")
+        if f.get("single"):
+            return [] if v == "All" else [v]
+        return list(v)
+
+    for f in facets:
+        if f["key"] not in st.session_state and not f.get("single"):
+            st.session_state[f["key"]] = list(f.get("default", []))
+
+    def passes(r, skip=None):
+        for g in facets:
+            if g["key"] == skip:
+                continue
+            s = selected(g)
+            if s and not any(v in s for v in vals(g, r)):
+                return False
+        return True
+
+    options: dict[str, list] = {}
+    for _ in range(2):  # pruning one facet can widen/narrow another
+        for f in facets:
+            opts = sorted({v for r in rows if passes(r, f["key"]) for v in vals(f, r)}
+                          | set(f.get("extra", [])), reverse=bool(f.get("reverse")))
+            options[f["key"]] = opts
+            cur = st.session_state.get(f["key"])
+            if f.get("single"):
+                if cur not in (None, "All") and cur not in opts:
+                    st.session_state[f["key"]] = "All"
+            elif cur is not None:
+                st.session_state[f["key"]] = [v for v in cur if v in opts]
+
+    cols = cols or st.columns(len(facets))
+    for f, c in zip(facets, cols):
+        if f.get("single"):
+            c.selectbox(f["label"], ["All"] + options[f["key"]], key=f["key"], help=f.get("help"))
+        else:
+            c.multiselect(f["label"], options[f["key"]], key=f["key"], help=f.get("help"))
+
+    return lambda r: passes(r)
+
+
+def go_invoice(project_id: int, occurrence_id: int | None = None) -> None:
+    """Open Generate Invoice pre-filled for a project (and optionally a recurring-fee occurrence)."""
+    st.session_state["gi_prefill"] = {"project_id": project_id, "occurrence_id": occurrence_id}
+    st.switch_page("pages/0_generate_invoice.py")

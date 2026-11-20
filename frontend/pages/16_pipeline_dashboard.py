@@ -21,7 +21,7 @@ import pandas as pd
 from collections import defaultdict
 
 import backend.db as db
-from shared.ui import require_auth, dataframe_with_total
+from shared.ui import require_auth, dataframe_with_total, faceted_filters
 
 require_auth()
 
@@ -100,23 +100,13 @@ for r in raw_rows:
 # Filters
 # ------------------------------------------------------------------
 
-all_countries  = sorted({r["country"]     for r in enriched if r.get("country")})
-all_types      = sorted({r["client_type"] for r in enriched if r.get("client_type")})
-all_teams      = sorted({r["source_team"] for r in enriched if r.get("source_team") and r["source_team"] != "—"})
-
-fc1, fc2, fc3, fc4 = st.columns(4)
-f_stages  = fc1.multiselect("Stage",       STAGES,       default=STAGES,   key="pf_stages")
-f_country = fc2.multiselect("Country",     all_countries,                  key="pf_country")
-f_type    = fc3.multiselect("Client Type", all_types,                      key="pf_type")
-f_team    = fc4.multiselect("Source Team", all_teams,                      key="pf_team")
-
-filtered = [
-    r for r in enriched
-    if (not f_stages  or r["stage"]       in f_stages)
-    and (not f_country or r["country"]     in f_country)
-    and (not f_type   or r["client_type"]  in f_type)
-    and (not f_team   or r["source_team"]  in f_team)
-]
+_match = faceted_filters(enriched, [
+    {"key": "pf_stages",  "label": "Stage",       "get": lambda r: r["stage"], "default": STAGES},
+    {"key": "pf_country", "label": "Country",     "get": lambda r: r.get("country")},
+    {"key": "pf_type",    "label": "Client Type", "get": lambda r: r.get("client_type")},
+    {"key": "pf_team",    "label": "Source Team", "get": lambda r: "" if r.get("source_team") == "—" else r.get("source_team")},
+])
+filtered = [r for r in enriched if _match(r)]
 
 if not filtered:
     st.info("No entries match the selected filters.")

@@ -29,6 +29,7 @@ from backend.db import (
     get_review_feedback,
     upsert_review_feedback,
     get_consultant_project_hours,
+    get_consultant_periods,
     is_review_locked,
     lock_review,
     unlock_review,
@@ -90,6 +91,74 @@ else:
     if _lock_col.button("Lock Review", key="btn_lock"):
         lock_review(emp_nbr, int(review_year))
         st.rerun()
+
+# ---------------------------------------------------------------------------
+# Readiness checklist — what is still missing before this review is complete
+# ---------------------------------------------------------------------------
+_periods = get_consultant_periods(emp_nbr, int(review_year))
+_missing_months = [f"{int(review_year)}{m:02d}" for m in range(1, 13)
+                   if f"{int(review_year)}{m:02d}" not in _periods]
+# Management items are optional (left at 0 for non-managers), so they are not required here.
+_n_scored = sum(1 for grp, g in current_scores.items() if grp != "Management" for v in g.values() if v)
+_n_items = sum(len(items) for grp, items in SCORE_GROUPS.items() if grp != "Management")
+_fb = get_review_feedback(emp_nbr, int(review_year))
+_rate = 0.0
+if billing is not None:
+    _rate = float(getattr(billing, "avg_annual_rate", 0) or 0) or float(billing.hourly_rate or 0)
+_prof_missing = [lbl for lbl, val in (
+    ("employment date", getattr(profile, "employment_date", "")),
+    ("Milliman status", getattr(profile, "milliman_status", "")),
+    ("external level", getattr(profile, "external_level", "")),
+) if not val] if profile else ["profile"]
+
+# (state, label, detail, where to fix)   state: ok | warn | todo
+_checks = [
+    ("ok" if not _missing_months else ("warn" if _periods else "todo"),
+     "Time entries imported",
+     (f"all 12 months of {int(review_year)}" if not _missing_months else
+      (f"{len(_periods)}/12 months; missing {', '.join(m[4:] for m in _missing_months)}" if _periods
+       else "none for this consultant/year")),
+     "pages/7_time_tracking.py", "9. Time Tracking"),
+    ("todo" if billing is None else ("warn" if _rate <= 0 else "ok"),
+     "Billing basis saved",
+     ("not saved" if billing is None else
+      (f"source: {billing.source}" + ("" if _rate > 0 else " - but no rate, bonus will be 0"))),
+     "pages/12_billing_basis.py", "13. Billing Basis"),
+    ("ok" if not _prof_missing else "warn",
+     "Consultant profile complete",
+     "complete" if not _prof_missing else "missing: " + ", ".join(_prof_missing),
+     "pages/13_consultant_profiles.py", "14. Consultant Profiles"),
+    ("ok" if salary_rec and salary_rec.starting_salary > 0 else "todo",
+     f"Salary record for {int(review_year)}",
+     "saved" if salary_rec and salary_rec.starting_salary > 0 else "no starting salary recorded",
+     "pages/13_consultant_profiles.py", "14. Consultant Profiles"),
+    ("ok" if salary_rec and salary_rec.proposed_rate > 0 else "warn",
+     "Proposed billing rate",
+     "set" if salary_rec and salary_rec.proposed_rate > 0 else "not set",
+     "pages/13_consultant_profiles.py", "14. Consultant Profiles"),
+    ("ok" if _n_items and _n_scored >= _n_items else ("warn" if _n_scored else "todo"),
+     "Performance scores",
+     f"{_n_scored}/{_n_items} items scored (Management optional)",
+     None, "Section 2 below"),
+    ("ok" if any((f.comments or "").strip() for f in _fb.values()) else "warn",
+     "Feedback comments (needed for the Word form)",
+     "written" if any((f.comments or "").strip() for f in _fb.values()) else "none yet",
+     None, "Section 4 below"),
+]
+_icon = {"ok": "✅", "warn": "⚠️", "todo": "❌"}
+_ready = sum(1 for c in _checks if c[0] == "ok")
+with st.expander(f"Readiness checklist — {_ready}/{len(_checks)} complete",
+                 expanded=any(c[0] == "todo" for c in _checks)):
+    for state, label, detail, page, where in _checks:
+        c1, c2 = st.columns([6, 2])
+        c1.markdown(f"{_icon[state]} **{label}** — {detail}")
+        if state != "ok":
+            if page:
+                c2.page_link(page, label=where)
+            else:
+                c2.caption(where)
+    if not any(c[0] != "ok" for c in _checks):
+        st.success("Everything is in place for this review.")
 
 st.divider()
 

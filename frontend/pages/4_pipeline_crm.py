@@ -18,14 +18,47 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import streamlit as st
 import pandas as pd
 import backend.db as db
-from shared.ui import require_auth
-from datetime import datetime
+from shared.ui import require_auth, faceted_filters
+from datetime import datetime, date
 
 require_auth()
 
 st.title("Pipeline / CRM")
 
-STAGES = ["Prospect", "Active", "On Hold", "Completed"]
+STAGES = ["Prospect", "Active", "On Hold", "Completed", "Lost"]
+# Optional sub-steps while a prospect is still in the Prospect stage
+PROSPECT_STEPS = ["", "Lead", "Proposal sent", "Negotiation"]
+STALE_DAYS = 60
+
+
+def _s(v) -> str:
+    """Cell value -> clean string (data_editor can return None / NaN for blanks)."""
+    return "" if v is None or (isinstance(v, float) and v != v) else str(v).strip()
+
+
+def _iso(v) -> str:
+    """Return an ISO date string, or '' if blank. Raises ValueError for anything unparseable."""
+    t = _s(v)[:10]
+    if not t:
+        return ""
+    return date.fromisoformat(t).isoformat()
+
+
+def _flag(r) -> str:
+    """Follow-up warning for a prospect: overdue next action, or long time in stage."""
+    if not (r.get("is_prospect") and r["stage"] == "Prospect"):
+        return ""
+    today = date.today()
+    nad = _s(r.get("next_action_date"))[:10]
+    if nad and nad < today.isoformat():
+        return "⏰ action overdue"
+    since = _s(r.get("date_entered_stage"))[:10] or _s(r.get("date_entered_pipeline"))[:10]
+    try:
+        days = (today - date.fromisoformat(since)).days
+    except ValueError:
+        return ""
+    return f"💤 {days}d in stage" if days > STALE_DAYS else ""
+
 CLIENT_TYPES = ["managed", "external", "internal"]
 
 # ------------------------------------------------------------------
@@ -45,6 +78,11 @@ with st.expander("➕ Add Prospect", expanded=False):
         ap_est      = col4.number_input("Budget Est (€)", min_value=0.0, step=1000.0)
         ap_max      = col5.number_input("Budget Max (€)", min_value=0.0, step=1000.0)
         ap_prob     = col5.slider("Probability %", 0, 100, 50, step=5)
+        col6, col7, col8 = st.columns(3)
+        ap_step     = col6.selectbox("Prospect step", PROSPECT_STEPS, format_func=lambda x: x or "—")
+        ap_close    = col6.date_input("Expected close", value=None)
+        ap_action   = col7.text_input("Next action", placeholder="e.g. Send proposal")
+        ap_action_d = col8.date_input("Next action date", value=None)
         ap_submitted = st.form_submit_button("Add Prospect", type="primary")
     if ap_submitted:
         if not ap_company.strip():
@@ -60,6 +98,10 @@ with st.expander("➕ Add Prospect", expanded=False):
                 budget_est=ap_est,
                 budget_max=ap_max,
                 probability=ap_prob / 100.0,
+                prospect_step=ap_step,
+                expected_close=ap_close.isoformat() if ap_close else "",
+                next_action=ap_action.strip(),
+                next_action_date=ap_action_d.isoformat() if ap_action_d else "",
             )
             st.success(f"Prospect '{ap_company.strip()}' added.")
             st.cache_data.clear()
@@ -83,41 +125,15 @@ pipeline = _load_pipeline()
 # Filters — cascade: each dropdown narrows the next
 # ------------------------------------------------------------------
 
-col1, col2, col3, col4, col5 = st.columns(5)
-with col1:
-    stage_filter = st.selectbox("Stage", ["All"] + STAGES)
-
-# Stage cascade → available clients
-_after_stage = pipeline if stage_filter == "All" else [r for r in pipeline if r["stage"] == stage_filter]
-all_display_clients = sorted({r["display_client"] for r in _after_stage if r.get("display_client")})
-with col2:
-    client_filter = st.selectbox("Client / Company", ["All"] + all_display_clients)
-
-# Stage + client cascade → available countries
-_after_client = _after_stage if client_filter == "All" else [r for r in _after_stage if r.get("display_client") == client_filter]
-all_opp_countries    = sorted({r["opportunity_country"] for r in _after_client if r.get("opportunity_country")})
-all_client_countries = sorted({r["country"] for r in _after_client if r.get("country")})
-with col3:
-    opp_country_filter = st.multiselect("Opportunity Country", all_opp_countries, key="pl_opp_country",
-                                         default=[v for v in st.session_state.get("pl_opp_country", []) if v in all_opp_countries])
-with col4:
-    country_filter = st.multiselect("Client Country", all_client_countries, key="pl_country",
-                                     default=[v for v in st.session_state.get("pl_country", []) if v in all_client_countries])
-with col5:
-    type_filter = st.multiselect("Client Type", CLIENT_TYPES, key="pl_type",
-                                  help="Only applies to linked (non-prospect) entries")
-
-filtered = pipeline
-if stage_filter != "All":
-    filtered = [r for r in filtered if r["stage"] == stage_filter]
-if client_filter != "All":
-    filtered = [r for r in filtered if r.get("display_client") == client_filter]
-if opp_country_filter:
-    filtered = [r for r in filtered if r.get("opportunity_country") in opp_country_filter]
-if country_filter:
-    filtered = [r for r in filtered if r.get("country") in country_filter]
-if type_filter:
-    filtered = [r for r in filtered if not r.get("is_prospect") and r.get("client_type") in type_filter]
+_match = faceted_filters(pipeline, [
+    {"key": "pl_stage",       "label": "Stage",               "get": lambda r: r["stage"], "single": True},
+    {"key": "pl_client",      "label": "Client / Company",    "get": lambda r: r.get("display_client"), "single": True},
+    {"key": "pl_opp_country", "label": "Opportunity Country", "get": lambda r: r.get("opportunity_country")},
+    {"key": "pl_country",     "label": "Client Country",      "get": lambda r: r.get("country")},
+    {"key": "pl_type",        "label": "Client Type",         "get": lambda r: "" if r.get("is_prospect") else r.get("client_type"),
+     "help": "Only applies to linked (non-prospect) entries"},
+])
+filtered = [r for r in pipeline if _match(r)]
 
 # ------------------------------------------------------------------
 # Summary metrics by stage
@@ -134,10 +150,26 @@ for col, stage in zip(summary_cols, STAGES):
 st.divider()
 
 # ------------------------------------------------------------------
+# Prospect funnel (prospects still in the Prospect stage, by step)
+# ------------------------------------------------------------------
+
+st.subheader("Prospect funnel")
+_open_prospects = [r for r in pipeline if r.get("is_prospect") and r["stage"] == "Prospect"]
+_funnel_steps = [x for x in PROSPECT_STEPS if x] + ["(no step)"]
+for col, step in zip(st.columns(len(_funnel_steps)), _funnel_steps):
+    _rows = [r for r in _open_prospects if (_s(r.get("prospect_step")) or "(no step)") == step]
+    _w = sum((r.get("budget_est") or 0) * (r.get("probability") or 0) for r in _rows)
+    col.metric(step, f"{len(_rows)} prospect(s)", f"€{_w:,.0f} weighted est.", delta_color="off")
+_lost_rows = [r for r in pipeline if r["stage"] == "Lost"]
+if _lost_rows:
+    st.caption(f"Lost to date: {len(_lost_rows)} (reasons in the table below; filter Stage = Lost).")
+st.divider()
+
+# ------------------------------------------------------------------
 # Probability-weighted forecast
 # ------------------------------------------------------------------
 
-prob_rows = [r for r in filtered if r.get("probability") and (
+prob_rows = [r for r in filtered if r["stage"] != "Lost" and r.get("probability") and (
     r.get("budget_min") or r.get("budget_est") or r.get("budget_max"))]
 if prob_rows:
     fw_min = sum((r["budget_min"] or 0) * (r["probability"] or 0) for r in prob_rows)
@@ -174,6 +206,12 @@ else:
             "Max (€)":           float(r.get("budget_max") or 0),
             "Prob %":            round(float(r.get("probability") or 0.5) * 100, 0),
             "Notes":             r["notes"] or "",
+            "Step":              _s(r.get("prospect_step")),
+            "Expected close":    _s(r.get("expected_close"))[:10],
+            "Next action":       _s(r.get("next_action")),
+            "Next action date":  _s(r.get("next_action_date"))[:10],
+            "Lost reason":       _s(r.get("lost_reason")),
+            "Flag":              _flag(r),
             "In Pipeline":       (r.get("date_entered_pipeline") or "")[:10],
             "In Stage Since":    (r.get("date_entered_stage") or "")[:10],
         }
@@ -186,7 +224,7 @@ else:
         use_container_width=True,
         hide_index=True,
         disabled=["_id", "_project_id", "_is_prospect", "Client / Company", "Country",
-                  "Project / Opp.", "In Pipeline", "In Stage Since"],
+                  "Project / Opp.", "Flag", "In Pipeline", "In Stage Since"],
         column_config={
             "_id":              st.column_config.NumberColumn("_id",           width="small"),
             "_project_id":      st.column_config.TextColumn("_project_id",     width="small"),
@@ -202,6 +240,13 @@ else:
             "Max (€)":          st.column_config.NumberColumn("Max (€)",        min_value=0, step=1000, format="%.0f"),
             "Prob %":           st.column_config.NumberColumn("Prob %",         min_value=0, max_value=100, step=5, format="%.0f%%"),
             "Notes":            st.column_config.TextColumn("Notes",            width="large"),
+            "Step":             st.column_config.SelectboxColumn("Step", options=PROSPECT_STEPS, width="small",
+                                                                 help="Prospects only"),
+            "Expected close":   st.column_config.TextColumn("Expected close",   width="small", help="YYYY-MM-DD (prospects only)"),
+            "Next action":      st.column_config.TextColumn("Next action",      width="medium", help="Prospects only"),
+            "Next action date": st.column_config.TextColumn("Next action date", width="small", help="YYYY-MM-DD (prospects only)"),
+            "Lost reason":      st.column_config.TextColumn("Lost reason",      width="medium", help="Prospects only"),
+            "Flag":             st.column_config.TextColumn("Flag",             width="small"),
             "In Pipeline":      st.column_config.TextColumn("In Pipeline",      width="small"),
             "In Stage Since":   st.column_config.TextColumn("In Stage Since",   width="small"),
         },
@@ -218,11 +263,17 @@ else:
 
     if st.button("Save changes", type="primary"):
         changed = 0
+        bad_dates: list[str] = []
         for _, row in edited.iterrows():
             orig = next((r for r in filtered if r["id"] == int(row["_id"])), None)
             if orig is None:
                 continue
             if orig.get("is_prospect"):
+                try:
+                    _close, _nad = _iso(row["Expected close"]), _iso(row["Next action date"])
+                except ValueError:
+                    bad_dates.append(str(row["Client / Company"]))
+                    continue
                 db.update_prospect(
                     pipeline_id=int(row["_id"]),
                     company_name=str(row["Client / Company"]),
@@ -236,6 +287,11 @@ else:
                     probability=float(row["Prob %"] or 50) / 100.0,
                     notes=str(row["Notes"] or ""),
                     opportunity_country=str(row["Opp. Country"] or ""),
+                    prospect_step=_s(row["Step"]),
+                    expected_close=_close,
+                    next_action=_s(row["Next action"]),
+                    next_action_date=_nad,
+                    lost_reason=_s(row["Lost reason"]),
                 )
             else:
                 db.upsert_pipeline(
@@ -250,9 +306,12 @@ else:
                     opportunity_country=str(row["Opp. Country"] or ""),
                 )
             changed += 1
-        st.success(f"Saved {changed} pipeline entr{'y' if changed==1 else 'ies'}.")
-        st.cache_data.clear()
-        st.rerun()
+        if bad_dates:
+            st.error("Not saved - dates must be YYYY-MM-DD: " + ", ".join(bad_dates))
+        else:
+            st.success(f"Saved {changed} pipeline entr{'y' if changed==1 else 'ies'}.")
+            st.cache_data.clear()
+            st.rerun()
 
 # ------------------------------------------------------------------
 # Prospect Actions: Edit | Convert | Delete | Activity Log
@@ -269,7 +328,7 @@ if prospect_rows:
     sel_label    = st.selectbox("Select prospect", list(prospect_options.keys()), key="prospect_sel")
     sel_prospect = prospect_options[sel_label]
 
-    tab_edit, tab_convert, tab_log = st.tabs(["Edit", "Convert / Delete", "Activity Log"])
+    tab_edit, tab_convert, tab_log = st.tabs(["Edit", "Convert / Lost / Delete", "Activity Log"])
 
     # ── Edit tab ────────────────────────────────────────────────────
     with tab_edit:
@@ -294,6 +353,19 @@ if prospect_rows:
             ep_prob    = ep_col5.slider("Probability %", 0, 100,
                                         int(round((sel_prospect.get("probability") or 0.5) * 100)), step=5)
             ep_notes   = st.text_area("Notes", value=sel_prospect.get("notes") or "", height=60)
+            def _d(v):
+                try:
+                    return date.fromisoformat(_s(v)[:10]) if _s(v) else None
+                except ValueError:
+                    return None
+            ef1, ef2, ef3 = st.columns(3)
+            _cur_step = _s(sel_prospect.get("prospect_step"))
+            ep_step    = ef1.selectbox("Prospect step", PROSPECT_STEPS, format_func=lambda x: x or "—",
+                                       index=PROSPECT_STEPS.index(_cur_step) if _cur_step in PROSPECT_STEPS else 0)
+            ep_close   = ef1.date_input("Expected close", value=_d(sel_prospect.get("expected_close")))
+            ep_action  = ef2.text_input("Next action", value=_s(sel_prospect.get("next_action")))
+            ep_action_d = ef3.date_input("Next action date", value=_d(sel_prospect.get("next_action_date")))
+            ep_lost    = st.text_input("Lost reason (when stage is Lost)", value=_s(sel_prospect.get("lost_reason")))
             if st.form_submit_button("Save changes", type="primary"):
                 if not ep_company.strip():
                     st.error("Company name is required.")
@@ -311,6 +383,11 @@ if prospect_rows:
                         probability=ep_prob / 100.0,
                         notes=ep_notes.strip(),
                         opportunity_country=ep_country.strip(),
+                        prospect_step=ep_step,
+                        expected_close=ep_close.isoformat() if ep_close else "",
+                        next_action=ep_action.strip(),
+                        next_action_date=ep_action_d.isoformat() if ep_action_d else "",
+                        lost_reason=ep_lost.strip(),
                     )
                     st.success("Prospect updated.")
                     st.cache_data.clear()
@@ -328,6 +405,17 @@ if prospect_rows:
                 "prospect":    sel_prospect.get("prospect_name", "") or sel_prospect.get("display_project", ""),
             }
             st.switch_page("pages/11_add_new_project.py")
+
+        st.divider()
+        st.caption("Mark as Lost keeps the record (and its activity log) so you can see what was lost and why. "
+                   "It drops out of the forecast.")
+        lost_reason_in = st.text_input("Reason", key="lost_reason_in",
+                                       placeholder="e.g. went with incumbent / budget cancelled")
+        if st.button("Mark as Lost", key="btn_mark_lost", disabled=sel_prospect["stage"] == "Lost"):
+            db.mark_prospect_lost(sel_prospect["id"], lost_reason_in)
+            st.success(f"'{sel_prospect['display_client']}' marked as Lost.")
+            st.cache_data.clear()
+            st.rerun()
 
         st.divider()
         st.caption("Delete this prospect entry permanently.")

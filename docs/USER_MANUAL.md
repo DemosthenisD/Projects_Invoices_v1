@@ -65,6 +65,29 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 
 ---
 
+### How to Correct an Invoice (wrong ID, date, amount, client or project)
+
+Use this when the record in the app does not match the invoice you formally issued.
+
+1. Go to **1. Invoice Log**, find the invoice and click **✏️ Edit / void**.
+2. Change what is wrong: **Invoice ID**, **date**, **net / VAT / expenses**, **client**, **project**, description, address or comment.
+3. *(Optional)* Upload the **formally issued PDF or DOCX** to replace the stored file, so the log points to the real document.
+4. Enter a **reason** (required) and click **Save changes**.
+
+What the app does for you:
+- Blocks an Invoice ID already used in that year.
+- Recalculates payment status if the amount changed, and warns if payments now exceed the invoice.
+- Changing the **client/project** recalculates project-code allocations pro-rata and releases any linked recurring-fee occurrence (back to pending).
+- Changing the Invoice ID re-points any credit notes that reference it.
+- Changing the date to another year changes the year, so the ID is re-checked for that year.
+- Every change is stored in the **Change history** shown in the same panel (when, field, from, to, reason).
+
+**To void an invoice** that should not exist (for example one never issued), tick the confirmation and click **Void invoice**. The record and its ID stay, it shows as ⚫ void, and it drops out of all revenue, project and pipeline totals. Voiding is refused if payments are recorded — use **↩ Reset** first. Use **Restore** in the same panel to undo.
+
+If the wrong invoice was already **sent to the client**, issue a **Credit Note** and a new invoice instead (see *How to Issue a Credit Note*); editing is for making the app match what was really issued.
+
+---
+
 ### How to Add a New Client and Project
 
 **Option A — Add New Project page (recommended for new engagements):**
@@ -110,7 +133,7 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 1. Go to **5. Pipeline / CRM**.
 2. Scroll to **Prospect Actions** at the bottom.
 3. Select the prospect from the dropdown.
-4. Click **Convert to Project →** — the app navigates to **4. Add New Project** with the company name, opportunity name, and description pre-filled.
+4. Click **Convert to Project →** — the app navigates to **3. Add New Project** with the company name, opportunity name, and description pre-filled.
 5. Complete the remaining fields: client code, VAT, client type, project codes, etc.
 6. Click **Import to Database** — the pipeline entry is automatically linked to the new project and its stage advances to Active.
 
@@ -129,6 +152,11 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 
 ### How to Invoice a Recurring Fee Occurrence
 
+**One click from a reminder (fastest):**
+1. On the **Revenue Dashboard** (billing reminders) or on **12. Recurring Fees** (each pending occurrence of a "we bill" fee), click **Invoice this →**.
+2. **Generate Invoice** opens with the project selected, the occurrence linked and the amount pre-filled.
+3. Check the date and ID, then click **Generate Invoice**. The occurrence is marked invoiced automatically.
+
 **Via Generate Invoice (recommended):**
 1. Go to **Generate Invoice**.
 2. Select the client and project.
@@ -139,17 +167,18 @@ Step-by-step guides for the most common tasks. Each guide lists the exact pages 
 **Manually (if already invoiced outside the app):**
 1. Go to **12. Recurring Fees**.
 2. Find the fee and expand it.
-3. In the **Mark as invoiced manually** section, select the occurrence and enter the invoice reference.
+3. In the **Mark as invoiced manually** section, select the occurrence and the existing invoice (from the dropdown) it was billed on.
 4. Click **Mark Invoiced**.
 
 ---
 
 ### How to Import Monthly Time Charges
 
-1. Export the monthly time-charge report from the billing system as CSV.
+1. In the billing system, run the **Charges By Employee Report** and export it as CSV (settings below).
 2. Go to **9. Time Tracking → Import tab**.
 3. Upload the CSV file — unmatched codes are shown for review before import.
-4. Click **Confirm Import** to load entries. Duplicate rows (same period/employee/code) are skipped automatically.
+4. If rows already exist (same period/employee/code) with **different figures** (e.g. the billing system revised a past month), a comparison table shows existing vs new values. By default the existing record is kept and the new one skipped; tick **Replace** on a row (or **Select all for replacement**) to overwrite it. Identical duplicates are skipped silently.
+5. Click **Confirm Import** to load entries.
 5. Check the **Rollup tab** to verify the imported amounts per project and code.
 
 ---
@@ -234,13 +263,38 @@ After any action, the metrics update automatically on the next page reload.
 
 ---
 
+### How to Record a Write-off
+
+1. Go to **10. Write-offs → Create tab**.
+2. Choose **Project-level** (spread pro-rata across the consultants by billable charges — an allocation preview is shown) or **Ad-hoc** (one specific consultant).
+3. Select the project (and code if relevant), enter the amount and a reason, then save.
+4. To undo, go to the **Log tab** and use **Reverse** on the entry, giving a reason. Reversed entries drop out of project totals.
+
+---
+
+### How to Record a Receivable Payment
+
+1. Go to **11. Receivables** (only projects with billing arrangement *receivable* appear).
+2. Expand the receivable and use **Record Payment** — amount, date, optional note.
+3. The outstanding balance updates; it is overdue when the due date has passed and a balance remains.
+4. To add a new receivable, use **Add Receivable** at the bottom of the page.
+
+---
+
 ### How to Back Up Your Data
 
-Copy two locations to a safe place:
-- `data/invoiceapp.db` — the complete database (all clients, projects, invoices, time entries, HR data).
-- `exports/` folder — all generated invoice and feedback form files.
+**One click (recommended):**
+1. Go to **16. Data Tables** and find the **Backup** section.
+2. Click **Backup now** (tick *Include generated invoice files* if you want `exports/` too).
+3. A dated folder such as `backups/2026-11-12_143559/` is created containing `invoiceapp.db` and (optionally) `exports/`. The page reports its size and whether the database passed an integrity check.
 
-That is everything. No other data needs to be backed up.
+What it does: takes a consistent snapshot of the live database using SQLite's own backup method (safe even while the app is running — a plain file copy could catch a half-written file), copies the invoice files, and keeps only the newest 30 backups. It never changes your live data.
+
+**To restore:** close the app, copy `invoiceapp.db` from the chosen backup folder over `data/invoiceapp.db`, and restart. There is deliberately no restore button.
+
+**Where backups go:** `backups/` in the app folder by default (not committed to git). Because the app folder is inside Dropbox, set `backup_dir = "C:/some/folder"` in `.streamlit/secrets.toml` to keep backups outside Dropbox and avoid sync conflicts on the live database.
+
+**Manual alternative:** copy `data/invoiceapp.db` (the complete database) and the `exports/` folder.
 
 ---
 
@@ -270,6 +324,22 @@ A brief in-app orientation page with page summaries, a "Where to go for each edi
 
 ---
 
+### Action Centre
+
+**What it does:** The landing page after sign-in. It answers "what needs my attention today?" in one place, with a count for each item and a section that opens automatically when something is waiting.
+
+| Section | Shows | Action |
+|---|---|---|
+| Overdue invoices | Outstanding or part-paid invoices older than the threshold (default 30 days from invoice date), with balance due | Link to the Invoice Log to record payment |
+| Recurring invoices to raise | "We bill" fee occurrences that are overdue or due within 30 days | **Invoice this →** opens Generate Invoice pre-filled |
+| Overdue receivables | Inter-office receivables past their due date with a balance | Link to Receivables |
+| Prospects to chase | Prospects whose **next action date** has passed, or that have sat in the Prospect stage longer than the threshold (default 60 days) | Link to Pipeline / CRM |
+| Active projects with time charged but not invoiced | Time charges − write-offs − invoiced above the threshold (default €5,000), for active projects we invoice directly | **Invoice →** opens Generate Invoice for that project |
+
+The **Settings** expander at the top changes the three thresholds for your current browser session. A green "Nothing needs attention" message appears when all lists are empty.
+
+---
+
 ### Generate Invoice
 
 **What it does:** Fills a Word template with invoice details, saves it to the `exports/` folder, and offers a download button. Also supports Credit Notes.
@@ -285,6 +355,10 @@ A brief in-app orientation page with page summaries, a "Where to go for each edi
 7. *(Optional)* Expand **Project Code Allocation** to manually split the net amount across project codes. If you leave all at 0, the system allocates automatically using each code's budget as the weight (equal split if all budgets are zero).
 8. *(Optional)* Expand **Advanced** to choose PDF vs DOCX, and add expense lines.
 9. Click **Generate Invoice**.
+
+**Start from — three ways to pick the project:** *Client → Project* (classic), *Project → Client*, and **Quick search**. Quick search gives one searchable "Client — Project" box (click and type part of either name), buttons for your **5 most recently invoiced projects**, and collapses the auto-filled details (address, VAT %, template, description, comment) into one expander — open it only when something needs changing. All three modes produce identical invoices.
+
+**Duplicate protection:** if the Invoice ID is already used by another invoice in that year, a red message shows the next free ID and **Generate Invoice** is blocked.
 
 **What happens when you click Generate Invoice:**
 - The DB record is saved immediately (credit notes are stored with a negative amount).
@@ -320,12 +394,13 @@ A brief in-app orientation page with page summaries, a "Where to go for each edi
 **Columns:** Date · Invoice ID · Inv No (`ID/YYYY`) · Type (📄 Invoice / 🔄 Credit Note) · Client · Project · Net € · VAT € · Status · Balance € · File · Action
 
 - **Type** — 📄 for invoices, 🔄 for credit notes. Credit note rows show a caption with the referenced original invoice number.
-- **Status** — colour-coded badge: 🔴 outstanding · 🟢 paid · 🟡 partial.
+- **Status** — colour-coded badge: 🔴 outstanding · 🟢 paid · 🟡 partial · ⚫ void.
 - **Balance €** — gross amount minus payments received. Shows `—` for legacy paid records with no individual payment rows; `€0` for fully paid invoices with payment records.
 - **Payment history** — individual payment receipts shown as captions below each row (date, amount, optional note).
 - **Action buttons:**
   - **✓ Pay** — record a full payment for the remaining balance (today's date, no note).
   - **± Part.** — toggle an inline form to record a partial payment with amount, date, and optional note. Multiple partial payments can be recorded; each appears in the history.
+  - **✏️ Edit / void** — correct the record, replace its file with the formally issued document, or void it. All changes are kept in a change history. See *How to Correct an Invoice*.
   - **↩ Reset** — shown for paid/partial invoices. Clears all payment records and reverts the invoice to Outstanding.
 - **File column** — click the PDF/DOCX button to download from your local disk. Shows "—" if the file was moved.
 
@@ -401,7 +476,9 @@ Click **➕ Add Prospect** to expand the form at the top of the page. Fields:
 - **Company name** (required)
 - **Opportunity name** — the project or engagement name
 - **Description** — free-text notes on the opportunity
-- **Country**, **Stage** (Prospect / Active / On Hold / Completed)
+- **Country**, **Stage** (Prospect / Active / On Hold / Completed / Lost)
+- **Prospect step** (optional): Lead / Proposal sent / Negotiation — where the prospect is while still in the Prospect stage
+- **Expected close**, **Next action** and **Next action date** — your follow-up commitment
 - **Budget Min / Est / Max (€)** — range of expected contract value
 - **Probability %** — likelihood of winning
 
@@ -409,20 +486,25 @@ Click **Add Prospect** — the entry appears in the pipeline table immediately a
 
 #### Summary and Forecast
 
-**Summary strip:** Count and total value per stage (Prospect / Active / On Hold / Completed).
+**Summary strip:** Count and total value per stage (Prospect / Active / On Hold / Completed / Lost).
+
+**Prospect funnel:** one tile per prospect step (Lead, Proposal sent, Negotiation, and prospects with no step yet) showing the number of prospects and their probability-weighted estimated budget. Only prospects still in the Prospect stage are counted.
 
 **Probability-weighted forecast** (shown when at least one entry has budget fields set):
-- Weighted Min, Weighted Est, Weighted Max = budget × probability, summed across all filtered entries.
+- Weighted Min, Weighted Est, Weighted Max = budget × probability, summed across all filtered entries. **Lost** entries are excluded.
 
 #### Inline Editing Table
 
 All pipeline entries — both standalone prospects and linked project entries — appear in a single editable grid. You can edit directly:
-- **Stage** (dropdown: Prospect / Active / On Hold / Completed)
+- **Stage** (dropdown: Prospect / Active / On Hold / Completed / Lost)
+- **Step**, **Expected close**, **Next action**, **Next action date**, **Lost reason** (prospects only; dates as YYYY-MM-DD)
 - **Value (€)**, **Min (€)**, **Est (€)**, **Max (€)**
 - **Prob %** (0–100)
 - **Notes**, **Opp. Country**
 
 Click **Save changes** to persist all edits in one go. Live subtotals for the filtered view are shown below the table.
+
+The read-only **Flag** column warns about prospects that need chasing: **⏰ action overdue** (the next action date has passed) or **💤 N days in stage** (more than 60 days in the Prospect stage).
 
 **Filters:** Stage, Client / Company, Opportunity Country, Client Country, Client Type.
 
@@ -437,6 +519,9 @@ When at least one standalone prospect exists, a **Prospect Actions** section app
 2. Click **Convert to Project →** — the app navigates to **3. Add New Project** with the company name, opportunity name, and description pre-filled.
 3. Complete the remaining details (client code, VAT, project codes, etc.) and click **Import to Database**.
 4. The pipeline entry is automatically linked to the new project and its stage advances to Active if it was previously Prospect.
+
+**Mark as Lost**
+- On the *Convert / Lost / Delete* tab, give a reason and click **Mark as Lost**. The record, its step and its activity log are kept, a "Marked Lost" note is added, and it drops out of the forecast and the Action Centre. Prefer this to deleting.
 
 **🗑 Delete Prospect**
 - Permanently removes the selected prospect entry. This only works for standalone prospects — linked project entries cannot be deleted here.
@@ -475,7 +560,7 @@ Read-only. Use **5. Pipeline / CRM** to update pipeline entries.
 | Status | Default: Active only; add On Hold / Completed as needed |
 | Source / Office | Filter by derived source (CY / NotBillable / Other) |
 | Type | Filter by client type (managed / external / internal) |
-| Consultant Group | Show only projects where at least one consultant in the selected group has billed hours |
+| Consultant Team | Show only projects where at least one consultant in the selected team has billed hours |
 | Consultant | Show only projects where the selected consultant has billed hours |
 
 **Sorting:** Click any column header. Amount columns sort numerically (not lexicographically) — billable totals sort correctly regardless of magnitude.
@@ -503,9 +588,14 @@ A green "fully reconciled" banner appears when the gap reaches zero or below.
 
 ### 8. Revenue Dashboard
 
-**What it does:** High-level financial overview.
+**What it does:** High-level financial overview of invoiced revenue.
 
-Shows metrics for the current year: invoiced total, VAT, gross, and pipeline forecast (probability-weighted min/est/max).
+- **Billing reminders** (top of page): a red banner for overdue recurring invoices and an amber one for those due within 60 days, with an expander listing each (client, project, code, due date, amount). Use **Generate Invoice** to bill them.
+- **Year selector** and three cascading filters — Client Type → Country → Client; each one narrows the options of the next.
+- **YTD metrics:** Net, VAT and Gross revenue for the selected year versus the same months of the prior year (with % change), plus total **Outstanding** (gross balance due on open and part-paid invoices across all years).
+- **Monthly Revenue** bar chart (net vs gross) and **Revenue by Client** bar chart.
+- **VAT summary** table by month with a totals row.
+- **Inter-office revenue** (receivable projects) and **Receivables aging** (0–30, 31–60, 61–90, 90+ days) for outstanding invoices.
 
 ---
 
@@ -513,12 +603,31 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 **What it does:** Imports monthly time-charge reports and provides rollup views.
 
+**Source report — Charges By Employee Report (billing system):**
+
+![Charges By Employee Report setup](images/charges_by_employee_report_setup.png)
+
+| Setting | Value |
+|---------|-------|
+| Charges by | Employee, Client – YTD Summary |
+| Period | The month being exported (e.g. 07/2026) |
+| Selection | ALL (not a single Employee or Staff Group) |
+| Include outside employee time | Ticked |
+| Include '009' client codes | Ticked |
+| Sort by | Employee Name |
+| Output format | CSV |
+
+Click **Submit & Open** (or **Submit Only**) to download the CSV. In the extract, **Z** hours/charges are non-billable (internal); `non_z_*` columns are the billable amounts used throughout the app.
+
 **Import tab:**
 1. Upload a CSV file in the standard format (see `sample_time_sheet.csv`). Files encoded in UTF-8, UTF-8-BOM, or Windows-1252 (common Excel export encoding) are all handled automatically.
 2. Unmatched codes (combinations not in the project codes table) are shown before import.
-3. Click **Confirm Import** to load entries. Duplicate rows (same period/employee/code) are skipped.
+3. Rows that already exist with different figures are shown side by side (existing vs new); the existing record is kept unless you tick **Replace**.
+4. Click **Confirm Import** to load entries. Identical duplicate rows (same period/employee/code) are skipped.
 
 **Entries tab:** Browse imported time entries by client, project, and period. Delete an entire import batch if needed.
+
+**Analysis tab:** Slice billable time charges by client, project, period range, consultant team and consultant, grouped by month, quarter or year. Tables: *By project* (billable, invoiced, **unbilled before write-offs**, **write-offs**, **unbilled after write-offs**), *By period*, *Time detail* (period / person / team / project / code / suffix, exportable to Excel), *Write-offs counted* and *Invoices in the period*. Invoices are bucketed by invoice date (credit notes and cancelled invoices excluded). A write-off is counted only when its **effective date** (set on the Write-offs page) falls within the period range; the table caption shows the amount of write-offs excluded because they are dated outside the range. With no period set, all write-offs are counted. The team/consultant filter applies to time charges only.
 
 **Rollup tab:** Project-level and per-code summary of billable hours, charges, write-offs, and net.
 
@@ -548,8 +657,8 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 - **By Consultant & Project:** Same as By Consultant but drills one level deeper — each consultant row expands to show the individual projects they billed on, with hours and charges per project. TOTAL row per consultant and overall.
 - **Period pivot:** Consultant × period matrix showing billable hours and charges broken down by month.
 
-**Consultant Groups tab:** Assign each consultant to Local, ICEE, or Other. Manage Active / Inactive status for Local consultants.
-- **Group radio** at the top selects which group to view (defaults to Local).
+**Consultant Teams tab:** Assign each consultant to Local, ICEE, or Other. Manage Active / Inactive status for Local consultants.
+- **Show team** radio at the top selects which team to view (defaults to Local).
 - Only the consultants in the selected group are shown, in alphabetically sorted expanders. The expander title shows the consultant's current status for Local consultants (e.g. `Savva, Konstantinos (Active)`).
 - Each expander has three fields: **Group**, **emp_nbr**, and (for Local consultants) **Status** (Active / Inactive).
 - Setting a Local consultant to **Inactive** hides them from the Annual Review consultant dropdown. They remain in all other pages and their historical data is unaffected.
@@ -565,8 +674,9 @@ Shows metrics for the current year: invoiced total, VAT, gross, and pipeline for
 
 - **Project-level:** Allocates the write-off amount pro-rata across all consultants on the project (by their billable charges). An allocation preview is shown before saving.
 - **Ad-hoc:** Records a write-off for a specific consultant directly.
+- **Effective date:** Every write-off has an effective date (defaults to today) — the date it relates to. Period reports (Time Tracking → Analysis) include a write-off only when this date falls in the range being reviewed. Write-offs that existed before this field was added were given their recording date.
 
-**Log tab:** Shows all write-offs with client/project filters. Reversed write-offs can be shown or hidden.
+**Log tab:** Shows all write-offs with client/project filters. Reversed write-offs can be shown or hidden. Each active write-off shows its effective date, which can be changed with **Save date**.
 
 ---
 
@@ -609,7 +719,7 @@ Receivable projects use `billing_arrangement = receivable` on the project. They 
 - Project code, coverage start, expected end, notes.
 - **Upcoming (pending):** Next 6 pending occurrences. Each has an editable Amount (€) and Split (€) with a **💾 Save** button and a **Skip** button. A warning caption is shown for past-dated pending occurrences.
 - **History:** Last 5 non-pending occurrences (invoiced / skipped) with date, status, and amount.
-- **Mark as invoiced manually:** Select a pending occurrence and enter an invoice reference to mark it invoiced without going through the Generate Invoice flow. Use this only for invoices issued outside the app.
+- **Mark as invoiced manually:** Select a pending occurrence and pick the existing invoice (dropdown) it was billed on, to mark it invoiced without going through the Generate Invoice flow. The invoice must already be in the Invoice Log.
 
 **Summary Table:** Below all the expanders, a flat table lists every visible fee with key columns — client, project, description, billing type, frequency, base fee, next due date, next amount, invoiced count, pending count, and expected end.
 
@@ -691,9 +801,11 @@ Using the Avg Annual Rate instead of a fixed Hourly Rate accounts for mid-year b
 
 **What it does:** Per-consultant annual assessment form combining compensation, performance scores, and a formatted review summary.
 
-**Scope:** This page is restricted to **Local + Active** consultants only. To make a consultant visible here, ensure they are in the Local group and have Status = Active in the Consultant Groups tab (**9. Time Tracking**). Inactive Local consultants and all non-Local consultants are excluded.
+**Scope:** This page is restricted to **Local + Active** consultants only. To make a consultant visible here, ensure they are in the Local group and have Status = Active in the Consultant Teams tab (**9. Time Tracking**). Inactive Local consultants and all non-Local consultants are excluded.
 
 **Selector:** Consultant selectbox showing all active Local employees.
+
+**Readiness checklist** (top of the page, opens automatically while anything is missing): shows for the selected consultant and year whether time entries are imported (and which months are missing), the billing basis is saved (and which source), the profile is complete, a salary record and proposed rate exist, performance scores are entered (Management is optional), and feedback comments are written. Each missing item links to the page where it is fixed.
 
 **Sections:**
 
@@ -754,6 +866,68 @@ Use the tabs to switch between tables. The **"Open DB"** button shows the full p
 
 Organised by topic area (Invoices, Projects, Time Tracking, Billing Basis, Annual Review, etc.). Use this page when you encounter an unfamiliar field name or want to confirm the exact meaning of a billing column. No actions available — read-only reference.
 
+## Where to Go for Each Edit
+
+| What you want to do | Where to go |
+|---|---|
+| Generate an invoice or credit note | **Generate Invoice** |
+| See completed projects in the invoice form | **Generate Invoice** → tick *Include completed projects* |
+| Record a full payment on an invoice | **1. Invoice Log** → **✓** button on the invoice row |
+| Record a partial payment | **1. Invoice Log** → **±** button → enter amount, date, note |
+| Clear payments and reset to Outstanding | **1. Invoice Log** → **↩ Reset** button |
+| Add a completely new project with client and codes | **3. Add New Project** |
+| Add a new external or internal client (no codes needed) | **3. Add New Project** → Create new client → set Client Type |
+| Client name / VAT / billing name / type / country | **2. Clients & Projects** → Clients tab → Edit |
+| Project description / VAT % / template / status | **2. Clients & Projects** → Projects tab → Edit |
+| Project code budget / date range | **4. Project Codes** → expand code → Edit |
+| Auto-set budgets for completed projects from invoiced amounts | **2. Clients & Projects** → Projects tab → *Admin: sync completed project budgets* expander |
+| Invoice allocation to project codes | **Generate Invoice** → Project Code Allocation expander |
+| Add a prospect (no client/project needed) | **5. Pipeline / CRM** → ➕ Add Prospect expander |
+| Update pipeline stage / estimated value / probability | **5. Pipeline / CRM** → edit row inline → Save changes |
+| Convert a prospect to a live project | **5. Pipeline / CRM** → Prospect Actions → Convert to Project → |
+| Delete a standalone prospect | **5. Pipeline / CRM** → Prospect Actions → 🗑 Delete Prospect |
+| Add or edit a recurring fee | **7. Project Overview** → project code → Recurring Fees |
+| Skip or manually mark a recurring occurrence | **12. Recurring Fees** → expand the fee |
+| Record a receivable payment | **11. Receivables** → expand the receivable → Record Payment |
+| Consultant team (Local / ICEE / Other) and Active/Inactive | **9. Time Tracking** → Consultant Teams tab |
+| Close out a project (verify + settle gap) | **7. Project Overview** → Project Close-out section |
+| Write-off reason / reversal | **10. Write-offs** → Log tab → Reverse button |
+| Annual billing amounts for bonus calc (auto) | **13. Billing Basis** → Auto tab → Load from Time Tracking → Save |
+| Annual billing amounts for bonus calc (manual) | **13. Billing Basis** → Manual Entry tab → fill amounts → Save |
+| Choose which billing basis source the Annual Review uses | **13. Billing Basis** → Saved Basis tab → source radio buttons at bottom → Save preferences |
+| Consultant employment / experience / tools | **14. Consultant Profiles** → Profile tab |
+| Salary record for a specific year | **14. Consultant Profiles** → Salary History tab → Add / Edit Year Record |
+| Performance scores for a review year | **15. Annual Review** → Section 2 — Performance Scores |
+| Generate the Feedback Form Word document | **15. Annual Review** → Section 4 → Save & Generate Feedback Form |
+| Look up what a field name means | **17. Field Definitions** |
+| Anything else (direct DB edit) | **16. Data Tables** → Open in DB Browser for SQLite |
+
+**DB Browser for SQLite** is your escape hatch for anything not covered by the UI: rename a project, fix a wrong invoice number, delete a duplicate row, and so on. Open the table, double-click a cell, edit, then click **Write Changes**. Editing the CSV files in `DB_Tbls_Structure/` has **no effect** on the live database — those are export snapshots only.
+
+## Key Concepts
+
+| Term | Meaning |
+|---|---|
+| **Invoice ID** | Sequential log counter per year (e.g. `12`). Auto-suggested; can be overridden. |
+| **Invoice No** | Business reference shown on the document: `ID/YYYY` (e.g. `12/2026`). |
+| **Credit Note** | An invoice with a negative amount that negates or partially reverses a previous invoice. Shares the same sequential counter as invoices. |
+| **Gross amount** | Net fee + expenses net + VAT on fees + VAT on expenses. This is the total the client owes. |
+| **Balance** | Gross amount minus payments received. Zero once fully paid. |
+| **Pro-rata allocation** | When no manual split is entered, the invoice net is distributed across project codes in proportion to their budgets. |
+| **managed client** | Standard client with full project tracking, budgets, and invoices. |
+| **external client** | Client outside normal managed scope — tracked at a basic level; project codes optional. |
+| **internal client** | Non-billable overhead codes (e.g. internal projects, admin time). |
+| **Local team** | The Cyprus local team. Default filter on Billing Basis, Consultant Profiles, and Annual Review pages. |
+| **Prospect** | A pipeline entry with no linked client or project — added with minimal info when an engagement is not yet won. Converted to a project when won. |
+| **Billing arrangement** | `local` (we invoice the client), `receivable` (another Milliman entity bills; we receive a split) or `internal` (overhead, excluded from revenue). |
+| **Recurring fee** | A fee attached to a project code that generates dated occurrences (monthly to annual), optionally indexed each year. |
+| **Active for Review** | The billing basis source (Auto or Manual) designated for use in the Annual Review for a given consultant and year. Set in the Saved Basis tab on **13. Billing Basis**. |
+| **Avg Annual Rate** | Weighted average billing rate for the year: SUM(non_z_charges) / SUM(non_z_hours). Used for the Productivity Bonus % calculation in preference to Hourly Rate. |
+| **Hourly Rate** | A reference/proposed billing rate stored on the billing basis record. Used for the bonus only when Avg Annual Rate is not set. |
+| **Effective Rate** | The rate used in the bonus calculation: Avg Annual Rate if set (> 0), otherwise Hourly Rate. |
+| **Colleagues involved** | Other consultants who billed to the same project codes in the same year ("Firstname Lastname"). Used in Section 4A of the Annual Review. |
+| **Teams involved** | The consultant teams (Local / ICEE / Other) of the colleagues on a project, deduplicated. Used in the Word Feedback Form. |
+
 ## Frequently Asked Questions
 
 **Where are generated invoice files stored?**
@@ -766,7 +940,7 @@ At `data/invoiceapp.db` relative to the repo root. See TECHNICAL.md for details 
 PDF conversion requires Microsoft Word (via the `docx2pdf` library) or LibreOffice installed on the machine. If neither is available, select DOCX format in the Advanced section on the Generate Invoice page.
 
 **How do I back up my data?**
-Copy `data/invoiceapp.db` and the `exports/` folder to a safe location. That is the complete data set.
+Go to **16. Data Tables → Backup → Backup now**. It saves a dated copy of the database (and optionally `exports/`) and keeps the newest 30. See *How to Back Up Your Data*.
 
 **Can I reuse a client suffix for a new project?**
 Yes — set a **Date Start** on the new project code (YYYY-MM-DD). Time entries whose period falls on or after that date are automatically routed to the new project; earlier entries stay with the original. Leave Date End blank on both codes unless you want an explicit end date. Only one code per suffix may have a blank Date Start (the original first use).
@@ -792,10 +966,10 @@ In the **Prospect Actions** section at the bottom of **5. Pipeline / CRM**, sele
 These pages default to the Local group filter. Use the Group radio at the top to switch to ICEE, Other, or All.
 
 **Why is a consultant missing from the Annual Review page?**
-The Annual Review only shows **Local + Active** consultants. Check two things: (1) the consultant is in the **Local** group, and (2) their **Status** is **Active**. Both are set in **9. Time Tracking** → Consultant Groups tab. Open the consultant's expander and confirm Group = Local and Status = Active, then Save.
+The Annual Review only shows **Local + Active** consultants. Check two things: (1) the consultant is in the **Local** group, and (2) their **Status** is **Active**. Both are set in **9. Time Tracking** → Consultant Teams tab. Open the consultant's expander and confirm Group = Local and Status = Active, then Save.
 
 **How do I mark a consultant as inactive without losing their data?**
-In **9. Time Tracking** → Consultant Groups tab, select the Local view, open the consultant's expander, change Status to **Inactive**, and click Save. Their data, time entries, billing history, and scores are fully preserved — they simply no longer appear in the Annual Review consultant dropdown.
+In **9. Time Tracking** → Consultant Teams tab, select the Local view, open the consultant's expander, change Status to **Inactive**, and click Save. Their data, time entries, billing history, and scores are fully preserved — they simply no longer appear in the Annual Review consultant dropdown.
 
 **Time-charge CSV import fails with a Unicode error — what do I do?**
 The importer automatically tries UTF-8, UTF-8-BOM, Windows-1252, and Latin-1 encodings in sequence. If your file was exported from Excel on Windows (common for files containing special characters such as en-dashes), it is likely Windows-1252 and will be handled automatically. If the import still fails, open the file in Excel and re-save it as CSV UTF-8.

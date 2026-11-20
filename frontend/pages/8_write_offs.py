@@ -6,6 +6,7 @@ Write-offs reduce net billable charges without altering the underlying time entr
 """
 import sys
 import os
+from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -78,6 +79,10 @@ with tab_create:
         wo_amount = st.number_input("Amount (€) *", min_value=0.01, step=100.0)
         wo_reason = st.text_input("Reason *", placeholder="e.g. Budget overrun — client agreed reduction")
         wo_notes  = st.text_area("Notes", height=60)
+        wo_date   = st.date_input(
+            "Effective date *", value=date.today(),
+            help="The date this write-off relates to. Period reports include it only when this date falls in the range reviewed.",
+        )
 
         if wo_type.startswith("Ad-hoc"):
             if not codes:
@@ -106,7 +111,8 @@ with tab_create:
             st.rerun()
         elif wo_type.startswith("Project-level"):
             try:
-                ids = db.add_write_off_project(project_obj.id, wo_amount, wo_reason.strip(), wo_notes.strip())
+                ids = db.add_write_off_project(project_obj.id, wo_amount, wo_reason.strip(), wo_notes.strip(),
+                                                effective_date=wo_date.isoformat())
                 st.session_state["_wo_v"] += 1
                 st.session_state["_wo_msg"] = (
                     f"Write-off of €{wo_amount:,.2f} recorded and allocated across {len(ids)} (code, person) combination(s)."
@@ -133,6 +139,7 @@ with tab_create:
                     amount=wo_amount,
                     reason=wo_reason.strip(),
                     notes=wo_notes.strip(),
+                    effective_date=wo_date.isoformat(),
                 )
                 st.session_state["_wo_v"] += 1
                 st.session_state["_wo_msg"] = (
@@ -221,7 +228,8 @@ with tab_log:
                     st.caption(
                         f"Type: {wo.allocation_type}  |  "
                         f"Person: {wo.emp_nbr} {wo.consultant}  |  "
-                        f"Created: {wo.created_at[:10] if wo.created_at else '—'}"
+                        f"Created: {wo.created_at[:10] if wo.created_at else '—'}  |  "
+                        f"Effective: {wo.effective_date or '—'}"
                     )
                     if wo.reversed:
                         st.caption(
@@ -231,6 +239,14 @@ with tab_log:
 
                 with col_action:
                     if not wo.reversed:
+                        _eff = st.date_input(
+                            "Effective date",
+                            value=date.fromisoformat(wo.effective_date) if wo.effective_date else date.today(),
+                            key=f"eff_{wo.id}",
+                        )
+                        if st.button("Save date", key=f"eff_save_{wo.id}"):
+                            db.update_write_off_date(wo.id, _eff.isoformat())
+                            st.rerun()
                         rev_reason = st.text_input("Reversal reason", key=f"rev_reason_{wo.id}")
                         if st.button("Reverse", key=f"rev_{wo.id}", type="secondary"):
                             if not rev_reason.strip():

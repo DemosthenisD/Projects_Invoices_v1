@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import streamlit as st
 import pandas as pd
 import backend.db as db
-from shared.ui import require_auth, list_templates
+from shared.ui import require_auth, list_templates, faceted_filters
 
 require_auth()
 
@@ -47,18 +47,12 @@ with tab_clients:
 
     fcol1, fcol2, fcol3 = st.columns([3, 2, 2])
     name_search   = fcol1.text_input("Search Client Name", placeholder="Type to filter…", key="cl_name_search")
-    all_types     = sorted({r["client_type"] for r in rows_with_counts if r["client_type"]})
-    type_filter   = fcol2.multiselect("Client Type", all_types, key="cl_type_filter")
-    all_countries = sorted({r["country"] for r in rows_with_counts if r["country"]})
-    country_filter = fcol3.multiselect("Country", all_countries, key="cl_country_filter")
-
-    filtered_rows = rows_with_counts
-    if name_search:
-        filtered_rows = [r for r in filtered_rows if name_search.lower() in r["name"].lower()]
-    if type_filter:
-        filtered_rows = [r for r in filtered_rows if r["client_type"] in type_filter]
-    if country_filter:
-        filtered_rows = [r for r in filtered_rows if r["country"] in country_filter]
+    _by_name = [r for r in rows_with_counts if not name_search or name_search.lower() in r["name"].lower()]
+    _match = faceted_filters(_by_name, [
+        {"key": "cl_type_filter",    "label": "Client Type", "get": lambda r: r["client_type"]},
+        {"key": "cl_country_filter", "label": "Country",     "get": lambda r: r["country"]},
+    ], cols=[fcol2, fcol3])
+    filtered_rows = [r for r in _by_name if _match(r)]
 
     # ---- Summary table ----
     if filtered_rows:
@@ -177,27 +171,20 @@ with tab_projects:
         st.stop()
 
     col_cl, col_st, col_tp = st.columns([3, 2, 2])
-    client_options = ["All"] + [c.name for c in clients]
-    selected_client = col_cl.selectbox("Client", client_options, key="proj_client_select")
+    _all_proj = db.get_projects_with_summary(None)
+    _match = faceted_filters(_all_proj, [
+        {"key": "proj_client_select", "label": "Client",        "get": lambda r: r["client_name"], "single": True,
+         "extra": [c.name for c in clients]},
+        {"key": "proj_status_filter",  "label": "Show statuses", "get": lambda r: r["status"], "default": ["Active"]},
+        {"key": "proj_type_filter",    "label": "Client Type",   "get": lambda r: r.get("client_type"),
+         "help": "Filter projects by their client's type (e.g. hide internal)."},
+    ], cols=[col_cl, col_st, col_tp])
+    selected_client = st.session_state.get("proj_client_select", "All")
     show_all = selected_client == "All"
-    client_obj = None if show_all else next(c for c in clients if c.name == selected_client)
-
-    status_filter = col_st.multiselect(
-        "Show statuses", PROJECT_STATUSES, default=["Active"],
-        key="proj_status_filter"
-    )
-    type_filter_proj = col_tp.multiselect(
-        "Client Type", CLIENT_TYPES, key="proj_type_filter",
-        help="Filter projects by their client's type (e.g. hide internal).",
-    )
+    client_obj = None if show_all else next(c for c in db.get_clients() if c.name == selected_client)
 
     # ---- Summary table ----
-    all_proj_summary = db.get_projects_with_summary(None if show_all else client_obj.id)
-    filtered_summary = [
-        r for r in all_proj_summary
-        if (not status_filter or r["status"] in status_filter)
-        and (not type_filter_proj or r.get("client_type") in type_filter_proj)
-    ]
+    filtered_summary = [r for r in _all_proj if _match(r)]
 
     STATUS_PROJ_BADGE = {"Active": "🟢", "On Hold": "🟡", "Completed": "⚫", "Prospect": "🔵"}
 
@@ -265,7 +252,7 @@ with tab_projects:
                     st.info("Skipped (budget already set): " +
                             ", ".join(result["skipped_has_budget"]))
                 st.cache_data.clear()
-    elif all_proj_summary:
+    elif _all_proj:
         st.info(f"No projects match the selected filters. Clear filters to see all.")
     else:
         st.info("No projects for this client yet." if not show_all else "No projects found.")

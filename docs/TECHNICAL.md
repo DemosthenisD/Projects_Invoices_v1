@@ -57,7 +57,7 @@ scripts/
 **Location:** `data/invoiceapp.db` relative to the repo root.
 
 **Absolute path on this machine:**
-`C:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp\data\invoiceapp.db`
+`C:\Users\d.demosthenous\Dropbox (Personal)\_Team_AI_Tasks\GitProject\InvoiceApp\data\invoiceapp.db`
 
 **How to open:** Download [DB Browser for SQLite](https://sqlitebrowser.org/dl/) — free, open-source Windows installer. It provides a spreadsheet-style viewer and editor with no SQL knowledge required. Open the `.db` file directly from File Explorer.
 
@@ -159,7 +159,7 @@ Tracks both standalone prospects (no project required) and entries linked to liv
 | company_name | TEXT | Prospect-only: free-text company name |
 | prospect_name | TEXT | Prospect-only: opportunity / engagement name |
 | description | TEXT | Prospect-only: free-text notes |
-| stage | TEXT | Prospect / Active / On Hold / Completed |
+| stage | TEXT | Prospect / Active / On Hold / Completed / Lost |
 | value | REAL | Contracted value |
 | budget_min | REAL | For forecasting |
 | budget_est | REAL | For forecasting |
@@ -170,6 +170,11 @@ Tracks both standalone prospects (no project required) and entries linked to liv
 | date_entered_pipeline | TEXT | ISO date — set on first INSERT |
 | date_entered_stage | TEXT | ISO date — updated when stage changes |
 | opportunity_country | TEXT | Country of the opportunity (editable in grid) |
+| prospect_step | TEXT | Prospect-only, optional: Lead / Proposal sent / Negotiation |
+| expected_close | TEXT | Prospect-only: ISO date |
+| next_action | TEXT | Prospect-only: free text |
+| next_action_date | TEXT | Prospect-only: ISO date; drives the overdue flag and the Action Centre |
+| lost_reason | TEXT | Prospect-only: why the prospect was lost |
 
 A partial unique index enforces uniqueness on `project_id` only for non-NULL values (`WHERE project_id IS NOT NULL`), allowing multiple NULL `project_id` rows (standalone prospects) while ensuring each live project has at most one pipeline entry.
 
@@ -229,6 +234,7 @@ Unique on `(period, emp_nbr, client_code, client_suffix)`.
 | reason | TEXT | |
 | notes | TEXT | |
 | allocation_type | TEXT | `project` or `adhoc` |
+| effective_date | TEXT | YYYY-MM-DD the write-off relates to; period reports count it only if inside the range. Backfilled from `created_at` for pre-existing rows |
 | reversed | INTEGER | 0 or 1 |
 | reversed_reason | TEXT | |
 | reversed_at | TEXT | |
@@ -420,7 +426,8 @@ Individual receipts against a receivable.
 | `get_pipeline()` | Returns all pipeline rows (prospects + linked projects) as `list[dict]`. Uses LEFT JOIN to projects and clients; computes `display_client`, `display_project`, and `country` unified columns via CASE. |
 | `upsert_pipeline(project_id, stage, ...)` | Explicit SELECT → INSERT/UPDATE (no ON CONFLICT, as SQLite partial unique indexes do not support that clause). Sets `date_entered_pipeline` on first insert; updates `date_entered_stage` only when stage changes. |
 | `add_prospect(company_name, ...)` | Inserts a standalone prospect row (`project_id=NULL`, `is_prospect=1`). Returns `lastrowid`. |
-| `update_prospect(pipeline_id, ...)` | Updates a prospect row in-place. Only operates on rows where `is_prospect=1`. |
+| `update_prospect(pipeline_id, ...)` | Updates a prospect row in-place. Only operates on rows where `is_prospect=1`. The follow-up fields (`prospect_step`, `expected_close`, `next_action`, `next_action_date`, `lost_reason`) are written only when passed (not `None`), so older callers do not overwrite them. |
+| `mark_prospect_lost(pipeline_id, reason)` | Sets stage `Lost`, stores `lost_reason`, resets `date_entered_stage` and adds a "Marked Lost" activity-log note. |
 | `convert_prospect_to_project(pipeline_id, project_id)` | Links a prospect to a real project: sets `project_id`, clears `is_prospect=0`, advances stage to Active if currently Prospect, clears prospect-only fields. |
 | `delete_prospect(pipeline_id)` | Deletes a row WHERE `id=? AND is_prospect=1`. |
 
@@ -459,6 +466,56 @@ Individual receipts against a receivable.
 | `get_receivable_payments(receivable_id)` | Returns all payments for a receivable ordered by date. |
 
 ---
+
+## V1.6 Additions
+
+- `write_offs.effective_date` (TEXT, YYYY-MM-DD). Added by migration in `init_db()` and back-filled from `created_at`. `add_write_off_simple/project/adhoc` take an optional `effective_date` (default today); `update_write_off_date(id, date)` edits it; `WriteOff.effective_date` on the model.
+- `find_time_entry_conflicts(entries)` — rows whose `(period, emp_nbr, client_code, client_suffix)` exists with different figures; `replace_time_entries(entries)` — overwrites those rows' figures and batch ref. `add_time_entries_bulk` is unchanged (skips existing keys).
+- `frontend/pages/7_time_tracking.py`: new Analysis tab; Import, Entries and Rollup tab bodies are functions that `return` early instead of calling `st.stop()` (which halted all later tabs).
+
+---
+
+## V1.5 Additions
+
+### `invoice_audit` table
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PK | |
+| invoice_id | INTEGER FK→invoices (ON DELETE CASCADE) | |
+| changed_at | TEXT | local time, set by SQLite |
+| action | TEXT | `edit` / `cancel` / `restore` |
+| field | TEXT | invoice column changed, or `allocations`, `recurring_occurrence` |
+| old_value, new_value | TEXT | stringified |
+| reason | TEXT | required in the UI |
+
+### Invoice correction functions (`backend/db.py`)
+
+| Function | Description |
+|----------|-------------|
+| `update_invoice(invoice_id, changes, reason, allocations=None)` | Edits fields in `EDITABLE_INVOICE_FIELDS`; year follows `date`; rejects a duplicate `(year, invoice_number)`; recomputes payment status when amounts change; recalculates pro-rata allocations when amount or project changes; releases a linked recurring occurrence when the project changes; re-points credit notes when the number changes; writes one audit row per changed field. Returns `{changed, warnings}`. |
+| `invoice_number_exists(year, number, exclude_id=None)` | Duplicate-ID check, also used by Generate Invoice. |
+| `cancel_invoice(invoice_id, reason)` / `restore_invoice(...)` | Void/restore via `status='cancelled'`. Refused if payments exist. All revenue, project, pipeline and paid-total queries exclude `status='cancelled'`. |
+| `get_invoice_audit(invoice_id)` | Change history, newest first. |
+| `get_consultant_periods(emp_nbr, year)` | Distinct `YYYYMM` periods with time entries (Annual Review checklist). |
+
+Note: `time_entries.period` is stored as `YYYYMM` (e.g. `202607`).
+
+### Backup (`backend/backup.py`)
+
+`create_backup(include_exports=True, keep=30, backup_dir=None)` uses `sqlite3.Connection.backup()` for a consistent snapshot into `<backup_dir>/<YYYY-MM-DD_HHMMSS>/invoiceapp.db`, runs `PRAGMA integrity_check`, optionally copies `exports/`, and prunes to the newest `keep` folders. `backup_dir` defaults to `backups/` in the repo; override with `backup_dir` in `.streamlit/secrets.toml`. `backups/` is git-ignored.
+
+### Shared UI helpers (`shared/ui.py`)
+
+| Helper | Description |
+|--------|-------------|
+| `faceted_filters(rows, facets, cols=None)` | Renders cascading multiselect/selectbox filters whose options are computed from rows passing all *other* filters; prunes stale selections; returns a `match(row)` predicate. Used on Project Overview, Pipeline Financial, Recurring Fees, Clients/Projects, Invoice Log, Pipeline/CRM, Time Tracking. |
+| `go_invoice(project_id, occurrence_id=None)` | Stores a prefill in `st.session_state["gi_prefill"]` and switches to Generate Invoice (Quick search mode). |
+
+### Pages added or changed
+
+- `19_action_centre.py` - landing page (default in `App.py`).
+- `1_how_to_use.py` - renders `docs/USER_MANUAL.md`; edit the manual, not the page.
 
 ## File Locations
 

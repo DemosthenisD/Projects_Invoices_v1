@@ -4,6 +4,7 @@ Page 9 — Time Tracking.
 Tabs:
   Import       — upload fixed-format CSV; validate & import
   Entries      — browse/filter raw time entries; delete by batch
+  Analysis     — client/project/period/team slicing of time charges vs invoices and write-offs
   Rollup       — per-code budget vs billable vs write-offs vs invoiced (period-filtered)
   Team Summary — cross-client consultant summary with project breakdown
   Consultant Groups — manage group assignments
@@ -20,7 +21,7 @@ import pandas as pd
 import backend.db as db
 from shared.gap_report import build_gap_excel
 from shared.config import load_office_codes
-from shared.ui import dataframe_with_total, require_auth
+from shared.ui import dataframe_with_total, faceted_filters, require_auth
 
 _OFFICE_CODES = load_office_codes()
 
@@ -32,8 +33,8 @@ require_auth()
 
 st.title("Time Tracking")
 
-tab_import, tab_entries, tab_rollup, tab_summary, tab_groups = st.tabs(
-    ["Import", "Entries", "Rollup", "Team Summary", "Consultant Teams"]
+tab_import, tab_entries, tab_analysis, tab_rollup, tab_summary, tab_groups = st.tabs(
+    ["Import", "Entries", "Analysis", "Rollup", "Team Summary", "Consultant Teams"]
 )
 
 # Expected CSV columns (fixed format matching sample_time_sheet.csv)
@@ -48,7 +49,7 @@ REQUIRED_COLS = {
 # TAB 1 — IMPORT
 # ==================================================================
 
-with tab_import:
+def _render_import():
     st.subheader("Import Time Charges")
     st.caption(
         "Upload a CSV in the standard timesheet extract format. "
@@ -69,16 +70,16 @@ with tab_import:
                 continue
             except Exception as e:
                 st.error(f"Could not read file: {e}")
-                st.stop()
+                return
         if df is None:
             st.error("Could not decode file — unexpected encoding. Try re-saving the CSV as UTF-8.")
-            st.stop()
+            return
 
         # Validate required columns
         missing = REQUIRED_COLS - set(df.columns)
         if missing:
             st.error(f"Missing columns: {', '.join(sorted(missing))}")
-            st.stop()
+            return
 
         st.write(f"**{len(df)} rows** found. Preview:")
         st.dataframe(df.head(10), use_container_width=True)
@@ -210,26 +211,60 @@ with tab_import:
             except (ValueError, TypeError):
                 return 0.0
 
-        if st.button("Confirm Import", type="primary"):
-            entries = []
-            for _, row in df.iterrows():
-                entries.append({
-                    "period":        str(int(row["period"])),
-                    "emp_nbr":       str(row["emp_nbr"]),
-                    "consultant":    str(row.get("name_fam_last_first", "")),
-                    "client_code":   str(row["client_code"]),
-                    "client_suffix": str(row["client_suffix"]),
-                    "total_hours":   _flt(row.get("total_hours", 0)),
-                    "non_z_hours":   _flt(row.get("non_z_hours", 0)),
-                    "z_hours":       _flt(row.get("z_hours", 0)),
-                    "total_charges": _flt(row.get("total_charges", 0)),
-                    "non_z_charges": _flt(row.get("non_z_charges", 0)),
-                    "z_charges":     _flt(row.get("z_charges", 0)),
-                    "description":   str(row.get("description", "") or ""),
-                    "batch_ref":     batch_ref,
-                })
+        entries = []
+        for _, row in df.iterrows():
+            entries.append({
+                "period":        str(int(row["period"])),
+                "emp_nbr":       str(row["emp_nbr"]),
+                "consultant":    str(row.get("name_fam_last_first", "")),
+                "client_code":   str(row["client_code"]),
+                "client_suffix": str(row["client_suffix"]),
+                "total_hours":   _flt(row.get("total_hours", 0)),
+                "non_z_hours":   _flt(row.get("non_z_hours", 0)),
+                "z_hours":       _flt(row.get("z_hours", 0)),
+                "total_charges": _flt(row.get("total_charges", 0)),
+                "non_z_charges": _flt(row.get("non_z_charges", 0)),
+                "z_charges":     _flt(row.get("z_charges", 0)),
+                "description":   str(row.get("description", "") or ""),
+                "batch_ref":     batch_ref,
+            })
 
+        # Rows already in the database with different figures — user decides per row
+        conflicts = db.find_time_entry_conflicts(entries)
+        replace_flags: list = []
+        if conflicts:
+            st.warning(
+                f"**{len(conflicts)} row(s) already exist with different figures.** "
+                "By default the existing record is kept and the new one skipped. "
+                "Tick **Replace** to overwrite the existing record with the new figures."
+            )
+            _replace_all = st.checkbox("Select all for replacement", key="imp_replace_all")
+            _cmp = pd.DataFrame([{
+                "Replace":        _replace_all,
+                "Period":         c["new"]["period"],
+                "Person":         c["new"]["consultant"],
+                "Code":           f"{c['new']['client_code']}/{c['new']['client_suffix']}",
+                "Bill hrs (existing)": c["existing"]["non_z_hours"],
+                "Bill hrs (new)":      c["new"]["non_z_hours"],
+                "Bill € (existing)":   c["existing"]["non_z_charges"],
+                "Bill € (new)":        c["new"]["non_z_charges"],
+                "Int hrs (existing)":  c["existing"]["z_hours"],
+                "Int hrs (new)":       c["new"]["z_hours"],
+                "Int € (existing)":    c["existing"]["z_charges"],
+                "Int € (new)":         c["new"]["z_charges"],
+            } for c in conflicts])
+            _edited = st.data_editor(
+                _cmp, hide_index=True, use_container_width=True,
+                disabled=[c for c in _cmp.columns if c != "Replace"],
+                key=f"imp_conflicts_{_replace_all}",
+            )
+            replace_flags = list(_edited["Replace"])
+
+        if st.button("Confirm Import", type="primary"):
             result = db.add_time_entries_bulk(entries)
+            n_replaced = db.replace_time_entries(
+                [c["new"] for c, f in zip(conflicts, replace_flags) if f]
+            ) if conflicts else 0
             # Register new consultants in consultant_groups (default group = Other)
             for e in entries:
                 if e.get("emp_nbr") and e.get("consultant"):
@@ -237,41 +272,43 @@ with tab_import:
             st.success(
                 f"Import complete — "
                 f"**{result['inserted']} inserted**, "
-                f"{result['skipped']} duplicate(s) skipped, "
+                f"**{n_replaced} replaced**, "
+                f"{result['skipped'] - n_replaced} duplicate(s) kept as existing, "
                 f"{result['unmatched']} unmatched."
             )
             st.caption(f"Batch reference: `{batch_ref}`")
+
+with tab_import:
+    _render_import()
 
 # ==================================================================
 # TAB 2 — ENTRIES
 # ==================================================================
 
-with tab_entries:
+def _render_entries():
     st.subheader("Time Entries")
 
     _te_all_clients = db.get_clients()
     if not _te_all_clients:
         st.info("No clients yet.")
-        st.stop()
+        return
 
     # Row 1 — Client (multi), Type (multi), Country (multi), period, billable
-    _te_all_types     = sorted({c.client_type for c in _te_all_clients if c.client_type})
-    _te_all_countries = sorted({c.country for c in _te_all_clients if c.country})
     fcols = st.columns([3, 2, 2, 1, 1, 1])
-    f_clients  = fcols[0].multiselect("Client", [c.name for c in _te_all_clients], key="te_client_filter")
-    f_types    = fcols[1].multiselect("Client Type", _te_all_types, key="te_type_filter")
-    f_countries= fcols[2].multiselect("Country", _te_all_countries, key="te_country_filter")
+    _te_match = faceted_filters(_te_all_clients, [
+        {"key": "te_client_filter",  "label": "Client",      "get": lambda c: c.name},
+        {"key": "te_type_filter",    "label": "Client Type", "get": lambda c: c.client_type},
+        {"key": "te_country_filter", "label": "Country",     "get": lambda c: c.country},
+    ], cols=fcols[:3])
+    f_clients   = st.session_state.get("te_client_filter", [])
+    f_types     = st.session_state.get("te_type_filter", [])
+    f_countries = st.session_state.get("te_country_filter", [])
     f_period_from = fcols[3].text_input("Period from", placeholder="yyyymm", key="te_pf")
     f_period_to   = fcols[4].text_input("Period to",   placeholder="yyyymm", key="te_pt")
     f_billable    = fcols[5].checkbox("Billable only", key="te_bill")
 
     # Derive filtered client set for project multiselect
-    _te_visible_clients = [
-        c for c in _te_all_clients
-        if (not f_clients or c.name in f_clients)
-        and (not f_types or c.client_type in f_types)
-        and (not f_countries or c.country in f_countries)
-    ]
+    _te_visible_clients = [c for c in _te_all_clients if _te_match(c)]
     _te_client_ids = {c.id for c in _te_visible_clients}
 
     # Row 2 — Project (multi from visible clients), Consultant Team, Consultant
@@ -362,17 +399,214 @@ with tab_entries:
         else:
             st.info("No batch references found in current results.")
 
+with tab_entries:
+    _render_entries()
+
 # ==================================================================
-# TAB 3 — ROLLUP
+# TAB 3 — ANALYSIS
 # ==================================================================
 
-with tab_rollup:
+with tab_analysis:
+    st.subheader("Analysis")
+    st.caption(
+        "Slice billable time charges by client, project, period, team and consultant, "
+        "and compare with invoices raised (by invoice date) and write-offs."
+    )
+
+    _an_clients = db.get_clients()
+    _an_cname = {c.id: c.name for c in _an_clients}
+    _an_cg_map = {cg["consultant"]: cg["group_name"] for cg in db.get_consultant_groups()}
+    _an_groups = sorted(set(_an_cg_map.values()))
+
+    # Row 1 — Client / Project
+    a1 = st.columns(2)
+    _an_sel_clients = a1[0].multiselect("Client (blank = all)", sorted(_an_cname.values()), key="an_clients")
+    _an_projects = [
+        p for p in db.get_projects()
+        if not _an_sel_clients or _an_cname.get(p.client_id) in _an_sel_clients
+    ]
+    _an_plabel = {p.id: f"{_an_cname.get(p.client_id, '?')} — {p.name}" for p in _an_projects}
+    _an_sel_projects = a1[1].multiselect("Project (blank = all)", sorted(_an_plabel.values()), key="an_projects")
+    _an_pids = {pid for pid, lbl in _an_plabel.items() if not _an_sel_projects or lbl in _an_sel_projects}
+
+    # Row 2 — Period / Team / Consultant / Granularity
+    a2 = st.columns([1, 1, 2, 3, 2])
+    an_pf = a2[0].text_input("Period from", placeholder="yyyymm", key="an_pf").strip()
+    an_pt = a2[1].text_input("Period to", placeholder="yyyymm", key="an_pt").strip()
+    an_team = a2[2].selectbox("Consultant Team", ["All"] + _an_groups, key="an_team")
+    _an_con_opts = sorted(c for c, g in _an_cg_map.items() if an_team == "All" or g == an_team)
+    an_cons = a2[3].multiselect("Consultant(s)", _an_con_opts, key="an_cons")
+    an_gran = a2[4].radio("Group by", ["Month", "Quarter", "Year"], horizontal=True, key="an_gran")
+
+    def _an_label(p: str) -> str:
+        y, m = p[:4], int(p[4:6])
+        if an_gran == "Year":
+            return y
+        return f"{y}-Q{(m - 1) // 3 + 1}" if an_gran == "Quarter" else f"{y}-{m:02d}"
+
+    _an_entries = [
+        e for e in db.get_time_entries(
+            period_from=an_pf or None, period_to=an_pt or None, consultants=an_cons or None,
+        )
+        if e.project_id in _an_pids
+        and (an_team == "All" or _an_cg_map.get(e.consultant, "Other") == an_team)
+        and (e.non_z_hours or e.non_z_charges)
+    ]
+
+    # Invoices (by invoice date) and write-offs (by effective date) for the selected projects
+    _an_inv = []
+    for _pid in _an_pids:
+        for _i in db.get_invoices(project_id=_pid):
+            _ip = f"{_i.date[:4]}{_i.date[5:7]}"
+            if (_i.type == "Invoice" and _i.status != "cancelled"
+                    and (not an_pf or _ip >= an_pf) and (not an_pt or _ip <= an_pt)):
+                _an_inv.append((_pid, _ip, _i))
+    _an_wo: dict = {}        # project_id -> write-off € counted (effective date in range)
+    _an_wo_rows: list = []   # counted write-offs, for the listing
+    _an_wo_excluded = 0.0    # write-offs dated outside the range
+    for _pid in _an_pids:
+        _an_wo[_pid] = 0.0
+        for _w in db.get_write_offs(project_id=_pid):
+            _wp = f"{_w.effective_date[:4]}{_w.effective_date[5:7]}"
+            if (not an_pf or _wp >= an_pf) and (not an_pt or _wp <= an_pt):
+                _an_wo[_pid] += _w.amount
+                _an_wo_rows.append((_pid, _w))
+            else:
+                _an_wo_excluded += _w.amount
+
+    if an_team != "All" or an_cons:
+        st.warning(
+            "Team / consultant filter applies to time charges only — invoices and write-offs "
+            "are per project, so the Invoiced, Unbilled and Write-offs columns are not split by person."
+        )
+
+    if not _an_entries and not _an_inv and not _an_wo_rows:
+        st.info("No time charges or invoices match the current filters.")
+    else:
+        # --- 1. By project -------------------------------------------------
+        st.markdown("**By project**")
+        _acc: dict = {}
+        for _e in _an_entries:
+            _r = _acc.setdefault(_e.project_id, {"hrs": 0.0, "chg": 0.0, "inv": 0.0})
+            _r["hrs"] += _e.non_z_hours
+            _r["chg"] += _e.non_z_charges
+        for _pid, _ip, _i in _an_inv:
+            _acc.setdefault(_pid, {"hrs": 0.0, "chg": 0.0, "inv": 0.0})["inv"] += _i.amount
+        for _pid in _an_wo:
+            if _an_wo[_pid]:
+                _acc.setdefault(_pid, {"hrs": 0.0, "chg": 0.0, "inv": 0.0})
+        _prj_df = pd.DataFrame([{
+            "Client / Project": _an_plabel[pid],
+            "Bill Hrs": v["hrs"], "Billable €": v["chg"], "Invoiced €": v["inv"],
+            "Unbilled before write-offs €": v["chg"] - v["inv"],
+            "Write-offs €": _an_wo.get(pid, 0.0),
+            "Unbilled after write-offs €": v["chg"] - v["inv"] - _an_wo.get(pid, 0.0),
+        } for pid, v in sorted(_acc.items(), key=lambda kv: _an_plabel[kv[0]])])
+        _prj_num = [c for c in _prj_df.columns if c != "Client / Project"]
+        dataframe_with_total(
+            _prj_df,
+            {c: (_prj_df[c].sum() if c in _prj_num else "TOTAL") for c in _prj_df.columns},
+            {c: ("{:,.1f}" if c == "Bill Hrs" else "{:,.0f}") for c in _prj_num},
+        )
+        st.caption(
+            "Write-offs are counted only when their **effective date** falls within the period range "
+            "(set on the Write-offs page). "
+            + (f"Write-offs dated outside this range and not counted: **€{_an_wo_excluded:,.0f}**."
+               if _an_wo_excluded else "No write-offs were excluded by the date range.")
+        )
+
+        # --- 2. By period --------------------------------------------------
+        st.divider()
+        st.markdown(f"**By period ({an_gran.lower()})**")
+        _per: dict = {}
+        for _e in _an_entries:
+            _r = _per.setdefault(_an_label(_e.period), {"hrs": 0.0, "chg": 0.0, "inv": 0.0})
+            _r["hrs"] += _e.non_z_hours
+            _r["chg"] += _e.non_z_charges
+        for _pid, _ip, _i in _an_inv:
+            _per.setdefault(_an_label(_ip), {"hrs": 0.0, "chg": 0.0, "inv": 0.0})["inv"] += _i.amount
+        _per_df = pd.DataFrame([{
+            "Period": k, "Bill Hrs": v["hrs"], "Billable €": v["chg"],
+            "Invoiced €": v["inv"], "Billable − Invoiced €": v["chg"] - v["inv"],
+        } for k, v in sorted(_per.items())])
+        _per_num = [c for c in _per_df.columns if c != "Period"]
+        dataframe_with_total(
+            _per_df,
+            {c: (_per_df[c].sum() if c in _per_num else "TOTAL") for c in _per_df.columns},
+            {c: ("{:,.1f}" if c == "Bill Hrs" else "{:,.0f}") for c in _per_num},
+        )
+
+        # --- 3. Time detail ------------------------------------------------
+        if _an_entries:
+            st.divider()
+            st.markdown("**Time detail** (period / person / team / project / code)")
+            _det_df = (
+                pd.DataFrame([{
+                    "Period": _an_label(e.period), "Person": e.consultant,
+                    "Team": _an_cg_map.get(e.consultant, "Other"),
+                    "Client / Project": _an_plabel[e.project_id],
+                    "Code": e.client_code, "Suffix": e.client_suffix,
+                    "Bill Hrs": e.non_z_hours, "Billable €": e.non_z_charges,
+                } for e in _an_entries])
+                .groupby(["Period", "Person", "Team", "Client / Project", "Code", "Suffix"], as_index=False)
+                .sum()
+            )
+            dataframe_with_total(
+                _det_df,
+                {"Period": "TOTAL", "Person": "", "Team": "", "Client / Project": "", "Code": "", "Suffix": "",
+                 "Bill Hrs": _det_df["Bill Hrs"].sum(), "Billable €": _det_df["Billable €"].sum()},
+                {"Bill Hrs": "{:,.1f}", "Billable €": "{:,.0f}"},
+            )
+            _an_buf = io.BytesIO()
+            _det_df.to_excel(_an_buf, index=False, engine="openpyxl")
+            st.download_button(
+                "Export detail to Excel", data=_an_buf.getvalue(),
+                file_name="time_analysis_detail.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="an_export",
+            )
+
+        # --- 4. Write-offs counted ----------------------------------------
+        if _an_wo_rows:
+            st.divider()
+            st.markdown("**Write-offs counted** (effective date within the period range)")
+            _wo_df = pd.DataFrame([{
+                "Effective date": _w.effective_date, "Client / Project": _an_plabel[_pid],
+                "Person": _w.consultant, "Amount €": _w.amount, "Reason": _w.reason,
+            } for _pid, _w in sorted(_an_wo_rows, key=lambda t: t[1].effective_date)])
+            dataframe_with_total(
+                _wo_df,
+                {"Effective date": "TOTAL", "Client / Project": "", "Person": "",
+                 "Amount €": _wo_df["Amount €"].sum(), "Reason": ""},
+                {"Amount €": "{:,.0f}"},
+            )
+
+        # --- 5. Invoices in range -----------------------------------------
+        if _an_inv:
+            st.divider()
+            st.markdown("**Invoices in the period** (excl. credit notes and cancelled)")
+            _inv_df = pd.DataFrame([{
+                "Invoice #": _i.invoice_number, "Date": _i.date,
+                "Client / Project": _an_plabel[_pid], "Net €": _i.amount, "Status": _i.status,
+            } for _pid, _ip, _i in sorted(_an_inv, key=lambda t: t[2].date)])
+            dataframe_with_total(
+                _inv_df,
+                {"Invoice #": "TOTAL", "Date": "", "Client / Project": "",
+                 "Net €": _inv_df["Net €"].sum(), "Status": ""},
+                {"Net €": "{:,.0f}"},
+            )
+
+# ==================================================================
+# TAB 4 — ROLLUP
+# ==================================================================
+
+def _render_rollup():
     st.subheader("Billability Rollup")
 
     clients = db.get_clients()
     if not clients:
         st.info("No clients yet.")
-        st.stop()
+        return
 
     # Client Type + Country pre-filters to narrow the Client list
     _all_types     = sorted({c.client_type for c in clients if c.client_type})
@@ -388,7 +622,7 @@ with tab_rollup:
     ]
     if not visible_clients:
         st.info("No clients match the selected Type / Country.")
-        st.stop()
+        return
 
     r_client = pf_cols[2].selectbox(
         "Client", ["— All Clients —"] + [c.name for c in visible_clients], key="ru_client"
@@ -430,7 +664,6 @@ with tab_rollup:
 
             _xp_tot = {c: xp_df[c].sum() if c in _xp_num else ("TOTAL" if c == "Client" else "")
                        for c in xp_df.columns}
-            from shared.ui import dataframe_with_total
             dataframe_with_total(xp_df, _xp_tot, {c: "{:,.0f}" for c in _xp_num})
             st.caption(f"{len(xp_df)} project(s)")
 
@@ -443,7 +676,7 @@ with tab_rollup:
         projects = db.get_projects(client_id=client_obj.id)
         if not projects:
             st.info("No projects for this client.")
-            st.stop()
+            return
 
         r_project   = pf_cols[3].selectbox("Project", [p.name for p in projects], key="ru_project")
         project_obj = next(p for p in projects if p.name == r_project)
@@ -580,8 +813,11 @@ with tab_rollup:
                         dataframe_with_total(_con_df, _tot_con, {"Bill Hrs": "{:,.1f}", "Bill €": "{:,.0f}"})
                         st.caption("Teams assigned on the Consultant Teams tab; unassigned → 'Other'.")
 
+with tab_rollup:
+    _render_rollup()
+
 # ==================================================================
-# TAB 4 — TEAM SUMMARY
+# TAB 5 — TEAM SUMMARY
 # ==================================================================
 
 with tab_summary:
@@ -716,7 +952,7 @@ with tab_summary:
             dataframe_with_total(piv_wide_display, _piv_tot, {c: _piv_fmt for c in _piv_num_cols})
 
 # ==================================================================
-# TAB 5 — CONSULTANT GROUPS
+# TAB 6 — CONSULTANT GROUPS
 # ==================================================================
 
 with tab_groups:

@@ -14,7 +14,7 @@ import streamlit as st
 import pandas as pd
 
 import backend.db as db
-from shared.ui import require_auth
+from shared.ui import require_auth, faceted_filters, go_invoice
 
 require_auth()
 
@@ -81,20 +81,12 @@ st.divider()
 # Filters
 # ------------------------------------------------------------------
 
-all_clients  = sorted({f["client_name"] for f in fees})
-all_projects = sorted({f["project_name"] for f in fees})
-
-fc1, fc2, fc3 = st.columns(3)
-f_client  = fc1.multiselect("Client",       all_clients,                             key="rf_client")
-f_project = fc2.multiselect("Project",      all_projects,                            key="rf_project")
-f_btype   = fc3.multiselect("Billing type", list(BILLING_TYPE_LABELS.values()),      key="rf_btype")
-
-filtered = [
-    f for f in fees
-    if (not f_client  or f["client_name"]  in f_client)
-    and (not f_project or f["project_name"] in f_project)
-    and (not f_btype  or BILLING_TYPE_LABELS.get(f["billing_type"], f["billing_type"]) in f_btype)
-]
+_match = faceted_filters(fees, [
+    {"key": "rf_client",  "label": "Client",       "get": lambda f: f["client_name"]},
+    {"key": "rf_project", "label": "Project",      "get": lambda f: f["project_name"]},
+    {"key": "rf_btype",   "label": "Billing type", "get": lambda f: BILLING_TYPE_LABELS.get(f["billing_type"], f["billing_type"])},
+])
+filtered = [f for f in fees if _match(f)]
 
 if not filtered:
     st.info("No fees match the selected filters.")
@@ -173,7 +165,7 @@ for fee in filtered:
                     is_late = occ["due_date"] < today_iso
                     occ_icon = "🔴" if is_late else "⏳"
                     with st.form(key=f"occ_rf_{occ['id']}"):
-                        oc1, oc2, oc3, oc4, oc5 = st.columns([2, 2, 2, 1, 1])
+                        oc1, oc2, oc3, oc4, oc5, oc6 = st.columns([2, 2, 2, 1, 1, 2])
                         oc1.markdown(f"{occ_icon} **{occ['due_date']}**")
                         new_amt = oc2.number_input(
                             "Amount (€)", value=float(occ["amount"]),
@@ -185,6 +177,12 @@ for fee in filtered:
                         )
                         save_clicked = oc4.form_submit_button("💾")
                         skip_clicked = oc5.form_submit_button("Skip")
+                        invoice_clicked = (
+                            oc6.form_submit_button("Invoice this →")
+                            if fee["billing_type"] == "we_bill" else False
+                        )
+                        if invoice_clicked:
+                            go_invoice(fee["project_id"], occ["id"])
                         if save_clicked:
                             db.update_occurrence_amount(occ["id"], new_amt, new_spl)
                             st.success(f"{occ['due_date']} updated.")

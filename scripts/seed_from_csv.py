@@ -20,7 +20,7 @@ from backend.db import init_db, get_connection  # noqa: E402
 # Source file paths
 # ---------------------------------------------------------------------------
 
-NOCODB_DIR = Path(r"C:\Milliman Dropbox\Demosthenis Demosthenous\_Mill_CY\1 (Admin)\_Time Charges and Billing\Planning and Pipeline\_PlanTasks\InvoiceCodes\NocoDb_App")
+NOCODB_DIR = REPO_ROOT / "DB_Tbls_Structure"
 CLIENTS_CSV = NOCODB_DIR / "clients_Tbl.csv"
 MAINS_CSV   = NOCODB_DIR / "Projects_List_Real_OnlyMains_Tbl.csv"
 FULL_CSV    = NOCODB_DIR / "Projects_List_Real_Tbl.csv"

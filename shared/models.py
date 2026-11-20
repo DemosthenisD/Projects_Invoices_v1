@@ -145,6 +145,7 @@ class WriteOff:
     reversed_reason: str = ""
     reversed_at: str = ""
     created_at: str = ""
+    effective_date: str = ""  # YYYY-MM-DD the write-off relates to (used for period reporting)
 
 
 # ---------------------------------------------------------------------------

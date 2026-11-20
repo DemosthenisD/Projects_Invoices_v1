@@ -20,7 +20,7 @@ import pandas as pd
 
 import backend.db as db
 from shared.config import EXPORTS_DIR
-from shared.ui import fmt_date, require_auth
+from shared.ui import fmt_date, faceted_filters, require_auth
 
 require_auth()
 
@@ -48,6 +48,131 @@ invoices = _load_invoices()
 clients  = _load_clients()
 client_map = {c.id: c.name for c in clients}
 
+
+def _edit_panel(inv) -> None:
+    """Correct an issued invoice record, replace its file, or void it. Everything is audited."""
+    with st.expander(f"✏️ Edit / void invoice {inv.invoice_number}/{inv.year}", expanded=True):
+        st.caption(
+            "Use this to make the record match the invoice you formally issued. "
+            "Every change is saved to the audit history with your reason. "
+            "If the invoice was already sent to the client with wrong figures, "
+            "issue a Credit Note instead."
+        )
+        k = f"ed{inv.id}_"
+        c1, c2, c3 = st.columns(3)
+        new_no   = c1.text_input("Invoice ID", value=inv.invoice_number, key=k + "no")
+        new_date = c2.date_input("Invoice date", value=date.fromisoformat(inv.date), key=k + "date")
+        new_net  = c3.number_input("Net amount (€)", value=float(inv.amount), step=100.0, key=k + "net")
+        c4, c5, c6 = st.columns(3)
+        new_vat  = c4.number_input("VAT (€)", value=float(inv.vat_amount), step=10.0, key=k + "vat")
+        new_enet = c5.number_input("Expenses net (€)", value=float(inv.expenses_net), step=10.0, key=k + "en")
+        new_evat = c6.number_input("Expenses VAT (€)", value=float(inv.expenses_vat), step=1.0, key=k + "ev")
+        if new_net:
+            st.caption(f"VAT is {new_vat / new_net * 100:.1f}% of net · "
+                       f"gross €{new_net + new_vat + new_enet + new_evat:,.2f}")
+
+        # Client / project (project list follows the chosen client)
+        names = sorted(client_map.values())
+        cur_client = client_map.get(inv.client_id, names[0] if names else "")
+        cc1, cc2 = st.columns(2)
+        sel_client = cc1.selectbox("Client", names, index=names.index(cur_client) if cur_client in names else 0,
+                                   key=k + "client")
+        client_id = next(cid for cid, n in client_map.items() if n == sel_client)
+        projs = db.get_projects(client_id=client_id)
+        proj_names = ["— none —"] + [p.name for p in projs]
+        cur_proj = inv.project_name if inv.client_id == client_id and inv.project_name in proj_names else "— none —"
+        sel_proj = cc2.selectbox("Project", proj_names, index=proj_names.index(cur_proj), key=k + f"proj{client_id}")
+        proj = next((p for p in projs if p.name == sel_proj), None)
+        if (client_id != inv.client_id) or (proj and proj.id != (inv.project_id or 0)):
+            st.warning("Changing client/project recalculates the project-code allocations pro-rata "
+                       "and releases any linked recurring-fee occurrence.")
+
+        new_desc = st.text_area("Description (as on invoice)", value=inv.description, height=70, key=k + "desc")
+        new_addr = st.text_area("Address", value=inv.address, height=70, key=k + "addr")
+        new_comment = st.text_input("Internal comment", value=inv.comment, key=k + "cmt")
+
+        up = st.file_uploader(
+            "Replace stored file with the formally issued invoice (optional, PDF or DOCX)",
+            type=["pdf", "docx"], key=k + "file",
+        )
+        reason = st.text_input("Reason for change (required)", key=k + "reason",
+                               placeholder="e.g. formal invoice number was 18, not 17")
+
+        dup = bool(new_no.strip()) and db.invoice_number_exists(new_date.year, new_no, exclude_id=inv.id)
+        if dup:
+            st.error(f"Invoice ID {new_no.strip()}/{new_date.year} is already used by another invoice.")
+
+        b1, b2, b3 = st.columns([1, 1, 2])
+        if b1.button("Save changes", type="primary", key=k + "save", disabled=dup):
+            if not reason.strip():
+                st.error("Please give a reason - it is stored in the audit history.")
+            else:
+                changes = {
+                    "invoice_number": new_no, "date": new_date.isoformat(),
+                    "amount": round(new_net, 2), "vat_amount": round(new_vat, 2),
+                    "expenses_net": round(new_enet, 2), "expenses_vat": round(new_evat, 2),
+                    "client_id": client_id,
+                    "project_id": proj.id if proj else None,
+                    "project_name": proj.name if proj else "",
+                    "description": new_desc, "address": new_addr, "comment": new_comment,
+                }
+                if up is not None:
+                    ext = os.path.splitext(up.name)[1].lower()
+                    safe = "".join(ch for ch in sel_client if ch.isalnum() or ch in "-_")[:30]
+                    os.makedirs(EXPORTS_DIR, exist_ok=True)
+                    path = os.path.join(EXPORTS_DIR, f"{new_date.year}_{new_no.strip()}_{safe}_Issued{ext}")
+                    with open(path, "wb") as f:
+                        f.write(up.getvalue())
+                    changes.update(file_path=path, format=ext.lstrip(".").upper())
+                try:
+                    res = db.update_invoice(inv.id, changes, reason=reason.strip())
+                except ValueError as e:
+                    st.error(str(e))
+                else:
+                    st.session_state["_inv_edit_msg"] = (
+                        f"Invoice {new_no.strip()}/{new_date.year} updated "
+                        f"({', '.join(res['changed']) or 'no changes'}). " + " ".join(res["warnings"])
+                    )
+                    st.session_state["_edit_inv"] = None
+                    st.cache_data.clear()
+                    st.rerun()
+        if b2.button("Close", key=k + "close"):
+            st.session_state["_edit_inv"] = None
+            st.rerun()
+
+        st.divider()
+        if inv.status == "cancelled":
+            if st.button("Restore this invoice", key=k + "restore"):
+                db.restore_invoice(inv.id, reason.strip())
+                st.session_state["_edit_inv"] = None
+                st.cache_data.clear()
+                st.rerun()
+        else:
+            confirm = st.checkbox("Void this invoice (keeps the record and ID, removes it from all revenue totals)",
+                                  key=k + "void_ok")
+            if st.button("Void invoice", key=k + "void", disabled=not confirm):
+                if not reason.strip():
+                    st.error("Please give a reason - it is stored in the audit history.")
+                else:
+                    try:
+                        db.cancel_invoice(inv.id, reason.strip())
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state["_inv_edit_msg"] = f"Invoice {inv.invoice_number}/{inv.year} voided."
+                        st.session_state["_edit_inv"] = None
+                        st.cache_data.clear()
+                        st.rerun()
+
+        hist = db.get_invoice_audit(inv.id)
+        if hist:
+            st.markdown("**Change history**")
+            st.dataframe(
+                [{"When": h["changed_at"], "Action": h["action"], "Field": h["field"],
+                  "From": h["old_value"], "To": h["new_value"], "Reason": h["reason"]} for h in hist],
+                use_container_width=True, hide_index=True,
+            )
+
 # ==================================================================
 # TAB 1 — LOG
 # ==================================================================
@@ -56,56 +181,31 @@ with tab_log:
     if not invoices:
         st.info("No invoices recorded yet.")
     else:
+        if _m := st.session_state.pop("_inv_edit_msg", None):
+            st.success(_m)
         # ---- Filter controls ----
-        all_years = sorted({i.year for i in invoices}, reverse=True)
-        STATUSES = ["All", "outstanding", "paid", "partial"]
-
         col1, col2, col3, col4, col5 = st.columns([1, 2, 2, 1, 2])
-
-        with col1:
-            year_filter = st.selectbox("Year", ["All"] + [str(y) for y in all_years])
-
-        after_year = invoices if year_filter == "All" else [i for i in invoices if i.year == int(year_filter)]
-        clients_in_year = sorted({client_map.get(i.client_id, "") for i in after_year})
-
-        with col2:
-            client_filter = st.selectbox("Client", ["All"] + clients_in_year)
-
-        after_client = after_year if client_filter == "All" else [
-            i for i in after_year if client_map.get(i.client_id, "") == client_filter
-        ]
-        projects_in_client = sorted({i.project_name for i in after_client if i.project_name})
-
-        with col3:
-            project_filter = st.selectbox("Project", ["All"] + projects_in_client)
-        with col4:
-            status_filter = st.selectbox("Status", STATUSES)
         with col5:
             search = st.text_input("Search (invoice # or project)", placeholder="Type to search…")
+        _q = search.lower()
+        _searched = [i for i in invoices
+                     if not _q or _q in i.invoice_number.lower() or _q in i.project_name.lower()]
 
-        # ---- Apply filters ----
-        filtered = invoices
-        if year_filter != "All":
-            filtered = [i for i in filtered if i.year == int(year_filter)]
-        if client_filter != "All":
-            filtered = [i for i in filtered if client_map.get(i.client_id, "") == client_filter]
-        if project_filter != "All":
-            filtered = [i for i in filtered if i.project_name == project_filter]
-        if status_filter != "All":
-            filtered = [i for i in filtered if i.status == status_filter]
-        if search:
-            q = search.lower()
-            filtered = [
-                i for i in filtered
-                if q in i.invoice_number.lower() or q in i.project_name.lower()
-            ]
+        # Faceted filters: every dropdown only offers values that exist given the others
+        _match = faceted_filters(_searched, [
+            {"key": "il_year",    "label": "Year",    "get": lambda i: str(i.year), "single": True, "reverse": True},
+            {"key": "il_client",  "label": "Client",  "get": lambda i: client_map.get(i.client_id, ""), "single": True},
+            {"key": "il_project", "label": "Project", "get": lambda i: i.project_name, "single": True},
+            {"key": "il_status",  "label": "Status",  "get": lambda i: i.status, "single": True},
+        ], cols=[col1, col2, col3, col4])
+        filtered = [i for i in _searched if _match(i)]
 
         # ---- Summary strip ----
         def _gross(inv):
             return inv.amount + inv.expenses_net + inv.vat_amount + inv.expenses_vat
 
-        total_net   = sum(i.amount for i in filtered)
-        total_vat   = sum(i.vat_amount for i in filtered)
+        total_net   = sum(i.amount for i in filtered if i.status != "cancelled")
+        total_vat   = sum(i.vat_amount for i in filtered if i.status != "cancelled")
         # Outstanding = gross minus any payments already received, for unpaid/partial rows
         outstanding = sum(
             _gross(i) - i.total_paid
@@ -148,12 +248,12 @@ with tab_log:
         if not filtered:
             st.info("No invoices match the selected filters.")
         else:
-            STATUS_BADGE = {"outstanding": "🔴", "paid": "🟢", "partial": "🟡"}
+            STATUS_BADGE = {"outstanding": "🔴", "paid": "🟢", "partial": "🟡", "cancelled": "⚫"}
             TYPE_BADGE   = {"Invoice": "📄", "Credit Note": "🔄"}
 
             st.caption(
                 "**✓ Pay** = record full payment · **± Part.** = record partial payment · "
-                "**↩ Reset** = clear all payments · 🔄 = Credit Note"
+                "**↩ Reset** = clear all payments · **✏️ Edit / void** = correct the record · 🔄 = Credit Note · ⚫ = voided"
             )
 
             _cols = [1.0, 0.6, 1.0, 0.7, 1.5, 1.8, 0.9, 0.9, 0.8, 1.0, 1.0, 1.2]
@@ -216,7 +316,9 @@ with tab_log:
                     col_dl.write("—")
 
                 # Action buttons
-                if inv.status == "paid":
+                if inv.status == "cancelled":
+                    col_act.write("void")
+                elif inv.status == "paid":
                     if col_act.button("↩ Reset", key=f"reset_{inv.id}",
                                       help="Clear payments and mark outstanding"):
                         db.delete_payments(inv.id)
@@ -237,6 +339,13 @@ with tab_log:
                             None if st.session_state["_pay_form"] == inv.id else inv.id
                         )
                         st.rerun()
+
+                if st.button("✏️ Edit / void", key=f"edit_{inv.id}",
+                             help="Correct this record, replace its file, or void it"):
+                    st.session_state["_edit_inv"] = None if st.session_state.get("_edit_inv") == inv.id else inv.id
+                    st.rerun()
+                if st.session_state.get("_edit_inv") == inv.id:
+                    _edit_panel(inv)
 
                 # Notes + payment history below the row
                 if inv.comment:

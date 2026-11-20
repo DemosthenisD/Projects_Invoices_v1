@@ -23,7 +23,7 @@
 
 ### How to restart the app:
 ```bash
-cd "c:\Milliman Dropbox\Demosthenis Demosthenous\_Personal\GitProject\InvoiceApp"
+cd "C:\Users\d.demosthenous\Dropbox (Personal)\_Team_AI_Tasks\GitProject\InvoiceApp"
 streamlit run frontend/App.py
 ```
 

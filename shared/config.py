@@ -27,6 +27,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(REPO_ROOT, "data", "invoiceapp.db")
 TEMPLATES_DIR = os.path.join(REPO_ROOT, "templates")
 EXPORTS_DIR = os.path.join(REPO_ROOT, "exports")
+# Backups: set backup_dir in .streamlit/secrets.toml to store them outside Dropbox
+BACKUP_DIR = _get("backup_dir", os.path.join(REPO_ROOT, "backups"))
 OFFICE_CODES_PATH = os.path.join(REPO_ROOT, "data", "OfficeCodes.txt")
 LEGACY_EXCEL = os.path.join(
     REPO_ROOT,

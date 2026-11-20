@@ -21,7 +21,7 @@ import streamlit as st
 import pandas as pd
 
 import backend.db as db
-from shared.ui import require_auth
+from shared.ui import require_auth, go_invoice
 
 require_auth()
 
@@ -85,10 +85,17 @@ if _we_bill_due:
             _df_rem.style.format({"Amount (€)": "{:,.2f}", "Split (€)": "{:,.2f}"}),
             use_container_width=True, hide_index=True,
         )
-        st.caption(
-            "Invoice from a pending occurrence via **Generate Invoice** "
-            "or manage fees in **Project Overview → Recurring Fees**."
-        )
+        _rem_labels = {
+            o["id"]: f"{o['client_name']} — {o['project_name']} · {o['fee_description']} · due {o['due_date']} · €{float(o['amount']):,.0f}"
+            for o in _we_bill_due
+        }
+        _rc1, _rc2 = st.columns([5, 1])
+        _rem_pick = _rc1.selectbox("Reminder", list(_rem_labels), format_func=_rem_labels.get,
+                                   key="dash_rem_pick", label_visibility="collapsed")
+        if _rc2.button("Invoice this →", key="dash_rem_go", use_container_width=True):
+            _o = next(o for o in _we_bill_due if o["id"] == _rem_pick)
+            go_invoice(_o["project_id"], _o["id"])
+        st.caption("Or manage fees in **Project Overview → Recurring Fees**.")
 
 # ------------------------------------------------------------------
 # Load detailed invoice data for both years
